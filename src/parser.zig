@@ -4,6 +4,7 @@ const Token = lexer.Token;
 const TokenKind = lexer.TokenKind;
 
 pub const Type = union(enum) {
+    bool,
     i32,
     // More types later
 };
@@ -38,6 +39,23 @@ pub const BinaryOp = enum {
     bitwise_xor,
     shift_left,
     shift_right,
+
+    pub fn returns_bool(self: BinaryOp) bool {
+        return switch (self) {
+            .equal, .not_equal, .less_than, .greater_than, .less_equal, .greater_equal, .logical_and, .logical_or => true,
+            else => false,
+        };
+    }
+};
+
+pub const UnaryOp = enum {
+    negate,
+    logical_not,
+    bitwise_not,
+
+    pub fn returns_bool(self: UnaryOp) bool {
+        return self == .logical_not;
+    }
 };
 
 pub const Expr = union(enum) {
@@ -46,6 +64,10 @@ pub const Expr = union(enum) {
         op: BinaryOp,
         left: *Expr,
         right: *Expr,
+    },
+    unary_op: struct {
+        op: UnaryOp,
+        operand: *Expr,
     },
 };
 
@@ -80,6 +102,10 @@ pub const FunctionDecl = struct {
                 allocator.destroy(binop.left);
                 deinitExpr(allocator, binop.right);
                 allocator.destroy(binop.right);
+            },
+            .unary_op => |unop| {
+                deinitExpr(allocator, unop.operand);
+                allocator.destroy(unop.operand);
             },
         }
     }
@@ -158,6 +184,9 @@ pub const Parser = struct {
 
     fn parseType(self: *Parser) !Type {
         const type_token = try self.expect(.identifier);
+        if (std.mem.eql(u8, type_token.lexeme, "Bool")) {
+            return .bool;
+        }
         if (std.mem.eql(u8, type_token.lexeme, "I32")) {
             return .i32;
         }
@@ -326,7 +355,7 @@ pub const Parser = struct {
     }
 
     fn parseFactor(self: *Parser) ParseError!Expr {
-        var left = try self.parsePrimary();
+        var left = try self.parseUnary();
 
         while (true) {
             const op: BinaryOp = if (self.check(.star)) blk: {
@@ -340,11 +369,33 @@ pub const Parser = struct {
                 break :blk .modulo;
             } else break;
 
-            const right = try self.parsePrimary();
+            const right = try self.parseUnary();
             left = try self.makeBinaryOp(op, left, right);
         }
 
         return left;
+    }
+
+    fn parseUnary(self: *Parser) ParseError!Expr {
+        const op: ?UnaryOp = if (self.check(.minus)) blk: {
+            _ = try self.expect(.minus);
+            break :blk .negate;
+        } else if (self.check(.bang)) blk: {
+            _ = try self.expect(.bang);
+            break :blk .logical_not;
+        } else if (self.check(.tilde)) blk: {
+            _ = try self.expect(.tilde);
+            break :blk .bitwise_not;
+        } else null;
+
+        if (op) |unary_op| {
+            const operand_ptr = try self.allocator.create(Expr);
+            errdefer self.allocator.destroy(operand_ptr);
+            operand_ptr.* = try self.parseUnary();
+            return .{ .unary_op = .{ .op = unary_op, .operand = operand_ptr } };
+        }
+
+        return try self.parsePrimary();
     }
 
     fn parsePrimary(self: *Parser) ParseError!Expr {
@@ -614,5 +665,81 @@ test "parser: parentheses" {
     try testing.expectEqual(BinaryOp.add, left.binary_op.op);
     try testing.expectEqual(@as(i32, 1), left.binary_op.left.integer_literal);
     try testing.expectEqual(@as(i32, 2), left.binary_op.right.integer_literal);
+}
+
+test "parser: unary operators" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const cases = [_]struct { src: []const u8, op: UnaryOp }{
+        .{ .src = "fn f() -> I32 { return -5 }", .op = .negate },
+        .{ .src = "fn f() -> I32 { return !5 }", .op = .logical_not },
+        .{ .src = "fn f() -> I32 { return ~5 }", .op = .bitwise_not },
+    };
+
+    for (cases) |case| {
+        var lex = Lexer.init(case.src);
+        var tokens = try lex.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var p = Parser.init(tokens.items, testing.allocator);
+        var ast = try p.parse();
+        defer ast.deinit(testing.allocator);
+
+        const stmt = ast.functions.items[0].body.items[0];
+        try testing.expect(stmt.return_stmt.* == .unary_op);
+        try testing.expectEqual(case.op, stmt.return_stmt.unary_op.op);
+        try testing.expectEqual(@as(i32, 5), stmt.return_stmt.unary_op.operand.integer_literal);
+    }
+}
+
+test "parser: nested unary operators" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return --5 }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    // Should parse as -(-5)
+    try testing.expect(stmt.return_stmt.* == .unary_op);
+    try testing.expectEqual(UnaryOp.negate, stmt.return_stmt.unary_op.op);
+
+    const inner = stmt.return_stmt.unary_op.operand;
+    try testing.expect(inner.* == .unary_op);
+    try testing.expectEqual(UnaryOp.negate, inner.unary_op.op);
+    try testing.expectEqual(@as(i32, 5), inner.unary_op.operand.integer_literal);
+}
+
+test "parser: unary with binary operators" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return -5 + 3 }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    // Should parse as (-5) + 3
+    try testing.expect(stmt.return_stmt.* == .binary_op);
+    try testing.expectEqual(BinaryOp.add, stmt.return_stmt.binary_op.op);
+
+    const left = stmt.return_stmt.binary_op.left;
+    try testing.expect(left.* == .unary_op);
+    try testing.expectEqual(UnaryOp.negate, left.unary_op.op);
+    try testing.expectEqual(@as(i32, 5), left.unary_op.operand.integer_literal);
+
+    try testing.expectEqual(@as(i32, 3), stmt.return_stmt.binary_op.right.integer_literal);
 }
 

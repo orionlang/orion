@@ -43,19 +43,30 @@ pub const Codegen = struct {
 
         // Generate body
         for (func.body.items) |stmt| {
-            try self.generateStatement(&stmt);
+            try self.generateStatement(&stmt, func.return_type);
         }
 
         try self.output.appendSlice(self.allocator, "}\n\n");
     }
 
-    fn generateStatement(self: *Codegen, stmt: *const Stmt) !void {
+    fn generateStatement(self: *Codegen, stmt: *const Stmt, return_type: Type) !void {
         switch (stmt.*) {
             .return_stmt => |expr| {
                 const value = try self.generateExpression(expr);
                 defer self.allocator.free(value);
-                const type_str = self.llvmTypeForExpr(expr);
-                try self.output.writer(self.allocator).print("  ret {s} {s}\n", .{ type_str, value });
+                const expr_type_str = self.llvmTypeForExpr(expr);
+                const return_type_str = self.llvmType(return_type);
+
+                // If expression is i1 but function returns i32, extend it
+                if (std.mem.eql(u8, expr_type_str, "i1") and std.mem.eql(u8, return_type_str, "i32")) {
+                    const extended = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
+                    defer self.allocator.free(extended);
+                    self.next_temp += 1;
+                    try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to i32\n", .{ extended, value });
+                    try self.output.writer(self.allocator).print("  ret i32 {s}\n", .{extended});
+                } else {
+                    try self.output.writer(self.allocator).print("  ret {s} {s}\n", .{ expr_type_str, value });
+                }
             },
         }
     }
@@ -75,8 +86,44 @@ pub const Codegen = struct {
                 defer self.allocator.free(temp_name);
                 self.next_temp += 1;
 
-                const op_str = self.llvmBinaryOp(binop.op);
-                try self.output.writer(self.allocator).print("  {s} = {s} i32 {s}, {s}\n", .{ temp_name, op_str, left_val, right_val });
+                // Logical operators need special handling: convert i32 to i1 first
+                switch (binop.op) {
+                    .logical_and, .logical_or => {
+                        // Convert left to bool
+                        const left_bool = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
+                        defer self.allocator.free(left_bool);
+                        self.next_temp += 1;
+                        try self.output.writer(self.allocator).print("  {s} = icmp ne i32 {s}, 0\n", .{ left_bool, left_val });
+
+                        // Convert right to bool
+                        const right_bool = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
+                        defer self.allocator.free(right_bool);
+                        self.next_temp += 1;
+                        try self.output.writer(self.allocator).print("  {s} = icmp ne i32 {s}, 0\n", .{ right_bool, right_val });
+
+                        // Boolean operation (result is i1)
+                        const bool_op = if (binop.op == .logical_and) "and" else "or";
+                        try self.output.writer(self.allocator).print("  {s} = {s} i1 {s}, {s}\n", .{ temp_name, bool_op, left_bool, right_bool });
+
+                        return try self.allocator.dupe(u8, temp_name);
+                    },
+                    else => {
+                        const op_str = self.llvmBinaryOp(binop.op);
+                        try self.output.writer(self.allocator).print("  {s} = {s} i32 {s}, {s}\n", .{ temp_name, op_str, left_val, right_val });
+                        return try self.allocator.dupe(u8, temp_name);
+                    },
+                }
+            },
+            .unary_op => |unop| {
+                const operand_val = try self.generateExpression(unop.operand);
+                defer self.allocator.free(operand_val);
+
+                const temp_name = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
+                defer self.allocator.free(temp_name);
+                self.next_temp += 1;
+
+                const op_str = self.llvmUnaryOp(unop.op);
+                try self.output.writer(self.allocator).print("  {s} = {s}, {s}\n", .{ temp_name, op_str, operand_val });
 
                 return try self.allocator.dupe(u8, temp_name);
             },
@@ -86,6 +133,7 @@ pub const Codegen = struct {
     fn llvmType(self: *Codegen, typ: Type) []const u8 {
         _ = self;
         switch (typ) {
+            .bool => return "i1",
             .i32 => return "i32",
         }
     }
@@ -94,8 +142,22 @@ pub const Codegen = struct {
         _ = self;
         switch (expr.*) {
             .integer_literal => return "i32",
-            .binary_op => return "i32",
+            .binary_op => |binop| {
+                return if (binop.op.returns_bool()) "i1" else "i32";
+            },
+            .unary_op => |unop| {
+                return if (unop.op.returns_bool()) "i1" else "i32";
+            },
         }
+    }
+
+    fn llvmUnaryOp(self: *Codegen, op: parser.UnaryOp) []const u8 {
+        _ = self;
+        return switch (op) {
+            .negate => "sub i32 0",
+            .logical_not => "icmp eq i32 0",
+            .bitwise_not => "xor i32 -1",
+        };
     }
 
     fn llvmBinaryOp(self: *Codegen, op: parser.BinaryOp) []const u8 {
@@ -112,13 +174,13 @@ pub const Codegen = struct {
             .greater_than => "icmp sgt",
             .less_equal => "icmp sle",
             .greater_equal => "icmp sge",
-            .logical_and => "and",
-            .logical_or => "or",
             .bitwise_and => "and",
             .bitwise_or => "or",
             .bitwise_xor => "xor",
             .shift_left => "shl",
             .shift_right => "ashr",
+            // logical_and and logical_or are handled specially in generateExpression
+            .logical_and, .logical_or => unreachable,
         };
     }
 };
@@ -264,6 +326,70 @@ test "codegen: bitwise and shift operators" {
         defer testing.allocator.free(llvm_ir);
 
         try testing.expect(std.mem.indexOf(u8, llvm_ir, case.expected) != null);
+    }
+}
+
+test "codegen: unary operators" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const cases = [_]struct { src: []const u8, expected: []const u8 }{
+        .{ .src = "fn f() -> I32 { return -5 }", .expected = "sub i32 0, 5" },
+        .{ .src = "fn f() -> I32 { return !5 }", .expected = "zext i1" },
+        .{ .src = "fn f() -> I32 { return ~5 }", .expected = "xor i32 -1, 5" },
+    };
+
+    for (cases) |case| {
+        var lex = Lexer.init(case.src);
+        var tokens = try lex.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var p = Parser.init(tokens.items, testing.allocator);
+        var ast = try p.parse();
+        defer ast.deinit(testing.allocator);
+
+        var codegen = Codegen.init(testing.allocator);
+        defer codegen.deinit();
+
+        const llvm_ir = try codegen.generate(&ast);
+        defer testing.allocator.free(llvm_ir);
+
+        try testing.expect(std.mem.indexOf(u8, llvm_ir, case.expected) != null);
+    }
+}
+
+test "codegen: logical operators" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const cases = [_]struct { src: []const u8, expected_conversions: []const u8, expected_op: []const u8 }{
+        .{ .src = "fn f() -> I32 { return 5 && 3 }", .expected_conversions = "icmp ne i32", .expected_op = "and i1" },
+        .{ .src = "fn f() -> I32 { return 5 || 3 }", .expected_conversions = "icmp ne i32", .expected_op = "or i1" },
+    };
+
+    for (cases) |case| {
+        var lex = Lexer.init(case.src);
+        var tokens = try lex.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var p = Parser.init(tokens.items, testing.allocator);
+        var ast = try p.parse();
+        defer ast.deinit(testing.allocator);
+
+        var codegen = Codegen.init(testing.allocator);
+        defer codegen.deinit();
+
+        const llvm_ir = try codegen.generate(&ast);
+        defer testing.allocator.free(llvm_ir);
+
+        // Verify i32 to i1 conversion happens
+        try testing.expect(std.mem.indexOf(u8, llvm_ir, case.expected_conversions) != null);
+        // Verify boolean operation
+        try testing.expect(std.mem.indexOf(u8, llvm_ir, case.expected_op) != null);
+        // Verify extension back to i32 for return
+        try testing.expect(std.mem.indexOf(u8, llvm_ir, "zext i1") != null);
     }
 }
 

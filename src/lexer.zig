@@ -40,6 +40,7 @@ pub const TokenKind = enum {
 
     // Unary operators
     bang,
+    tilde,
 
     // Special
     eof,
@@ -106,6 +107,7 @@ pub const Lexer = struct {
             '/' => return self.makeToken(.slash, start_pos, start_line, start_column),
             '%' => return self.makeToken(.percent, start_pos, start_line, start_column),
             '^' => return self.makeToken(.caret, start_pos, start_line, start_column),
+            '~' => return self.makeToken(.tilde, start_pos, start_line, start_column),
             '-' => {
                 if (self.match('>')) {
                     return self.makeToken(.arrow, start_pos, start_line, start_column);

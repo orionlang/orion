@@ -129,3 +129,143 @@ test "integration: complex nested expressions" {
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "sub i32") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "sdiv i32") != null);
 }
+
+test "integration: unary operators" {
+    const testing = std.testing;
+
+    const cases = [_][]const u8{
+        "fn f() -> I32 { return -42 }",
+        "fn f() -> I32 { return !1 }",
+        "fn f() -> I32 { return ~0 }",
+        "fn f() -> I32 { return --5 }",
+        "fn f() -> I32 { return -5 + 3 }",
+    };
+
+    for (cases) |source| {
+        var lexer = Lexer.init(source);
+        var tokens = try lexer.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var parser = Parser.init(tokens.items, testing.allocator);
+        var ast = try parser.parse();
+        defer ast.deinit(testing.allocator);
+
+        var typechecker = TypeChecker.init(testing.allocator);
+        defer typechecker.deinit();
+        try typechecker.check(&ast);
+
+        var codegen = Codegen.init(testing.allocator);
+        defer codegen.deinit();
+        const llvm_ir = try codegen.generate(&ast);
+        defer testing.allocator.free(llvm_ir);
+
+        try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @f()") != null);
+    }
+}
+
+test "integration: logical operators" {
+    const testing = std.testing;
+
+    const cases = [_][]const u8{
+        "fn f() -> I32 { return 5 && 3 }",
+        "fn f() -> I32 { return 5 || 3 }",
+        "fn f() -> I32 { return 1 && 0 }",
+        "fn f() -> I32 { return 0 || 1 }",
+        "fn f() -> Bool { return 5 && 3 }",
+        "fn f() -> Bool { return 5 || 3 }",
+    };
+
+    for (cases) |source| {
+        var lexer = Lexer.init(source);
+        var tokens = try lexer.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var parser = Parser.init(tokens.items, testing.allocator);
+        var ast = try parser.parse();
+        defer ast.deinit(testing.allocator);
+
+        var typechecker = TypeChecker.init(testing.allocator);
+        defer typechecker.deinit();
+        try typechecker.check(&ast);
+
+        var codegen = Codegen.init(testing.allocator);
+        defer codegen.deinit();
+        const llvm_ir = try codegen.generate(&ast);
+        defer testing.allocator.free(llvm_ir);
+
+        // Verify i32->i1 conversion and boolean operation
+        try testing.expect(std.mem.indexOf(u8, llvm_ir, "icmp ne i32") != null);
+    }
+}
+
+test "integration: comparison operators" {
+    const testing = std.testing;
+
+    const cases = [_][]const u8{
+        "fn f() -> I32 { return 5 == 3 }",
+        "fn f() -> I32 { return 5 != 3 }",
+        "fn f() -> I32 { return 5 < 3 }",
+        "fn f() -> I32 { return 5 > 3 }",
+        "fn f() -> I32 { return 5 <= 3 }",
+        "fn f() -> I32 { return 5 >= 3 }",
+        "fn f() -> Bool { return 5 == 3 }",
+        "fn f() -> Bool { return 5 < 3 }",
+    };
+
+    for (cases) |source| {
+        var lexer = Lexer.init(source);
+        var tokens = try lexer.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var parser = Parser.init(tokens.items, testing.allocator);
+        var ast = try parser.parse();
+        defer ast.deinit(testing.allocator);
+
+        var typechecker = TypeChecker.init(testing.allocator);
+        defer typechecker.deinit();
+        try typechecker.check(&ast);
+
+        var codegen = Codegen.init(testing.allocator);
+        defer codegen.deinit();
+        const llvm_ir = try codegen.generate(&ast);
+        defer testing.allocator.free(llvm_ir);
+
+        // Verify comparison instruction exists
+        try testing.expect(std.mem.indexOf(u8, llvm_ir, "icmp") != null);
+    }
+}
+
+test "integration: bitwise operators" {
+    const testing = std.testing;
+
+    const cases = [_][]const u8{
+        "fn f() -> I32 { return 5 & 3 }",
+        "fn f() -> I32 { return 5 | 3 }",
+        "fn f() -> I32 { return 5 ^ 3 }",
+        "fn f() -> I32 { return 5 << 2 }",
+        "fn f() -> I32 { return 5 >> 2 }",
+        "fn f() -> I32 { return ~5 }",
+    };
+
+    for (cases) |source| {
+        var lexer = Lexer.init(source);
+        var tokens = try lexer.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var parser = Parser.init(tokens.items, testing.allocator);
+        var ast = try parser.parse();
+        defer ast.deinit(testing.allocator);
+
+        var typechecker = TypeChecker.init(testing.allocator);
+        defer typechecker.deinit();
+        try typechecker.check(&ast);
+
+        var codegen = Codegen.init(testing.allocator);
+        defer codegen.deinit();
+        const llvm_ir = try codegen.generate(&ast);
+        defer testing.allocator.free(llvm_ir);
+
+        // Verify it generates valid LLVM IR
+        try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @f()") != null);
+    }
+}

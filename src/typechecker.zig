@@ -32,7 +32,11 @@ pub const TypeChecker = struct {
             switch (stmt) {
                 .return_stmt => |expr| {
                     const expr_type = try self.inferExprType(expr);
-                    if (!self.typesMatch(expr_type, func.return_type)) {
+                    // Allow Bool -> I32 implicit conversion
+                    const types_compatible = self.typesMatch(expr_type, func.return_type) or
+                        (expr_type == .bool and func.return_type == .i32);
+
+                    if (!types_compatible) {
                         std.debug.print("Type mismatch in function '{s}': expected {s}, got {s}\n", .{
                             func.name,
                             @tagName(func.return_type),
@@ -52,11 +56,20 @@ pub const TypeChecker = struct {
                 const left_type = try self.inferExprType(binop.left);
                 const right_type = try self.inferExprType(binop.right);
 
-                // For now, all binary ops require matching i32 operands and return i32
                 if (!self.typesMatch(left_type, .i32) or !self.typesMatch(right_type, .i32)) {
                     return error.TypeMismatch;
                 }
-                return .i32;
+
+                return if (binop.op.returns_bool()) .bool else .i32;
+            },
+            .unary_op => |unop| {
+                const operand_type = try self.inferExprType(unop.operand);
+
+                if (!self.typesMatch(operand_type, .i32)) {
+                    return error.TypeMismatch;
+                }
+
+                return if (unop.op.returns_bool()) .bool else .i32;
             },
         }
     }
@@ -93,5 +106,109 @@ test "typechecker: type mismatch" {
     // For now this test would require manually constructing an AST with wrong types
     // We'll skip it until we have more type variations
     _ = testing;
+}
+
+test "typechecker: bool return type" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn main() -> Bool { return 5 > 3 }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var typechecker = TypeChecker.init(testing.allocator);
+    defer typechecker.deinit();
+
+    try typechecker.check(&ast);
+}
+
+test "typechecker: comparison operators return bool" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const cases = [_][]const u8{
+        "fn f() -> Bool { return 5 == 3 }",
+        "fn f() -> Bool { return 5 != 3 }",
+        "fn f() -> Bool { return 5 < 3 }",
+        "fn f() -> Bool { return 5 > 3 }",
+        "fn f() -> Bool { return 5 <= 3 }",
+        "fn f() -> Bool { return 5 >= 3 }",
+    };
+
+    for (cases) |case| {
+        var lex = Lexer.init(case);
+        var tokens = try lex.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var p = Parser.init(tokens.items, testing.allocator);
+        var ast = try p.parse();
+        defer ast.deinit(testing.allocator);
+
+        var typechecker = TypeChecker.init(testing.allocator);
+        defer typechecker.deinit();
+
+        try typechecker.check(&ast);
+    }
+}
+
+test "typechecker: logical operators return bool" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const cases = [_][]const u8{
+        "fn f() -> Bool { return 5 && 3 }",
+        "fn f() -> Bool { return 5 || 3 }",
+        "fn f() -> Bool { return !5 }",
+    };
+
+    for (cases) |case| {
+        var lex = Lexer.init(case);
+        var tokens = try lex.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var p = Parser.init(tokens.items, testing.allocator);
+        var ast = try p.parse();
+        defer ast.deinit(testing.allocator);
+
+        var typechecker = TypeChecker.init(testing.allocator);
+        defer typechecker.deinit();
+
+        try typechecker.check(&ast);
+    }
+}
+
+test "typechecker: bool to i32 implicit conversion" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const cases = [_][]const u8{
+        "fn f() -> I32 { return 5 > 3 }",
+        "fn f() -> I32 { return 5 && 3 }",
+        "fn f() -> I32 { return !5 }",
+    };
+
+    for (cases) |case| {
+        var lex = Lexer.init(case);
+        var tokens = try lex.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var p = Parser.init(tokens.items, testing.allocator);
+        var ast = try p.parse();
+        defer ast.deinit(testing.allocator);
+
+        var typechecker = TypeChecker.init(testing.allocator);
+        defer typechecker.deinit();
+
+        try typechecker.check(&ast);
+    }
 }
 
