@@ -40,9 +40,9 @@ pub const TypeChecker = struct {
                 .let_binding => |binding| {
                     const value_type = try self.inferExprType(binding.value);
 
-                    // Check type annotation if provided
-                    if (binding.type_annotation) |expected_type| {
-                        if (!self.typesMatch(value_type, expected_type)) {
+                    // Determine actual variable type
+                    const var_type = if (binding.type_annotation) |expected_type| blk: {
+                        if (!self.canImplicitlyConvert(value_type, expected_type)) {
                             std.debug.print("Type mismatch in let binding '{s}': expected {s}, got {s}\n", .{
                                 binding.name,
                                 @tagName(expected_type),
@@ -50,18 +50,16 @@ pub const TypeChecker = struct {
                             });
                             return error.TypeMismatch;
                         }
-                    }
+                        break :blk expected_type;
+                    } else value_type;
 
                     // Add variable to environment
-                    try self.variables.put(binding.name, value_type);
+                    try self.variables.put(binding.name, var_type);
                 },
                 .return_stmt => |expr| {
                     const expr_type = try self.inferExprType(expr);
-                    // Allow Bool -> I32 implicit conversion
-                    const types_compatible = self.typesMatch(expr_type, func.return_type) or
-                        (expr_type == .bool and func.return_type == .i32);
 
-                    if (!types_compatible) {
+                    if (!self.canImplicitlyConvert(expr_type, func.return_type)) {
                         std.debug.print("Type mismatch in function '{s}': expected {s}, got {s}\n", .{
                             func.name,
                             @tagName(func.return_type),
@@ -88,7 +86,9 @@ pub const TypeChecker = struct {
                 const left_type = try self.inferExprType(binop.left);
                 const right_type = try self.inferExprType(binop.right);
 
-                if (!self.typesMatch(left_type, .i32) or !self.typesMatch(right_type, .i32)) {
+                // For now, require both operands to be integer types
+                // In the future, we might want to check they're the same type
+                if (!self.isIntegerType(left_type) or !self.isIntegerType(right_type)) {
                     return error.TypeMismatch;
                 }
 
@@ -97,7 +97,7 @@ pub const TypeChecker = struct {
             .unary_op => |unop| {
                 const operand_type = try self.inferExprType(unop.operand);
 
-                if (!self.typesMatch(operand_type, .i32)) {
+                if (!self.isIntegerType(operand_type)) {
                     return error.TypeMismatch;
                 }
 
@@ -106,9 +106,30 @@ pub const TypeChecker = struct {
         }
     }
 
-    fn typesMatch(self: *TypeChecker, a: Type, b: Type) bool {
-        _ = self;
+    fn canImplicitlyConvert(_: *TypeChecker, from: Type, to: Type) bool {
+
+        // Exact match is always allowed
+        if (std.meta.eql(from, to)) return true;
+
+        // Bool can convert to any integer type (safe: 0 or 1)
+        if (from == .bool and to != .bool) return true;
+
+        // TODO: Add typed integer literals to avoid need for I32 promotion
+        // I32 literals can widen to same or larger width types (no data loss)
+        if (from == .i32) {
+            return to.bitWidth() >= from.bitWidth();
+        }
+
+        // No other implicit conversions allowed
+        return false;
+    }
+
+    fn typesMatch(_: *TypeChecker, a: Type, b: Type) bool {
         return std.meta.eql(a, b);
+    }
+
+    fn isIntegerType(_: *TypeChecker, typ: Type) bool {
+        return typ.isInteger();
     }
 };
 

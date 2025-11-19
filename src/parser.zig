@@ -3,10 +3,50 @@ const lexer = @import("lexer.zig");
 const Token = lexer.Token;
 const TokenKind = lexer.TokenKind;
 
-pub const Type = union(enum) {
+pub const Type = enum {
     bool,
+    i8,
+    i16,
     i32,
-    // More types later
+    i64,
+    u8,
+    u16,
+    u32,
+    u64,
+
+    pub fn isSigned(self: Type) bool {
+        return switch (self) {
+            .i8, .i16, .i32, .i64 => true,
+            .bool, .u8, .u16, .u32, .u64 => false,
+        };
+    }
+
+    pub fn bitWidth(self: Type) u32 {
+        return switch (self) {
+            .bool => 1,
+            .i8, .u8 => 8,
+            .i16, .u16 => 16,
+            .i32, .u32 => 32,
+            .i64, .u64 => 64,
+        };
+    }
+
+    pub fn isInteger(self: Type) bool {
+        return switch (self) {
+            .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => true,
+            .bool => false,
+        };
+    }
+
+    pub fn llvmTypeName(self: Type) []const u8 {
+        return switch (self) {
+            .bool => "i1",
+            .i8, .u8 => "i8",
+            .i16, .u16 => "i16",
+            .i32, .u32 => "i32",
+            .i64, .u64 => "i64",
+        };
+    }
 };
 
 pub const ParseError = error{
@@ -83,7 +123,7 @@ pub const Stmt = union(enum) {
 
 pub const FunctionDecl = struct {
     name: []const u8,
-    params: []const u8, // Empty for now
+    params: []const u8,
     return_type: Type,
     body: std.ArrayList(Stmt),
 
@@ -194,15 +234,21 @@ pub const Parser = struct {
         };
     }
 
+    const type_name_map = std.StaticStringMap(Type).initComptime(.{
+        .{ "Bool", .bool },
+        .{ "I8", .i8 },
+        .{ "I16", .i16 },
+        .{ "I32", .i32 },
+        .{ "I64", .i64 },
+        .{ "U8", .u8 },
+        .{ "U16", .u16 },
+        .{ "U32", .u32 },
+        .{ "U64", .u64 },
+    });
+
     fn parseType(self: *Parser) !Type {
         const type_token = try self.expect(.identifier);
-        if (std.mem.eql(u8, type_token.lexeme, "Bool")) {
-            return .bool;
-        }
-        if (std.mem.eql(u8, type_token.lexeme, "I32")) {
-            return .i32;
-        }
-        return error.UnknownType;
+        return type_name_map.get(type_token.lexeme) orelse error.UnknownType;
     }
 
     fn parseStatement(self: *Parser) !Stmt {

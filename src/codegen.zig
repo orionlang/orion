@@ -109,8 +109,12 @@ pub const Codegen = struct {
                 const value = try self.generateExpression(binding.value);
                 defer self.allocator.free(value);
 
+                // Convert value type if necessary
+                const final_value = try self.convertIfNeeded(value, value_expr_type, var_type);
+                defer self.allocator.free(final_value);
+
                 // Store value in variable
-                try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ llvm_type_str, value, var_name });
+                try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ llvm_type_str, final_value, var_name });
 
                 // Remember variable for later references (reuse var_name, no duplication needed)
                 try self.variables.put(binding.name, .{
@@ -121,21 +125,51 @@ pub const Codegen = struct {
             .return_stmt => |expr| {
                 const value = try self.generateExpression(expr);
                 defer self.allocator.free(value);
-                const expr_type_str = self.llvmTypeForExpr(expr);
+                const expr_type = self.inferExprType(expr);
                 const return_type_str = self.llvmType(return_type);
 
-                // If expression is i1 but function returns i32, extend it
-                if (std.mem.eql(u8, expr_type_str, "i1") and std.mem.eql(u8, return_type_str, "i32")) {
-                    const extended = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
-                    defer self.allocator.free(extended);
-                    self.next_temp += 1;
-                    try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to i32\n", .{ extended, value });
-                    try self.output.writer(self.allocator).print("  ret i32 {s}\n", .{extended});
-                } else {
-                    try self.output.writer(self.allocator).print("  ret {s} {s}\n", .{ expr_type_str, value });
-                }
+                // Convert type if needed
+                const converted = try self.convertIfNeeded(value, expr_type, return_type);
+                defer self.allocator.free(converted);
+                try self.output.writer(self.allocator).print("  ret {s} {s}\n", .{ return_type_str, converted });
             },
         }
+    }
+
+    fn convertIfNeeded(self: *Codegen, value: []const u8, from_type: Type, to_type: Type) ![]const u8 {
+        if (from_type == to_type) {
+            return try self.allocator.dupe(u8, value);
+        }
+        return try self.convertType(value, from_type, to_type);
+    }
+
+    fn convertType(self: *Codegen, value: []const u8, from_type: Type, to_type: Type) ![]const u8 {
+        const from_llvm = self.llvmType(from_type);
+        const to_llvm = self.llvmType(to_type);
+
+        // Bool uses zero extension (unsigned)
+        if (from_type == .bool) {
+            const temp = try self.allocTempName();
+            try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to {s}\n", .{ temp, value, to_llvm });
+            return temp;
+        }
+
+        const from_bits = from_type.bitWidth();
+        const to_bits = to_type.bitWidth();
+
+        if (from_bits == to_bits) {
+            return try self.allocator.dupe(u8, value);
+        }
+
+        const temp = try self.allocTempName();
+        if (from_bits < to_bits) {
+            const inst: []const u8 = if (from_type.isSigned()) "sext" else "zext";
+            try self.output.writer(self.allocator).print("  {s} = {s} {s} {s} to {s}\n", .{ temp, inst, from_llvm, value, to_llvm });
+        } else {
+            try self.output.writer(self.allocator).print("  {s} = trunc {s} {s} to {s}\n", .{ temp, from_llvm, value, to_llvm });
+        }
+
+        return temp;
     }
 
     fn generateExpression(self: *Codegen, expr: *const Expr) ![]const u8 {
@@ -168,8 +202,11 @@ pub const Codegen = struct {
                         return try self.generateLogicalBinOp(binop.op, left_val, right_val, temp_name);
                     },
                     else => {
-                        const op_str = self.llvmBinaryOp(binop.op);
-                        try self.output.writer(self.allocator).print("  {s} = {s} i32 {s}, {s}\n", .{ temp_name, op_str, left_val, right_val });
+                        // Get type of left operand (both should be same type after type checking)
+                        const operand_type = self.inferExprType(binop.left);
+                        const op_str = self.llvmBinaryOp(binop.op, operand_type);
+                        const type_str = self.llvmType(operand_type);
+                        try self.output.writer(self.allocator).print("  {s} = {s} {s} {s}, {s}\n", .{ temp_name, op_str, type_str, left_val, right_val });
                         return try self.allocator.dupe(u8, temp_name);
                     },
                 }
@@ -181,7 +218,9 @@ pub const Codegen = struct {
                 const temp_name = try self.allocTempName();
                 defer self.allocator.free(temp_name);
 
-                const op_str = self.llvmUnaryOp(unop.op);
+                const operand_type = self.inferExprType(unop.operand);
+                const op_str = self.llvmUnaryOp(unop.op, operand_type);
+                defer self.allocator.free(op_str);
                 try self.output.writer(self.allocator).print("  {s} = {s}, {s}\n", .{ temp_name, op_str, operand_val });
 
                 return try self.allocator.dupe(u8, temp_name);
@@ -207,12 +246,8 @@ pub const Codegen = struct {
         return try self.allocator.dupe(u8, result_name);
     }
 
-    fn llvmType(self: *Codegen, typ: Type) []const u8 {
-        _ = self;
-        switch (typ) {
-            .bool => return "i1",
-            .i32 => return "i32",
-        }
+    fn llvmType(_: *Codegen, typ: Type) []const u8 {
+        return typ.llvmTypeName();
     }
 
     fn inferExprType(self: *Codegen, expr: *const Expr) Type {
@@ -222,7 +257,7 @@ pub const Codegen = struct {
                 if (self.variables.get(name)) |var_info| {
                     return var_info.var_type;
                 }
-                return .i32; // Fallback
+                return .i32;
             },
             .binary_op => |binop| {
                 return if (binop.op.returns_bool()) .bool else .i32;
@@ -233,39 +268,35 @@ pub const Codegen = struct {
         }
     }
 
-    fn llvmTypeForExpr(self: *Codegen, expr: *const Expr) []const u8 {
-        const expr_type = self.inferExprType(expr);
-        return self.llvmType(expr_type);
-    }
-
-    fn llvmUnaryOp(self: *Codegen, op: parser.UnaryOp) []const u8 {
-        _ = self;
+    fn llvmUnaryOp(self: *Codegen, op: parser.UnaryOp, operand_type: Type) []const u8 {
+        const type_str = self.llvmType(operand_type);
         return switch (op) {
-            .negate => "sub i32 0",
-            .logical_not => "icmp eq i32 0",
-            .bitwise_not => "xor i32 -1",
+            .negate => std.fmt.allocPrint(self.allocator, "sub {s} 0", .{type_str}) catch unreachable,
+            .logical_not => std.fmt.allocPrint(self.allocator, "icmp eq {s} 0", .{type_str}) catch unreachable,
+            .bitwise_not => std.fmt.allocPrint(self.allocator, "xor {s} -1", .{type_str}) catch unreachable,
         };
     }
 
-    fn llvmBinaryOp(self: *Codegen, op: parser.BinaryOp) []const u8 {
+    fn llvmBinaryOp(self: *Codegen, op: parser.BinaryOp, operand_type: Type) []const u8 {
         _ = self;
+        const is_signed = operand_type.isSigned();
         return switch (op) {
             .add => "add",
             .subtract => "sub",
             .multiply => "mul",
-            .divide => "sdiv",
-            .modulo => "srem",
+            .divide => if (is_signed) "sdiv" else "udiv",
+            .modulo => if (is_signed) "srem" else "urem",
             .equal => "icmp eq",
             .not_equal => "icmp ne",
-            .less_than => "icmp slt",
-            .greater_than => "icmp sgt",
-            .less_equal => "icmp sle",
-            .greater_equal => "icmp sge",
+            .less_than => if (is_signed) "icmp slt" else "icmp ult",
+            .greater_than => if (is_signed) "icmp sgt" else "icmp ugt",
+            .less_equal => if (is_signed) "icmp sle" else "icmp ule",
+            .greater_equal => if (is_signed) "icmp sge" else "icmp uge",
             .bitwise_and => "and",
             .bitwise_or => "or",
             .bitwise_xor => "xor",
             .shift_left => "shl",
-            .shift_right => "ashr",
+            .shift_right => if (is_signed) "ashr" else "lshr",
             // logical_and and logical_or are handled specially in generateExpression
             .logical_and, .logical_or => unreachable,
         };
@@ -422,9 +453,9 @@ test "codegen: unary operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected: []const u8 }{
-        .{ .src = "fn f() -> I32 { return -5 }", .expected = "sub i32 0, 5" },
-        .{ .src = "fn f() -> I32 { return !5 }", .expected = "zext i1" },
-        .{ .src = "fn f() -> I32 { return ~5 }", .expected = "xor i32 -1, 5" },
+        .{ .src = "fn f() -> I32 { return -5 }", .expected = "= sub i32 0, 5" },
+        .{ .src = "fn f() -> I32 { return !5 }", .expected = "= icmp eq i32 0, 5" },
+        .{ .src = "fn f() -> I32 { return ~5 }", .expected = "= xor i32 -1, 5" },
     };
 
     for (cases) |case| {
