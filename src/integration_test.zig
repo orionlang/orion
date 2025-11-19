@@ -4,33 +4,31 @@ const Parser = @import("parser.zig").Parser;
 const TypeChecker = @import("typechecker.zig").TypeChecker;
 const Codegen = @import("codegen.zig").Codegen;
 
+fn compile(source: []const u8, allocator: std.mem.Allocator) ![]const u8 {
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(allocator);
+    defer tokens.deinit(allocator);
+
+    var parser = Parser.init(tokens.items, allocator);
+    var ast = try parser.parse();
+    defer ast.deinit(allocator);
+
+    var typechecker = TypeChecker.init(allocator);
+    defer typechecker.deinit();
+    try typechecker.check(&ast);
+
+    var codegen = Codegen.init(allocator);
+    defer codegen.deinit();
+    return try codegen.generate(&ast);
+}
+
 test "integration: compile simple function end-to-end" {
     const testing = std.testing;
 
     const source = "fn main() -> I32 { return 42 }";
-
-    // Lex
-    var lexer = Lexer.init(source);
-    var tokens = try lexer.tokenize(testing.allocator);
-    defer tokens.deinit(testing.allocator);
-
-    // Parse
-    var parser = Parser.init(tokens.items, testing.allocator);
-    var ast = try parser.parse();
-    defer ast.deinit(testing.allocator);
-
-    // Type check
-    var typechecker = TypeChecker.init(testing.allocator);
-    defer typechecker.deinit();
-    try typechecker.check(&ast);
-
-    // Generate LLVM IR
-    var codegen = Codegen.init(testing.allocator);
-    defer codegen.deinit();
-    const llvm_ir = try codegen.generate(&ast);
+    const llvm_ir = try compile(source, testing.allocator);
     defer testing.allocator.free(llvm_ir);
 
-    // Verify output contains expected patterns
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @main()") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "ret i32 42") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "entry:") != null);
@@ -40,29 +38,9 @@ test "integration: compile binary operations end-to-end" {
     const testing = std.testing;
 
     const source = "fn main() -> I32 { return 10 + 20 * 3 }";
-
-    // Lex
-    var lexer = Lexer.init(source);
-    var tokens = try lexer.tokenize(testing.allocator);
-    defer tokens.deinit(testing.allocator);
-
-    // Parse
-    var parser = Parser.init(tokens.items, testing.allocator);
-    var ast = try parser.parse();
-    defer ast.deinit(testing.allocator);
-
-    // Type check
-    var typechecker = TypeChecker.init(testing.allocator);
-    defer typechecker.deinit();
-    try typechecker.check(&ast);
-
-    // Generate LLVM IR
-    var codegen = Codegen.init(testing.allocator);
-    defer codegen.deinit();
-    const llvm_ir = try codegen.generate(&ast);
+    const llvm_ir = try compile(source, testing.allocator);
     defer testing.allocator.free(llvm_ir);
 
-    // Verify output contains expected patterns
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "mul i32 20, 3") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "add i32 10") != null);
 }
@@ -79,21 +57,7 @@ test "integration: arithmetic operators" {
     };
 
     for (cases) |source| {
-        var lexer = Lexer.init(source);
-        var tokens = try lexer.tokenize(testing.allocator);
-        defer tokens.deinit(testing.allocator);
-
-        var parser = Parser.init(tokens.items, testing.allocator);
-        var ast = try parser.parse();
-        defer ast.deinit(testing.allocator);
-
-        var typechecker = TypeChecker.init(testing.allocator);
-        defer typechecker.deinit();
-        try typechecker.check(&ast);
-
-        var codegen = Codegen.init(testing.allocator);
-        defer codegen.deinit();
-        const llvm_ir = try codegen.generate(&ast);
+        const llvm_ir = try compile(source, testing.allocator);
         defer testing.allocator.free(llvm_ir);
 
         try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @f()") != null);
@@ -104,25 +68,9 @@ test "integration: complex nested expressions" {
     const testing = std.testing;
 
     const source = "fn f() -> I32 { return ((1 + 2) * 3 - 4) / 5 }";
-
-    var lexer = Lexer.init(source);
-    var tokens = try lexer.tokenize(testing.allocator);
-    defer tokens.deinit(testing.allocator);
-
-    var parser = Parser.init(tokens.items, testing.allocator);
-    var ast = try parser.parse();
-    defer ast.deinit(testing.allocator);
-
-    var typechecker = TypeChecker.init(testing.allocator);
-    defer typechecker.deinit();
-    try typechecker.check(&ast);
-
-    var codegen = Codegen.init(testing.allocator);
-    defer codegen.deinit();
-    const llvm_ir = try codegen.generate(&ast);
+    const llvm_ir = try compile(source, testing.allocator);
     defer testing.allocator.free(llvm_ir);
 
-    // Verify it generates valid LLVM IR with temporaries
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "%t") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "add i32 1, 2") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "mul i32") != null);
@@ -142,21 +90,7 @@ test "integration: unary operators" {
     };
 
     for (cases) |source| {
-        var lexer = Lexer.init(source);
-        var tokens = try lexer.tokenize(testing.allocator);
-        defer tokens.deinit(testing.allocator);
-
-        var parser = Parser.init(tokens.items, testing.allocator);
-        var ast = try parser.parse();
-        defer ast.deinit(testing.allocator);
-
-        var typechecker = TypeChecker.init(testing.allocator);
-        defer typechecker.deinit();
-        try typechecker.check(&ast);
-
-        var codegen = Codegen.init(testing.allocator);
-        defer codegen.deinit();
-        const llvm_ir = try codegen.generate(&ast);
+        const llvm_ir = try compile(source, testing.allocator);
         defer testing.allocator.free(llvm_ir);
 
         try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @f()") != null);
@@ -176,24 +110,9 @@ test "integration: logical operators" {
     };
 
     for (cases) |source| {
-        var lexer = Lexer.init(source);
-        var tokens = try lexer.tokenize(testing.allocator);
-        defer tokens.deinit(testing.allocator);
-
-        var parser = Parser.init(tokens.items, testing.allocator);
-        var ast = try parser.parse();
-        defer ast.deinit(testing.allocator);
-
-        var typechecker = TypeChecker.init(testing.allocator);
-        defer typechecker.deinit();
-        try typechecker.check(&ast);
-
-        var codegen = Codegen.init(testing.allocator);
-        defer codegen.deinit();
-        const llvm_ir = try codegen.generate(&ast);
+        const llvm_ir = try compile(source, testing.allocator);
         defer testing.allocator.free(llvm_ir);
 
-        // Verify i32->i1 conversion and boolean operation
         try testing.expect(std.mem.indexOf(u8, llvm_ir, "icmp ne i32") != null);
     }
 }
@@ -213,24 +132,9 @@ test "integration: comparison operators" {
     };
 
     for (cases) |source| {
-        var lexer = Lexer.init(source);
-        var tokens = try lexer.tokenize(testing.allocator);
-        defer tokens.deinit(testing.allocator);
-
-        var parser = Parser.init(tokens.items, testing.allocator);
-        var ast = try parser.parse();
-        defer ast.deinit(testing.allocator);
-
-        var typechecker = TypeChecker.init(testing.allocator);
-        defer typechecker.deinit();
-        try typechecker.check(&ast);
-
-        var codegen = Codegen.init(testing.allocator);
-        defer codegen.deinit();
-        const llvm_ir = try codegen.generate(&ast);
+        const llvm_ir = try compile(source, testing.allocator);
         defer testing.allocator.free(llvm_ir);
 
-        // Verify comparison instruction exists
         try testing.expect(std.mem.indexOf(u8, llvm_ir, "icmp") != null);
     }
 }
@@ -248,24 +152,9 @@ test "integration: bitwise operators" {
     };
 
     for (cases) |source| {
-        var lexer = Lexer.init(source);
-        var tokens = try lexer.tokenize(testing.allocator);
-        defer tokens.deinit(testing.allocator);
-
-        var parser = Parser.init(tokens.items, testing.allocator);
-        var ast = try parser.parse();
-        defer ast.deinit(testing.allocator);
-
-        var typechecker = TypeChecker.init(testing.allocator);
-        defer typechecker.deinit();
-        try typechecker.check(&ast);
-
-        var codegen = Codegen.init(testing.allocator);
-        defer codegen.deinit();
-        const llvm_ir = try codegen.generate(&ast);
+        const llvm_ir = try compile(source, testing.allocator);
         defer testing.allocator.free(llvm_ir);
 
-        // Verify it generates valid LLVM IR
         try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @f()") != null);
     }
 }
