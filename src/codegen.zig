@@ -36,6 +36,12 @@ pub const Codegen = struct {
         self.variables.deinit();
     }
 
+    fn allocTempName(self: *Codegen) ![]const u8 {
+        const temp_name = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
+        self.next_temp += 1;
+        return temp_name;
+    }
+
     pub fn generate(self: *Codegen, ast: *const AST) ![]const u8 {
         // LLVM IR header
         try self.output.appendSlice(self.allocator, "; Bootstrap Orion Compiler Output\n");
@@ -140,8 +146,7 @@ pub const Codegen = struct {
             .variable => |name| {
                 // Load variable from stack
                 const var_info = self.variables.get(name).?;
-                const temp_name = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
-                self.next_temp += 1;
+                const temp_name = try self.allocTempName();
 
                 const llvm_type_str = self.llvmType(var_info.var_type);
                 try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ temp_name, llvm_type_str, var_info.llvm_ptr });
@@ -154,30 +159,13 @@ pub const Codegen = struct {
                 const right_val = try self.generateExpression(binop.right);
                 defer self.allocator.free(right_val);
 
-                const temp_name = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
+                const temp_name = try self.allocTempName();
                 defer self.allocator.free(temp_name);
-                self.next_temp += 1;
 
                 // Logical operators need special handling: convert i32 to i1 first
                 switch (binop.op) {
                     .logical_and, .logical_or => {
-                        // Convert left to bool
-                        const left_bool = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
-                        defer self.allocator.free(left_bool);
-                        self.next_temp += 1;
-                        try self.output.writer(self.allocator).print("  {s} = icmp ne i32 {s}, 0\n", .{ left_bool, left_val });
-
-                        // Convert right to bool
-                        const right_bool = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
-                        defer self.allocator.free(right_bool);
-                        self.next_temp += 1;
-                        try self.output.writer(self.allocator).print("  {s} = icmp ne i32 {s}, 0\n", .{ right_bool, right_val });
-
-                        // Boolean operation (result is i1)
-                        const bool_op = if (binop.op == .logical_and) "and" else "or";
-                        try self.output.writer(self.allocator).print("  {s} = {s} i1 {s}, {s}\n", .{ temp_name, bool_op, left_bool, right_bool });
-
-                        return try self.allocator.dupe(u8, temp_name);
+                        return try self.generateLogicalBinOp(binop.op, left_val, right_val, temp_name);
                     },
                     else => {
                         const op_str = self.llvmBinaryOp(binop.op);
@@ -190,9 +178,8 @@ pub const Codegen = struct {
                 const operand_val = try self.generateExpression(unop.operand);
                 defer self.allocator.free(operand_val);
 
-                const temp_name = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
+                const temp_name = try self.allocTempName();
                 defer self.allocator.free(temp_name);
-                self.next_temp += 1;
 
                 const op_str = self.llvmUnaryOp(unop.op);
                 try self.output.writer(self.allocator).print("  {s} = {s}, {s}\n", .{ temp_name, op_str, operand_val });
@@ -200,6 +187,24 @@ pub const Codegen = struct {
                 return try self.allocator.dupe(u8, temp_name);
             },
         }
+    }
+
+    fn generateLogicalBinOp(self: *Codegen, op: parser.BinaryOp, left_val: []const u8, right_val: []const u8, result_name: []const u8) ![]const u8 {
+        // Convert left to bool
+        const left_bool = try self.allocTempName();
+        defer self.allocator.free(left_bool);
+        try self.output.writer(self.allocator).print("  {s} = icmp ne i32 {s}, 0\n", .{ left_bool, left_val });
+
+        // Convert right to bool
+        const right_bool = try self.allocTempName();
+        defer self.allocator.free(right_bool);
+        try self.output.writer(self.allocator).print("  {s} = icmp ne i32 {s}, 0\n", .{ right_bool, right_val });
+
+        // Boolean operation (result is i1)
+        const bool_op = if (op == .logical_and) "and" else "or";
+        try self.output.writer(self.allocator).print("  {s} = {s} i1 {s}, {s}\n", .{ result_name, bool_op, left_bool, right_bool });
+
+        return try self.allocator.dupe(u8, result_name);
     }
 
     fn llvmType(self: *Codegen, typ: Type) []const u8 {
@@ -214,8 +219,10 @@ pub const Codegen = struct {
         switch (expr.*) {
             .integer_literal => return .i32,
             .variable => |name| {
-                const var_info = self.variables.get(name).?;
-                return var_info.var_type;
+                if (self.variables.get(name)) |var_info| {
+                    return var_info.var_type;
+                }
+                return .i32; // Fallback
             },
             .binary_op => |binop| {
                 return if (binop.op.returns_bool()) .bool else .i32;
