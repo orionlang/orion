@@ -27,12 +27,31 @@ pub const Codegen = struct {
         try self.output.appendSlice(self.allocator, "; Bootstrap Orion Compiler Output\n");
         try self.output.appendSlice(self.allocator, "target triple = \"x86_64-pc-linux-gnu\"\n\n");
 
+        // Declare syscall exit
+        try self.output.appendSlice(self.allocator, "declare void @llvm.trap() noreturn nounwind\n\n");
+
         // Generate each function
         for (ast.functions.items) |func| {
             try self.generateFunction(&func);
         }
 
+        // Generate _start entry point that calls main and exits
+        try self.generateStartFunction();
+
         return try self.allocator.dupe(u8, self.output.items);
+    }
+
+    fn generateStartFunction(self: *Codegen) !void {
+        try self.output.writer(self.allocator).print(
+            \\define void @_start() {{
+            \\  %result = call i32 @main()
+            \\  %result_i64 = sext i32 %result to i64
+            \\  %rax = call i64 asm sideeffect "syscall", "={{rax}},{{rax}},{{rdi}}"(i64 60, i64 %result_i64)
+            \\  call void @llvm.trap()
+            \\  unreachable
+            \\}}
+            \\
+        , .{});
     }
 
     fn generateFunction(self: *Codegen, func: *const parser.FunctionDecl) !void {
