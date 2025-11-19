@@ -1,0 +1,15 @@
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.swp
+*~
+a.out
+orion
+.DS_Store
+compile_commands.json
+.cache/
+*.log
+.zig-cache/
+zig-out/
