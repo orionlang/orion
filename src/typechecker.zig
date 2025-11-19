@@ -29,6 +29,11 @@ pub const TypeChecker = struct {
         // Clear variables from previous function
         self.variables.clearRetainingCapacity();
 
+        // Add parameters to variable environment
+        for (func.params) |param| {
+            try self.variables.put(param.name, param.param_type);
+        }
+
         // Check that function has a body
         if (func.body.items.len == 0) {
             return error.EmptyFunctionBody;
@@ -86,13 +91,21 @@ pub const TypeChecker = struct {
                 const left_type = try self.inferExprType(binop.left);
                 const right_type = try self.inferExprType(binop.right);
 
-                // For now, require both operands to be integer types
-                // In the future, we might want to check they're the same type
+                // Both operands must be integer types
                 if (!self.isIntegerType(left_type) or !self.isIntegerType(right_type)) {
                     return error.TypeMismatch;
                 }
 
-                return if (binop.op.returns_bool()) .bool else .i32;
+                // Comparison operators return bool
+                if (binop.op.returns_bool()) return .bool;
+
+                // For arithmetic operators, both operands must be the same type
+                if (!self.typesMatch(left_type, right_type)) {
+                    return error.TypeMismatch;
+                }
+
+                // Result type is the same as operand type
+                return left_type;
             },
             .unary_op => |unop| {
                 const operand_type = try self.inferExprType(unop.operand);
@@ -101,7 +114,8 @@ pub const TypeChecker = struct {
                     return error.TypeMismatch;
                 }
 
-                return if (unop.op.returns_bool()) .bool else .i32;
+                // Comparison operators return bool, arithmetic operators preserve type
+                return if (unop.op.returns_bool()) .bool else operand_type;
             },
         }
     }

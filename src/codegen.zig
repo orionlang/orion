@@ -75,13 +75,39 @@ pub const Codegen = struct {
     }
 
     fn generateFunction(self: *Codegen, func: *const parser.FunctionDecl) !void {
-        // Clear variables from previous function
+        // Clear variables from previous function and free allocated names
+        var iter = self.variables.valueIterator();
+        while (iter.next()) |var_info| {
+            self.allocator.free(var_info.llvm_ptr);
+        }
         self.variables.clearRetainingCapacity();
 
-        // Function signature
+        // Function signature with parameters
         const return_type_str = self.llvmType(func.return_type);
-        try self.output.writer(self.allocator).print("define {s} @{s}() {{\n", .{ return_type_str, func.name });
-        try self.output.appendSlice(self.allocator, "entry:\n");
+        try self.output.writer(self.allocator).print("define {s} @{s}(", .{ return_type_str, func.name });
+
+        // Generate parameter list
+        for (func.params, 0..) |param, i| {
+            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            const param_type_str = self.llvmType(param.param_type);
+            try self.output.writer(self.allocator).print("{s} %{s}", .{ param_type_str, param.name });
+        }
+
+        try self.output.appendSlice(self.allocator, ") {\nentry:\n");
+
+        // Allocate and store parameters
+        for (func.params) |param| {
+            const param_type_str = self.llvmType(param.param_type);
+            const var_name = try std.fmt.allocPrint(self.allocator, "%{s}.addr", .{param.name});
+
+            try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ var_name, param_type_str });
+            try self.output.writer(self.allocator).print("  store {s} %{s}, ptr {s}\n", .{ param_type_str, param.name, var_name });
+
+            try self.variables.put(param.name, .{
+                .llvm_ptr = var_name,
+                .var_type = param.param_type,
+            });
+        }
 
         // Generate body
         for (func.body.items) |stmt| {

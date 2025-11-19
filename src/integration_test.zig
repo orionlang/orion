@@ -446,3 +446,126 @@ test "integration: bool to integer type conversions" {
         try testing.expect(std.mem.indexOf(u8, llvm_ir, "zext i1") != null);
     }
 }
+
+test "integration: function parameters" {
+    const testing = std.testing;
+
+    const source = "fn add(x: I32, y: I32) -> I32 { return x + y }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    // Check function signature
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @add(i32 %x, i32 %y)") != null);
+    
+    // Check parameters are allocated and stored
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%x.addr = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%y.addr = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "store i32 %x, ptr %x.addr") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "store i32 %y, ptr %y.addr") != null);
+    
+    // Check parameters are loaded and used
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32, ptr %x.addr") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32, ptr %y.addr") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "add i32") != null);
+}
+
+test "integration: function with multiple parameter types" {
+    const testing = std.testing;
+
+    const source = "fn mix(a: I64, b: U32, c: I8) -> I64 { return a }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    // Check function signature has all types
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i64 @mix(i64 %a, i32 %b, i8 %c)") != null);
+    
+    // Check all parameters allocated
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%a.addr = alloca i64") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%b.addr = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%c.addr = alloca i8") != null);
+}
+
+test "integration: function with no parameters" {
+    const testing = std.testing;
+
+    const source = "fn get_answer() -> I32 { return 42 }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    // Check function signature with empty parameter list
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @get_answer()") != null);
+}
+
+test "integration: parameter usage in expressions" {
+    const testing = std.testing;
+
+    const source = "fn compute(x: I32, y: I32) -> I32 { let z: I32 = x * y; return z + x }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    // Parameters should be loaded multiple times
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32, ptr %x.addr") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32, ptr %y.addr") != null);
+    
+    // Check operations
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "mul i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "add i32") != null);
+}
+
+test "integration: small integer type parameters" {
+    const testing = std.testing;
+
+    // Test I8 parameters
+    const i8_source = "fn use_i8(x: I8, y: I8) -> I8 { return x }";
+    const i8_ir = try compile(i8_source, testing.allocator);
+    defer testing.allocator.free(i8_ir);
+    try testing.expect(std.mem.indexOf(u8, i8_ir, "define i8 @use_i8(i8 %x, i8 %y)") != null);
+    try testing.expect(std.mem.indexOf(u8, i8_ir, "%x.addr = alloca i8") != null);
+
+    // Test I16 parameters
+    const i16_source = "fn use_i16(a: I16) -> I16 { return a }";
+    const i16_ir = try compile(i16_source, testing.allocator);
+    defer testing.allocator.free(i16_ir);
+    try testing.expect(std.mem.indexOf(u8, i16_ir, "define i16 @use_i16(i16 %a)") != null);
+    try testing.expect(std.mem.indexOf(u8, i16_ir, "%a.addr = alloca i16") != null);
+
+    // Test U8 parameters
+    const u8_source = "fn use_u8(b: U8) -> U8 { return b }";
+    const u8_ir = try compile(u8_source, testing.allocator);
+    defer testing.allocator.free(u8_ir);
+    try testing.expect(std.mem.indexOf(u8, u8_ir, "define i8 @use_u8(i8 %b)") != null);
+
+    // Test U16 parameters
+    const u16_source = "fn use_u16(c: U16) -> U16 { return c }";
+    const u16_ir = try compile(u16_source, testing.allocator);
+    defer testing.allocator.free(u16_ir);
+    try testing.expect(std.mem.indexOf(u8, u16_ir, "define i16 @use_u16(i16 %c)") != null);
+}
+
+test "integration: operations with small integer parameters" {
+    const testing = std.testing;
+
+    // Test I8 arithmetic
+    const i8_source = "fn add_i8(x: I8, y: I8) -> I8 { return x + y }";
+    const i8_ir = try compile(i8_source, testing.allocator);
+    defer testing.allocator.free(i8_ir);
+    try testing.expect(std.mem.indexOf(u8, i8_ir, "add i8") != null);
+
+    // Test U16 arithmetic
+    const u16_source = "fn mul_u16(a: U16, b: U16) -> U16 { return a * b }";
+    const u16_ir = try compile(u16_source, testing.allocator);
+    defer testing.allocator.free(u16_ir);
+    try testing.expect(std.mem.indexOf(u8, u16_ir, "mul i16") != null);
+
+    // Test signed division on I16
+    const i16_div = "fn div_i16(x: I16, y: I16) -> I16 { return x / y }";
+    const i16_ir = try compile(i16_div, testing.allocator);
+    defer testing.allocator.free(i16_ir);
+    try testing.expect(std.mem.indexOf(u8, i16_ir, "sdiv i16") != null);
+
+    // Test unsigned division on U8
+    const u8_div = "fn div_u8(x: U8, y: U8) -> U8 { return x / y }";
+    const u8_ir = try compile(u8_div, testing.allocator);
+    defer testing.allocator.free(u8_ir);
+    try testing.expect(std.mem.indexOf(u8, u8_ir, "udiv i8") != null);
+}

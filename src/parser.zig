@@ -112,6 +112,11 @@ pub const Expr = union(enum) {
     },
 };
 
+pub const Param = struct {
+    name: []const u8,
+    param_type: Type,
+};
+
 pub const Stmt = union(enum) {
     let_binding: struct {
         name: []const u8,
@@ -123,11 +128,12 @@ pub const Stmt = union(enum) {
 
 pub const FunctionDecl = struct {
     name: []const u8,
-    params: []const u8,
+    params: []Param,
     return_type: Type,
     body: std.ArrayList(Stmt),
 
     pub fn deinit(self: *FunctionDecl, allocator: std.mem.Allocator) void {
+        allocator.free(self.params);
         for (self.body.items) |*stmt| {
             switch (stmt.*) {
                 .let_binding => |binding| {
@@ -198,27 +204,42 @@ pub const Parser = struct {
     }
 
     fn parseFunction(self: *Parser) !FunctionDecl {
-        // fn
         _ = try self.expect(.fn_keyword);
 
-        // name
         const name_token = try self.expect(.identifier);
         const name = name_token.lexeme;
 
-        // ()
         _ = try self.expect(.left_paren);
+
+        // Parse parameters: param_name: Type, param_name: Type, ...
+        var params: std.ArrayList(Param) = .empty;
+        errdefer params.deinit(self.allocator);
+
+        if (!self.check(.right_paren)) {
+            while (true) {
+                const param_name = try self.expect(.identifier);
+                _ = try self.expect(.colon);
+                const param_type = try self.parseType();
+
+                try params.append(self.allocator, Param{
+                    .name = param_name.lexeme,
+                    .param_type = param_type,
+                });
+
+                if (!self.check(.comma)) break;
+                _ = try self.expect(.comma);
+            }
+        }
+
         _ = try self.expect(.right_paren);
 
-        // -> I32
         _ = try self.expect(.arrow);
         const return_type = try self.parseType();
 
-        // { body }
         _ = try self.expect(.left_brace);
         var body: std.ArrayList(Stmt) = .empty;
         errdefer body.deinit(self.allocator);
 
-        // Parse statements until we hit closing brace
         while (!self.check(.right_brace)) {
             const stmt = try self.parseStatement();
             try body.append(self.allocator, stmt);
@@ -228,7 +249,7 @@ pub const Parser = struct {
 
         return FunctionDecl{
             .name = name,
-            .params = "",
+            .params = try params.toOwnedSlice(self.allocator),
             .return_type = return_type,
             .body = body,
         };

@@ -19,6 +19,7 @@ pub const TokenKind = enum {
     right_brace,
     arrow, // ->
     colon,
+    comma,
     semicolon,
     equal,
 
@@ -113,6 +114,7 @@ pub const Lexer = struct {
             '^' => return self.makeToken(.caret, start_pos, start_line, start_column),
             '~' => return self.makeToken(.tilde, start_pos, start_line, start_column),
             ':' => return self.makeToken(.colon, start_pos, start_line, start_column),
+            ',' => return self.makeToken(.comma, start_pos, start_line, start_column),
             ';' => return self.makeToken(.semicolon, start_pos, start_line, start_column),
             '-' => {
                 if (self.match('>')) {
