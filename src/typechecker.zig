@@ -46,9 +46,18 @@ pub const TypeChecker = struct {
     }
 
     fn inferExprType(self: *TypeChecker, expr: *const Expr) !Type {
-        _ = self;
         switch (expr.*) {
             .integer_literal => return .i32,
+            .binary_op => |binop| {
+                const left_type = try self.inferExprType(binop.left);
+                const right_type = try self.inferExprType(binop.right);
+
+                // For now, all binary ops require matching i32 operands and return i32
+                if (!self.typesMatch(left_type, .i32) or !self.typesMatch(right_type, .i32)) {
+                    return error.TypeMismatch;
+                }
+                return .i32;
+            },
         }
     }
 

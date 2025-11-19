@@ -18,6 +18,29 @@ pub const TokenKind = enum {
     right_brace,
     arrow, // ->
 
+    // Binary operators
+    plus,
+    minus,
+    star,
+    slash,
+    percent,
+    equal_equal,
+    bang_equal,
+    less,
+    greater,
+    less_equal,
+    greater_equal,
+    ampersand_ampersand,
+    pipe_pipe,
+    ampersand,
+    pipe,
+    caret,
+    less_less,
+    greater_greater,
+
+    // Unary operators
+    bang,
+
     // Special
     eof,
 };
@@ -78,11 +101,56 @@ pub const Lexer = struct {
             ')' => return self.makeToken(.right_paren, start_pos, start_line, start_column),
             '{' => return self.makeToken(.left_brace, start_pos, start_line, start_column),
             '}' => return self.makeToken(.right_brace, start_pos, start_line, start_column),
+            '+' => return self.makeToken(.plus, start_pos, start_line, start_column),
+            '*' => return self.makeToken(.star, start_pos, start_line, start_column),
+            '/' => return self.makeToken(.slash, start_pos, start_line, start_column),
+            '%' => return self.makeToken(.percent, start_pos, start_line, start_column),
+            '^' => return self.makeToken(.caret, start_pos, start_line, start_column),
             '-' => {
                 if (self.match('>')) {
                     return self.makeToken(.arrow, start_pos, start_line, start_column);
                 }
+                return self.makeToken(.minus, start_pos, start_line, start_column);
+            },
+            '=' => {
+                if (self.match('=')) {
+                    return self.makeToken(.equal_equal, start_pos, start_line, start_column);
+                }
                 return error.UnexpectedCharacter;
+            },
+            '!' => {
+                if (self.match('=')) {
+                    return self.makeToken(.bang_equal, start_pos, start_line, start_column);
+                }
+                return self.makeToken(.bang, start_pos, start_line, start_column);
+            },
+            '<' => {
+                if (self.match('=')) {
+                    return self.makeToken(.less_equal, start_pos, start_line, start_column);
+                } else if (self.match('<')) {
+                    return self.makeToken(.less_less, start_pos, start_line, start_column);
+                }
+                return self.makeToken(.less, start_pos, start_line, start_column);
+            },
+            '>' => {
+                if (self.match('=')) {
+                    return self.makeToken(.greater_equal, start_pos, start_line, start_column);
+                } else if (self.match('>')) {
+                    return self.makeToken(.greater_greater, start_pos, start_line, start_column);
+                }
+                return self.makeToken(.greater, start_pos, start_line, start_column);
+            },
+            '&' => {
+                if (self.match('&')) {
+                    return self.makeToken(.ampersand_ampersand, start_pos, start_line, start_column);
+                }
+                return self.makeToken(.ampersand, start_pos, start_line, start_column);
+            },
+            '|' => {
+                if (self.match('|')) {
+                    return self.makeToken(.pipe_pipe, start_pos, start_line, start_column);
+                }
+                return self.makeToken(.pipe, start_pos, start_line, start_column);
             },
             '0'...'9' => {
                 while (!self.isAtEnd() and std.ascii.isDigit(self.peek())) {
