@@ -6,13 +6,17 @@ const Expr = parser.Expr;
 
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
+    variables: std.StringHashMap(Type),
 
     pub fn init(allocator: std.mem.Allocator) TypeChecker {
-        return .{ .allocator = allocator };
+        return .{
+            .allocator = allocator,
+            .variables = std.StringHashMap(Type).init(allocator),
+        };
     }
 
     pub fn deinit(self: *TypeChecker) void {
-        _ = self;
+        self.variables.deinit();
     }
 
     pub fn check(self: *TypeChecker, ast: *const AST) !void {
@@ -22,14 +26,35 @@ pub const TypeChecker = struct {
     }
 
     fn checkFunction(self: *TypeChecker, func: *const parser.FunctionDecl) !void {
+        // Clear variables from previous function
+        self.variables.clearRetainingCapacity();
+
         // Check that function has a body
         if (func.body.items.len == 0) {
             return error.EmptyFunctionBody;
         }
 
-        // For now, just check the return statement
+        // Check all statements
         for (func.body.items) |stmt| {
             switch (stmt) {
+                .let_binding => |binding| {
+                    const value_type = try self.inferExprType(binding.value);
+
+                    // Check type annotation if provided
+                    if (binding.type_annotation) |expected_type| {
+                        if (!self.typesMatch(value_type, expected_type)) {
+                            std.debug.print("Type mismatch in let binding '{s}': expected {s}, got {s}\n", .{
+                                binding.name,
+                                @tagName(expected_type),
+                                @tagName(value_type),
+                            });
+                            return error.TypeMismatch;
+                        }
+                    }
+
+                    // Add variable to environment
+                    try self.variables.put(binding.name, value_type);
+                },
                 .return_stmt => |expr| {
                     const expr_type = try self.inferExprType(expr);
                     // Allow Bool -> I32 implicit conversion
@@ -52,6 +77,13 @@ pub const TypeChecker = struct {
     fn inferExprType(self: *TypeChecker, expr: *const Expr) !Type {
         switch (expr.*) {
             .integer_literal => return .i32,
+            .variable => |name| {
+                if (self.variables.get(name)) |var_type| {
+                    return var_type;
+                }
+                std.debug.print("Undefined variable: {s}\n", .{name});
+                return error.UndefinedVariable;
+            },
             .binary_op => |binop| {
                 const left_type = try self.inferExprType(binop.left);
                 const right_type = try self.inferExprType(binop.right);

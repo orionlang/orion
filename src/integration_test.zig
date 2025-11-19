@@ -158,3 +158,66 @@ test "integration: bitwise operators" {
         try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @f()") != null);
     }
 }
+
+test "integration: let binding without type annotation" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let x = 42; return x }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "store i32 42") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32") != null);
+}
+
+test "integration: let binding with type annotation" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let x: I32 = 10; return x }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "store i32 10") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32") != null);
+}
+
+test "integration: multiple let bindings" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let x = 10; let y = 20; return x + y }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%x = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%y = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "store i32 10, ptr %x") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "store i32 20, ptr %y") != null);
+}
+
+test "integration: let binding with expression" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let x = 5 + 3; return x * 2 }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "add i32 5, 3") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "mul i32") != null);
+}
+
+test "integration: let binding with bool type" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let x: Bool = 5 > 3; return x }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "alloca i1") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "icmp sgt") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "store i1") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i1") != null);
+}

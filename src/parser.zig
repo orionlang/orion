@@ -60,6 +60,7 @@ pub const UnaryOp = enum {
 
 pub const Expr = union(enum) {
     integer_literal: i32,
+    variable: []const u8,
     binary_op: struct {
         op: BinaryOp,
         left: *Expr,
@@ -72,8 +73,12 @@ pub const Expr = union(enum) {
 };
 
 pub const Stmt = union(enum) {
+    let_binding: struct {
+        name: []const u8,
+        type_annotation: ?Type,
+        value: *Expr,
+    },
     return_stmt: *Expr,
-    // More statements later
 };
 
 pub const FunctionDecl = struct {
@@ -85,6 +90,10 @@ pub const FunctionDecl = struct {
     pub fn deinit(self: *FunctionDecl, allocator: std.mem.Allocator) void {
         for (self.body.items) |*stmt| {
             switch (stmt.*) {
+                .let_binding => |binding| {
+                    deinitExpr(allocator, binding.value);
+                    allocator.destroy(binding.value);
+                },
                 .return_stmt => |expr| {
                     deinitExpr(allocator, expr);
                     allocator.destroy(expr);
@@ -97,6 +106,7 @@ pub const FunctionDecl = struct {
     fn deinitExpr(allocator: std.mem.Allocator, expr: *Expr) void {
         switch (expr.*) {
             .integer_literal => {},
+            .variable => {},
             .binary_op => |binop| {
                 deinitExpr(allocator, binop.left);
                 allocator.destroy(binop.left);
@@ -168,9 +178,11 @@ pub const Parser = struct {
         var body: std.ArrayList(Stmt) = .empty;
         errdefer body.deinit(self.allocator);
 
-        // For now, just parse a single return statement
-        const stmt = try self.parseStatement();
-        try body.append(self.allocator, stmt);
+        // Parse statements until we hit closing brace
+        while (!self.check(.right_brace)) {
+            const stmt = try self.parseStatement();
+            try body.append(self.allocator, stmt);
+        }
 
         _ = try self.expect(.right_brace);
 
@@ -194,10 +206,38 @@ pub const Parser = struct {
     }
 
     fn parseStatement(self: *Parser) !Stmt {
+        if (self.check(.let_keyword)) {
+            return try self.parseLetBinding();
+        }
         if (self.check(.return_keyword)) {
             return try self.parseReturnStatement();
         }
         return error.ExpectedStatement;
+    }
+
+    fn parseLetBinding(self: *Parser) !Stmt {
+        _ = try self.expect(.let_keyword);
+        const name_token = try self.expect(.identifier);
+
+        var type_annotation: ?Type = null;
+        if (self.check(.colon)) {
+            _ = try self.expect(.colon);
+            type_annotation = try self.parseType();
+        }
+
+        _ = try self.expect(.equal);
+
+        const value_ptr = try self.allocator.create(Expr);
+        errdefer self.allocator.destroy(value_ptr);
+        value_ptr.* = try self.parseExpression();
+
+        _ = try self.expect(.semicolon);
+
+        return .{ .let_binding = .{
+            .name = name_token.lexeme,
+            .type_annotation = type_annotation,
+            .value = value_ptr,
+        } };
     }
 
     fn parseReturnStatement(self: *Parser) !Stmt {
@@ -403,6 +443,11 @@ pub const Parser = struct {
             const token = try self.expect(.integer);
             const value = try std.fmt.parseInt(i32, token.lexeme, 10);
             return .{ .integer_literal = value };
+        }
+
+        if (self.check(.identifier)) {
+            const token = try self.expect(.identifier);
+            return .{ .variable = token.lexeme };
         }
 
         if (self.check(.left_paren)) {

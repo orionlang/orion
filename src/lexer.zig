@@ -4,6 +4,7 @@ pub const TokenKind = enum {
     // Keywords
     fn_keyword,
     return_keyword,
+    let_keyword,
 
     // Literals
     integer,
@@ -17,6 +18,9 @@ pub const TokenKind = enum {
     left_brace,
     right_brace,
     arrow, // ->
+    colon,
+    semicolon,
+    equal,
 
     // Binary operators
     plus,
@@ -108,6 +112,8 @@ pub const Lexer = struct {
             '%' => return self.makeToken(.percent, start_pos, start_line, start_column),
             '^' => return self.makeToken(.caret, start_pos, start_line, start_column),
             '~' => return self.makeToken(.tilde, start_pos, start_line, start_column),
+            ':' => return self.makeToken(.colon, start_pos, start_line, start_column),
+            ';' => return self.makeToken(.semicolon, start_pos, start_line, start_column),
             '-' => {
                 if (self.match('>')) {
                     return self.makeToken(.arrow, start_pos, start_line, start_column);
@@ -118,7 +124,7 @@ pub const Lexer = struct {
                 if (self.match('=')) {
                     return self.makeToken(.equal_equal, start_pos, start_line, start_column);
                 }
-                return error.UnexpectedCharacter;
+                return self.makeToken(.equal, start_pos, start_line, start_column);
             },
             '!' => {
                 if (self.match('=')) {
@@ -185,6 +191,7 @@ pub const Lexer = struct {
         _ = self;
         if (std.mem.eql(u8, lexeme, "fn")) return .fn_keyword;
         if (std.mem.eql(u8, lexeme, "return")) return .return_keyword;
+        if (std.mem.eql(u8, lexeme, "let")) return .let_keyword;
         return .identifier;
     }
 

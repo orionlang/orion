@@ -5,21 +5,35 @@ const Type = parser.Type;
 const Expr = parser.Expr;
 const Stmt = parser.Stmt;
 
+const VarInfo = struct {
+    llvm_ptr: []const u8,
+    var_type: Type,
+};
+
 pub const Codegen = struct {
     allocator: std.mem.Allocator,
     output: std.ArrayList(u8),
     next_temp: usize,
+    variables: std.StringHashMap(VarInfo),
 
     pub fn init(allocator: std.mem.Allocator) Codegen {
         return .{
             .allocator = allocator,
             .output = .empty,
             .next_temp = 0,
+            .variables = std.StringHashMap(VarInfo).init(allocator),
         };
     }
 
     pub fn deinit(self: *Codegen) void {
+        // Free all allocated variable names
+        var iter = self.variables.valueIterator();
+        while (iter.next()) |var_info| {
+            self.allocator.free(var_info.llvm_ptr);
+        }
+
         self.output.deinit(self.allocator);
+        self.variables.deinit();
     }
 
     pub fn generate(self: *Codegen, ast: *const AST) ![]const u8 {
@@ -55,6 +69,9 @@ pub const Codegen = struct {
     }
 
     fn generateFunction(self: *Codegen, func: *const parser.FunctionDecl) !void {
+        // Clear variables from previous function
+        self.variables.clearRetainingCapacity();
+
         // Function signature
         const return_type_str = self.llvmType(func.return_type);
         try self.output.writer(self.allocator).print("define {s} @{s}() {{\n", .{ return_type_str, func.name });
@@ -70,6 +87,31 @@ pub const Codegen = struct {
 
     fn generateStatement(self: *Codegen, stmt: *const Stmt, return_type: Type) !void {
         switch (stmt.*) {
+            .let_binding => |binding| {
+                // Infer the type of the value
+                const value_expr_type = self.inferExprType(binding.value);
+
+                // If type annotation provided, use it; otherwise use inferred type
+                const var_type = binding.type_annotation orelse value_expr_type;
+                const llvm_type_str = self.llvmType(var_type);
+
+                // Allocate stack slot for variable
+                const var_name = try std.fmt.allocPrint(self.allocator, "%{s}", .{binding.name});
+                try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ var_name, llvm_type_str });
+
+                // Generate value expression
+                const value = try self.generateExpression(binding.value);
+                defer self.allocator.free(value);
+
+                // Store value in variable
+                try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ llvm_type_str, value, var_name });
+
+                // Remember variable for later references (reuse var_name, no duplication needed)
+                try self.variables.put(binding.name, .{
+                    .llvm_ptr = var_name,
+                    .var_type = var_type,
+                });
+            },
             .return_stmt => |expr| {
                 const value = try self.generateExpression(expr);
                 defer self.allocator.free(value);
@@ -94,6 +136,17 @@ pub const Codegen = struct {
         switch (expr.*) {
             .integer_literal => |value| {
                 return try std.fmt.allocPrint(self.allocator, "{d}", .{value});
+            },
+            .variable => |name| {
+                // Load variable from stack
+                const var_info = self.variables.get(name).?;
+                const temp_name = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
+                self.next_temp += 1;
+
+                const llvm_type_str = self.llvmType(var_info.var_type);
+                try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ temp_name, llvm_type_str, var_info.llvm_ptr });
+
+                return temp_name;
             },
             .binary_op => |binop| {
                 const left_val = try self.generateExpression(binop.left);
@@ -157,17 +210,25 @@ pub const Codegen = struct {
         }
     }
 
-    fn llvmTypeForExpr(self: *Codegen, expr: *const Expr) []const u8 {
-        _ = self;
+    fn inferExprType(self: *Codegen, expr: *const Expr) Type {
         switch (expr.*) {
-            .integer_literal => return "i32",
+            .integer_literal => return .i32,
+            .variable => |name| {
+                const var_info = self.variables.get(name).?;
+                return var_info.var_type;
+            },
             .binary_op => |binop| {
-                return if (binop.op.returns_bool()) "i1" else "i32";
+                return if (binop.op.returns_bool()) .bool else .i32;
             },
             .unary_op => |unop| {
-                return if (unop.op.returns_bool()) "i1" else "i32";
+                return if (unop.op.returns_bool()) .bool else .i32;
             },
         }
+    }
+
+    fn llvmTypeForExpr(self: *Codegen, expr: *const Expr) []const u8 {
+        const expr_type = self.inferExprType(expr);
+        return self.llvmType(expr_type);
     }
 
     fn llvmUnaryOp(self: *Codegen, op: parser.UnaryOp) []const u8 {
