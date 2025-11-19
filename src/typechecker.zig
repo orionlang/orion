@@ -4,22 +4,47 @@ const AST = parser.AST;
 const Type = parser.Type;
 const Expr = parser.Expr;
 
+const FunctionSignature = struct {
+    params: []const Type,
+    return_type: Type,
+};
+
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     variables: std.StringHashMap(Type),
+    functions: std.StringHashMap(FunctionSignature),
 
     pub fn init(allocator: std.mem.Allocator) TypeChecker {
         return .{
             .allocator = allocator,
             .variables = std.StringHashMap(Type).init(allocator),
+            .functions = std.StringHashMap(FunctionSignature).init(allocator),
         };
     }
 
     pub fn deinit(self: *TypeChecker) void {
+        var iter = self.functions.valueIterator();
+        while (iter.next()) |sig| {
+            self.allocator.free(sig.params);
+        }
         self.variables.deinit();
+        self.functions.deinit();
     }
 
     pub fn check(self: *TypeChecker, ast: *const AST) !void {
+        // First pass: collect function signatures
+        for (ast.functions.items) |func| {
+            const param_types = try self.allocator.alloc(Type, func.params.len);
+            for (func.params, 0..) |param, i| {
+                param_types[i] = param.param_type;
+            }
+            try self.functions.put(func.name, .{
+                .params = param_types,
+                .return_type = func.return_type,
+            });
+        }
+
+        // Second pass: check function bodies
         for (ast.functions.items) |func| {
             try self.checkFunction(&func);
         }
@@ -116,6 +141,41 @@ pub const TypeChecker = struct {
 
                 // Comparison operators return bool, arithmetic operators preserve type
                 return if (unop.op.returns_bool()) .bool else operand_type;
+            },
+            .function_call => |call| {
+                // Look up function signature
+                const sig = self.functions.get(call.name) orelse {
+                    std.debug.print("Undefined function: {s}\n", .{call.name});
+                    return error.UndefinedFunction;
+                };
+
+                // Check argument count
+                if (call.args.len != sig.params.len) {
+                    std.debug.print("Function {s} expects {d} arguments, got {d}\n", .{
+                        call.name,
+                        sig.params.len,
+                        call.args.len,
+                    });
+                    return error.ArgumentCountMismatch;
+                }
+
+                // Check argument types
+                for (call.args, 0..) |arg, i| {
+                    const arg_type = try self.inferExprType(arg);
+                    const expected_type = sig.params[i];
+
+                    if (!self.canImplicitlyConvert(arg_type, expected_type)) {
+                        std.debug.print("Function {s} argument {d}: expected {s}, got {s}\n", .{
+                            call.name,
+                            i,
+                            @tagName(expected_type),
+                            @tagName(arg_type),
+                        });
+                        return error.TypeMismatch;
+                    }
+                }
+
+                return sig.return_type;
             },
         }
     }

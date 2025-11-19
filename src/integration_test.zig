@@ -569,3 +569,181 @@ test "integration: operations with small integer parameters" {
     defer testing.allocator.free(u8_ir);
     try testing.expect(std.mem.indexOf(u8, u8_ir, "udiv i8") != null);
 }
+
+test "integration: simple function call" {
+    const testing = std.testing;
+
+    const source =
+        \\fn add(x: I32, y: I32) -> I32 { return x + y }
+        \\fn main() -> I32 { return add(10, 20) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check that add function exists with parameters
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @add(i32 %x, i32 %y)") != null);
+
+    // Check that main calls add with arguments
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @add(i32 10, i32 20)") != null);
+}
+
+test "integration: function call with variables" {
+    const testing = std.testing;
+
+    const source =
+        \\fn add(x: I32, y: I32) -> I32 { return x + y }
+        \\fn main() -> I32 { let a: I32 = 5; let b: I32 = 7; return add(a, b) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check that add is called (variables will be loaded first)
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @add(") != null);
+}
+
+test "integration: multiple function calls" {
+    const testing = std.testing;
+
+    const source =
+        \\fn add(x: I32, y: I32) -> I32 { return x + y }
+        \\fn mul(x: I32, y: I32) -> I32 { return x * y }
+        \\fn main() -> I32 { return add(mul(2, 3), mul(4, 5)) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check both functions exist
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @add(") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @mul(") != null);
+
+    // Check nested calls exist
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @mul(i32 2, i32 3)") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @mul(i32 4, i32 5)") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @add(") != null);
+}
+
+test "integration: function call with no arguments" {
+    const testing = std.testing;
+
+    const source =
+        \\fn get_answer() -> I32 { return 42 }
+        \\fn main() -> I32 { return get_answer() }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check that get_answer is called with no arguments
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @get_answer()") != null);
+}
+
+test "integration: function call with different types" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_i64(x: I64) -> I64 { return x }
+        \\fn use_i32(x: I32) -> I32 { return x }
+        \\fn main() -> I32 { let a: I64 = 100; return 0 }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function signatures
+    try testing.expect(std.mem.indexOf(u8, ir, "define i64 @use_i64(i64 %x)") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @use_i32(i32 %x)") != null);
+}
+
+test "integration: recursive function call" {
+    const testing = std.testing;
+
+    const source =
+        \\fn factorial(n: I32) -> I32 { return n * factorial(n - 1) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check that factorial calls itself
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @factorial(") != null);
+}
+
+test "integration: function call with small integer types" {
+    const testing = std.testing;
+
+    const source =
+        \\fn add_i8(x: I8, y: I8) -> I8 { return x + y }
+        \\fn main() -> I32 { return 0 }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function signature with I8 parameters
+    try testing.expect(std.mem.indexOf(u8, ir, "define i8 @add_i8(i8 %x, i8 %y)") != null);
+}
+
+test "integration: function call in let binding" {
+    const testing = std.testing;
+
+    const source =
+        \\fn mul(x: I32, y: I32) -> I32 { return x * y }
+        \\fn main() -> I32 { let result: I32 = mul(6, 7); return result }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check that mul is called
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @mul(i32 6, i32 7)") != null);
+    // Check result is allocated and result is loaded
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "load i32") != null);
+}
+
+test "integration: function call in binary operation" {
+    const testing = std.testing;
+
+    const source =
+        \\fn get_five() -> I32 { return 5 }
+        \\fn get_ten() -> I32 { return 10 }
+        \\fn main() -> I32 { return get_five() + get_ten() }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check both functions are called
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @get_five()") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @get_ten()") != null);
+    // Check addition of results
+    try testing.expect(std.mem.indexOf(u8, ir, "add i32") != null);
+}
+
+test "integration: function call with mixed arguments" {
+    const testing = std.testing;
+
+    const source =
+        \\fn calc(a: I32, b: I32, c: I32) -> I32 { return a + b + c }
+        \\fn main() -> I32 { let x: I32 = 10; return calc(x, 20, x) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function signature
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @calc(i32 %a, i32 %b, i32 %c)") != null);
+    // Check that calc is called
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @calc(") != null);
+}
+
+test "integration: function returning different small types" {
+    const testing = std.testing;
+
+    const source =
+        \\fn get_u8(x: U8) -> U8 { return x }
+        \\fn get_i16(x: I16) -> I16 { return x }
+        \\fn get_u32(x: U32) -> U32 { return x }
+        \\fn main() -> I32 { return 0 }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check all function signatures
+    try testing.expect(std.mem.indexOf(u8, ir, "define i8 @get_u8(i8 %x)") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "define i16 @get_i16(i16 %x)") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @get_u32(i32 %x)") != null);
+}

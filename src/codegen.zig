@@ -10,11 +10,16 @@ const VarInfo = struct {
     var_type: Type,
 };
 
+const FunctionInfo = struct {
+    return_type: Type,
+};
+
 pub const Codegen = struct {
     allocator: std.mem.Allocator,
     output: std.ArrayList(u8),
     next_temp: usize,
     variables: std.StringHashMap(VarInfo),
+    functions: std.StringHashMap(FunctionInfo),
 
     pub fn init(allocator: std.mem.Allocator) Codegen {
         return .{
@@ -22,6 +27,7 @@ pub const Codegen = struct {
             .output = .empty,
             .next_temp = 0,
             .variables = std.StringHashMap(VarInfo).init(allocator),
+            .functions = std.StringHashMap(FunctionInfo).init(allocator),
         };
     }
 
@@ -34,6 +40,7 @@ pub const Codegen = struct {
 
         self.output.deinit(self.allocator);
         self.variables.deinit();
+        self.functions.deinit();
     }
 
     fn allocTempName(self: *Codegen) ![]const u8 {
@@ -43,6 +50,13 @@ pub const Codegen = struct {
     }
 
     pub fn generate(self: *Codegen, ast: *const AST) ![]const u8 {
+        // First pass: collect function signatures
+        for (ast.functions.items) |func| {
+            try self.functions.put(func.name, .{
+                .return_type = func.return_type,
+            });
+        }
+
         // LLVM IR header
         try self.output.appendSlice(self.allocator, "; Bootstrap Orion Compiler Output\n");
         try self.output.appendSlice(self.allocator, "target triple = \"x86_64-pc-linux-gnu\"\n\n");
@@ -251,6 +265,45 @@ pub const Codegen = struct {
 
                 return try self.allocator.dupe(u8, temp_name);
             },
+            .function_call => |call| {
+                // Evaluate arguments
+                var arg_values = try self.allocator.alloc([]const u8, call.args.len);
+                defer {
+                    for (arg_values) |val| {
+                        self.allocator.free(val);
+                    }
+                    self.allocator.free(arg_values);
+                }
+
+                for (call.args, 0..) |arg, i| {
+                    arg_values[i] = try self.generateExpression(arg);
+                }
+
+                // Get function return type from the function we're calling
+                const return_type = self.inferExprType(expr);
+                const return_type_str = self.llvmType(return_type);
+
+                // Generate call instruction
+                const temp_name = try self.allocTempName();
+                defer self.allocator.free(temp_name);
+
+                try self.output.writer(self.allocator).print("  {s} = call {s} @{s}(", .{
+                    temp_name,
+                    return_type_str,
+                    call.name,
+                });
+
+                for (arg_values, 0..) |arg_val, i| {
+                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                    const arg_type = self.inferExprType(call.args[i]);
+                    const arg_type_str = self.llvmType(arg_type);
+                    try self.output.writer(self.allocator).print("{s} {s}", .{ arg_type_str, arg_val });
+                }
+
+                try self.output.appendSlice(self.allocator, ")\n");
+
+                return try self.allocator.dupe(u8, temp_name);
+            },
         }
     }
 
@@ -286,10 +339,16 @@ pub const Codegen = struct {
                 return .i32;
             },
             .binary_op => |binop| {
-                return if (binop.op.returns_bool()) .bool else .i32;
+                return if (binop.op.returns_bool()) .bool else self.inferExprType(binop.left);
             },
             .unary_op => |unop| {
-                return if (unop.op.returns_bool()) .bool else .i32;
+                return if (unop.op.returns_bool()) .bool else self.inferExprType(unop.operand);
+            },
+            .function_call => |call| {
+                if (self.functions.get(call.name)) |func_info| {
+                    return func_info.return_type;
+                }
+                return .i32;
             },
         }
     }

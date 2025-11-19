@@ -110,6 +110,10 @@ pub const Expr = union(enum) {
         op: UnaryOp,
         operand: *Expr,
     },
+    function_call: struct {
+        name: []const u8,
+        args: []*Expr,
+    },
 };
 
 pub const Param = struct {
@@ -162,6 +166,13 @@ pub const FunctionDecl = struct {
             .unary_op => |unop| {
                 deinitExpr(allocator, unop.operand);
                 allocator.destroy(unop.operand);
+            },
+            .function_call => |call| {
+                for (call.args) |arg| {
+                    deinitExpr(allocator, arg);
+                    allocator.destroy(arg);
+                }
+                allocator.free(call.args);
             },
         }
     }
@@ -514,6 +525,44 @@ pub const Parser = struct {
 
         if (self.check(.identifier)) {
             const token = try self.expect(.identifier);
+
+            // Check if this is a function call
+            if (self.check(.left_paren)) {
+                _ = try self.expect(.left_paren);
+
+                // Parse arguments
+                var args: std.ArrayList(*Expr) = .empty;
+                errdefer {
+                    for (args.items) |arg| {
+                        FunctionDecl.deinitExpr(self.allocator, arg);
+                        self.allocator.destroy(arg);
+                    }
+                    args.deinit(self.allocator);
+                }
+
+                if (!self.check(.right_paren)) {
+                    while (true) {
+                        const arg_expr = try self.parseExpression();
+                        const arg_ptr = try self.allocator.create(Expr);
+                        arg_ptr.* = arg_expr;
+                        try args.append(self.allocator, arg_ptr);
+
+                        if (!self.check(.comma)) break;
+                        _ = try self.expect(.comma);
+                    }
+                }
+
+                _ = try self.expect(.right_paren);
+
+                return .{
+                    .function_call = .{
+                        .name = token.lexeme,
+                        .args = try args.toOwnedSlice(self.allocator),
+                    },
+                };
+            }
+
+            // Just a variable
             return .{ .variable = token.lexeme };
         }
 
