@@ -28,6 +28,7 @@ pub const Codegen = struct {
     next_temp: usize,
     variables: std.StringHashMap(VarInfo),
     functions: std.StringHashMap(FunctionInfo),
+    type_defs: std.StringHashMap(Type),
     current_block: ?[]const u8,
     inferred_types: std.ArrayList(Type),
 
@@ -38,6 +39,7 @@ pub const Codegen = struct {
             .next_temp = 0,
             .variables = std.StringHashMap(VarInfo).init(allocator),
             .functions = std.StringHashMap(FunctionInfo).init(allocator),
+            .type_defs = std.StringHashMap(Type).init(allocator),
             .current_block = null,
             .inferred_types = .empty,
         };
@@ -63,6 +65,7 @@ pub const Codegen = struct {
         self.output.deinit(self.allocator);
         self.variables.deinit();
         self.functions.deinit();
+        self.type_defs.deinit();
     }
 
     fn allocTempName(self: *Codegen) ![]const u8 {
@@ -97,7 +100,12 @@ pub const Codegen = struct {
     }
 
     pub fn generate(self: *Codegen, ast: *const AST) ![]const u8 {
-        // First pass: collect function signatures
+        // First pass: collect type definitions
+        for (ast.type_defs.items) |typedef| {
+            try self.type_defs.put(typedef.name, typedef.type_value);
+        }
+
+        // Second pass: collect function signatures
         for (ast.functions.items) |func| {
             try self.functions.put(func.name, .{
                 .return_type = func.return_type,
@@ -589,6 +597,81 @@ pub const Codegen = struct {
                     return try self.unitValue();
                 }
             },
+            .struct_literal => |lit| {
+                const struct_type = self.inferExprType(expr);
+                const struct_type_str = try self.llvmTypeString(struct_type);
+                defer self.allocator.free(struct_type_str);
+
+                const typedef = self.type_defs.get(lit.type_name) orelse unreachable;
+
+                var current_val: []const u8 = try std.fmt.allocPrint(self.allocator, "undef", .{});
+
+                for (typedef.struct_type, 0..) |type_field, field_idx| {
+                    var field_value: ?[]const u8 = null;
+                    for (lit.fields) |lit_field| {
+                        if (std.mem.eql(u8, lit_field.name, type_field.name)) {
+                            field_value = try self.generateExpression(lit_field.value);
+                            break;
+                        }
+                    }
+                    const field_val = field_value orelse unreachable;
+                    defer self.allocator.free(field_val);
+
+                    const field_type = type_field.field_type.*;
+                    const field_type_str = try self.llvmTypeString(field_type);
+                    defer self.allocator.free(field_type_str);
+
+                    const temp = try self.allocTempName();
+                    try self.output.writer(self.allocator).print("  {s} = insertvalue {s} {s}, {s} {s}, {d}\n", .{
+                        temp,
+                        struct_type_str,
+                        current_val,
+                        field_type_str,
+                        field_val,
+                        field_idx,
+                    });
+
+                    if (field_idx < typedef.struct_type.len - 1) {
+                        self.allocator.free(current_val);
+                        current_val = try self.allocator.dupe(u8, temp);
+                        self.allocator.free(temp);
+                    } else {
+                        self.allocator.free(current_val);
+                        return temp;
+                    }
+                }
+
+                self.allocator.free(current_val);
+                return try std.fmt.allocPrint(self.allocator, "undef", .{});
+            },
+            .field_access => |access| {
+                const object_val = try self.generateExpression(access.object);
+                defer self.allocator.free(object_val);
+
+                const object_type = self.inferExprType(access.object);
+                const object_type_str = try self.llvmTypeString(object_type);
+                defer self.allocator.free(object_type_str);
+
+                const typedef = self.type_defs.get(object_type.named) orelse unreachable;
+
+                var field_idx: usize = 0;
+                for (typedef.struct_type, 0..) |field, idx| {
+                    if (std.mem.eql(u8, field.name, access.field_name)) {
+                        field_idx = idx;
+                        break;
+                    }
+                }
+
+                const temp = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = extractvalue {s} {s}, {d}\n", .{
+                    temp,
+                    object_type_str,
+                    object_val,
+                    field_idx,
+                });
+
+                return temp;
+            },
         }
     }
 
@@ -653,6 +736,25 @@ pub const Codegen = struct {
                 try type_parts.appendSlice(self.allocator, " }");
                 return try type_parts.toOwnedSlice(self.allocator);
             },
+            .struct_type => |fields| {
+                var type_parts: std.ArrayList(u8) = .empty;
+                try type_parts.ensureTotalCapacity(self.allocator, 256);
+                defer type_parts.deinit(self.allocator);
+                try type_parts.appendSlice(self.allocator, "{ ");
+
+                for (fields, 0..) |field, i| {
+                    if (i > 0) try type_parts.appendSlice(self.allocator, ", ");
+                    const field_str = try self.llvmTypeString(field.field_type.*);
+                    defer self.allocator.free(field_str);
+                    try type_parts.appendSlice(self.allocator, field_str);
+                }
+                try type_parts.appendSlice(self.allocator, " }");
+                return try type_parts.toOwnedSlice(self.allocator);
+            },
+            .named => |name| {
+                const typedef = self.type_defs.get(name) orelse unreachable;
+                return try self.llvmTypeString(typedef);
+            },
         }
     }
 
@@ -703,6 +805,19 @@ pub const Codegen = struct {
                 } else {
                     return .{ .primitive = .i32 }; // Unit value
                 }
+            },
+            .struct_literal => |lit| {
+                return .{ .named = lit.type_name };
+            },
+            .field_access => |access| {
+                const object_type = self.inferExprType(access.object);
+                const typedef = self.type_defs.get(object_type.named) orelse unreachable;
+                for (typedef.struct_type) |field| {
+                    if (std.mem.eql(u8, field.name, access.field_name)) {
+                        return field.field_type.*;
+                    }
+                }
+                unreachable;
             },
         }
     }

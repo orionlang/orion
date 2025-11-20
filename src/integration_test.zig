@@ -1693,3 +1693,135 @@ test "integration: empty tuple type" {
     // Check empty tuple return
     try testing.expect(std.mem.indexOf(u8, ir, "ret {  } undef") != null);
 }
+
+test "integration: simple struct type definition" {
+    const testing = std.testing;
+
+    const source = "type Point = { x: I32, y: I32 } fn main() I32 { return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should compile without error
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @main()") != null);
+}
+
+test "integration: struct literal creation" {
+    const testing = std.testing;
+
+    const source = "type Point = { x: I32, y: I32 } fn main() I32 { let p = Point { x: 10, y: 20 }; return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check struct type in alloca
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca { i32, i32 }") != null);
+    // Check insertvalue instructions for struct creation
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32, i32 } undef, i32 10, 0") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32, i32 }") != null);
+}
+
+test "integration: struct field access" {
+    const testing = std.testing;
+
+    const source = "type Point = { x: I32, y: I32 } fn main() I32 { let p = Point { x: 10, y: 20 }; return p.x }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check field access using extractvalue
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32, i32 }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, ", 0") != null);
+}
+
+test "integration: struct with multiple fields" {
+    const testing = std.testing;
+
+    const source = "type Vec3 = { x: I32, y: I32, z: I32 } fn main() I32 { let v = Vec3 { x: 1, y: 2, z: 3 }; return v.z }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check struct type with 3 fields
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32, i32 }") != null);
+    // Check extractvalue with index 2 for z field
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32, i32, i32 }") != null);
+}
+
+test "integration: struct as function parameter" {
+    const testing = std.testing;
+
+    const source = "type Point = { x: I32, y: I32 } fn get_x(p: Point) I32 { return p.x } fn main() I32 { let p = Point { x: 42, y: 10 }; return get_x(p) }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function signature with struct parameter
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @get_x({ i32, i32 } %p)") != null);
+    // Check struct field access uses extractvalue
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32, i32 }") != null);
+}
+
+test "integration: struct as function return type" {
+    const testing = std.testing;
+
+    const source = "type Point = { x: I32, y: I32 } fn make_point() Point { return Point { x: 5, y: 10 } } fn main() I32 { let p = make_point(); return p.x }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function signature with struct return type
+    try testing.expect(std.mem.indexOf(u8, ir, "define { i32, i32 } @make_point()") != null);
+    // Check struct literal construction
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32, i32 }") != null);
+}
+
+test "integration: nested structs" {
+    const testing = std.testing;
+
+    const source = "type Inner = { a: I32 } type Outer = { inner: Inner, b: I32 } fn main() I32 { let inner = Inner { a: 42 }; let outer = Outer { inner: inner, b: 10 }; return outer.b }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check nested struct types
+    try testing.expect(std.mem.indexOf(u8, ir, "{ { i32 }, i32 }") != null);
+}
+
+test "integration: struct field access chain" {
+    const testing = std.testing;
+
+    const source = "type Inner = { value: I32 } type Outer = { inner: Inner } fn main() I32 { let inner = Inner { value: 99 }; let outer = Outer { inner: inner }; let extracted = outer.inner; return extracted.value }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check multiple extractvalue operations
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue") != null);
+}
+
+test "integration: empty struct" {
+    const testing = std.testing;
+
+    const source = "type Empty = {} fn main() I32 { let e = Empty {}; return 42 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check empty struct type
+    try testing.expect(std.mem.indexOf(u8, ir, "{  }") != null);
+}
+
+test "integration: struct with different types" {
+    const testing = std.testing;
+
+    const source = "type Mixed = { flag: Bool, count: I32 } fn main() I32 { let m = Mixed { flag: true, count: 100 }; return m.count }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check struct with mixed types
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i1, i32 }") != null);
+}
+
+test "integration: multiple struct types" {
+    const testing = std.testing;
+
+    const source = "type Point = { x: I32, y: I32 } type Color = { r: I32, g: I32, b: I32 } fn main() I32 { let p = Point { x: 1, y: 2 }; let c = Color { r: 255, g: 0, b: 0 }; return p.x }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check both struct types exist
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32 }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32, i32 }") != null);
+}

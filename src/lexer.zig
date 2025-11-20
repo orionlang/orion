@@ -12,6 +12,7 @@ pub const TokenKind = enum {
     while_keyword,
     true_keyword,
     false_keyword,
+    type_keyword,
 
     // Literals
     integer,
@@ -210,6 +211,7 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, lexeme, "while")) return .while_keyword;
         if (std.mem.eql(u8, lexeme, "true")) return .true_keyword;
         if (std.mem.eql(u8, lexeme, "false")) return .false_keyword;
+        if (std.mem.eql(u8, lexeme, "type")) return .type_keyword;
         return .identifier;
     }
 

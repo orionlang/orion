@@ -30,6 +30,7 @@ pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     variables: std.StringHashMap(VariableInfo),
     functions: std.StringHashMap(FunctionSignature),
+    type_defs: std.StringHashMap(Type),
     allocated_tuple_types: std.ArrayList(Type),
 
     pub fn init(allocator: std.mem.Allocator) TypeChecker {
@@ -37,6 +38,7 @@ pub const TypeChecker = struct {
             .allocator = allocator,
             .variables = std.StringHashMap(VariableInfo).init(allocator),
             .functions = std.StringHashMap(FunctionSignature).init(allocator),
+            .type_defs = std.StringHashMap(Type).init(allocator),
             .allocated_tuple_types = .empty,
         };
     }
@@ -53,10 +55,16 @@ pub const TypeChecker = struct {
         self.allocated_tuple_types.deinit(self.allocator);
         self.variables.deinit();
         self.functions.deinit();
+        self.type_defs.deinit();
     }
 
     pub fn check(self: *TypeChecker, ast: *const AST) !void {
-        // First pass: collect function signatures
+        // First pass: collect type definitions
+        for (ast.type_defs.items) |typedef| {
+            try self.type_defs.put(typedef.name, typedef.type_value);
+        }
+
+        // Second pass: collect function signatures
         for (ast.functions.items) |func| {
             const param_types = try self.allocator.alloc(Type, func.params.len);
             for (func.params, 0..) |param, i| {
@@ -68,7 +76,7 @@ pub const TypeChecker = struct {
             });
         }
 
-        // Second pass: check function bodies
+        // Third pass: check function bodies
         for (ast.functions.items) |func| {
             try self.checkFunction(&func);
         }
@@ -262,11 +270,13 @@ pub const TypeChecker = struct {
                 // Example: `let x: I64 = { stmt; stmt; 42 }` should type 42 as I64
                 _ = block;
             },
-            .bool_literal, .variable, .function_call => {
+            .bool_literal, .variable, .function_call, .struct_literal, .field_access => {
                 // These expressions have fixed types that can't be influenced by context:
                 // - bool_literal: always Bool
                 // - variable: type determined at declaration
                 // - function_call: return type is fixed by function signature
+                // - struct_literal: type determined by struct definition
+                // - field_access: type determined by field type
             },
         }
     }
@@ -428,6 +438,74 @@ pub const TypeChecker = struct {
                 } else {
                     return .{ .primitive = .i32 };
                 }
+            },
+            .struct_literal => |lit| {
+                const typedef = self.type_defs.get(lit.type_name) orelse {
+                    std.debug.print("Undefined type: {s}\n", .{lit.type_name});
+                    return error.UndefinedVariable;
+                };
+
+                if (typedef != .struct_type) {
+                    std.debug.print("Type {s} is not a struct\n", .{lit.type_name});
+                    return error.TypeMismatch;
+                }
+
+                if (lit.fields.len != typedef.struct_type.len) {
+                    std.debug.print("Struct literal for {s} has {d} fields but type has {d}\n", .{
+                        lit.type_name,
+                        lit.fields.len,
+                        typedef.struct_type.len,
+                    });
+                    return error.TypeMismatch;
+                }
+
+                for (lit.fields) |field| {
+                    var found = false;
+                    for (typedef.struct_type) |type_field| {
+                        if (std.mem.eql(u8, field.name, type_field.name)) {
+                            const field_value_type = try self.inferExprType(field.value);
+                            if (!self.typesMatch(field_value_type, type_field.field_type.*)) {
+                                std.debug.print("Struct field {s} has wrong type\n", .{field.name});
+                                return error.TypeMismatch;
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        std.debug.print("Struct {s} has no field named {s}\n", .{ lit.type_name, field.name });
+                        return error.TypeMismatch;
+                    }
+                }
+
+                return .{ .named = lit.type_name };
+            },
+            .field_access => |access| {
+                const object_type = try self.inferExprType(access.object);
+
+                if (object_type != .named) {
+                    std.debug.print("Cannot access field of non-struct type\n", .{});
+                    return error.TypeMismatch;
+                }
+
+                const typedef = self.type_defs.get(object_type.named) orelse {
+                    std.debug.print("Undefined type: {s}\n", .{object_type.named});
+                    return error.UndefinedVariable;
+                };
+
+                if (typedef != .struct_type) {
+                    std.debug.print("Type {s} is not a struct\n", .{object_type.named});
+                    return error.TypeMismatch;
+                }
+
+                for (typedef.struct_type) |field| {
+                    if (std.mem.eql(u8, field.name, access.field_name)) {
+                        return field.field_type.*;
+                    }
+                }
+
+                std.debug.print("Struct {s} has no field named {s}\n", .{ object_type.named, access.field_name });
+                return error.TypeMismatch;
             },
         }
     }

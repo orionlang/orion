@@ -80,9 +80,16 @@ pub const PrimitiveType = enum {
     }
 };
 
+pub const StructField = struct {
+    name: []const u8,
+    field_type: *Type,
+};
+
 pub const Type = union(enum) {
     primitive: PrimitiveType,
     tuple: []*Type,
+    struct_type: []StructField,
+    named: []const u8,
 
     pub fn deinit(self: *Type, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -95,6 +102,14 @@ pub const Type = union(enum) {
                 }
                 allocator.free(elements);
             },
+            .struct_type => |fields| {
+                for (fields) |field| {
+                    field.field_type.deinit(allocator);
+                    allocator.destroy(field.field_type);
+                }
+                allocator.free(fields);
+            },
+            .named => {},
         }
     }
 
@@ -109,48 +124,55 @@ pub const Type = union(enum) {
                 }
                 allocator.free(elements);
             },
+            .struct_type => |fields| {
+                for (fields) |field| {
+                    allocator.destroy(field.field_type);
+                }
+                allocator.free(fields);
+            },
+            .named => {},
         }
     }
 
     pub fn isSigned(self: Type) bool {
         return switch (self) {
             .primitive => |p| p.isSigned(),
-            .tuple => false,
+            .tuple, .struct_type, .named => false,
         };
     }
 
     pub fn bitWidth(self: Type) u32 {
         return switch (self) {
             .primitive => |p| p.bitWidth(),
-            .tuple => 0,
+            .tuple, .struct_type, .named => 0,
         };
     }
 
     pub fn isInteger(self: Type) bool {
         return switch (self) {
             .primitive => |p| p.isInteger(),
-            .tuple => false,
+            .tuple, .struct_type, .named => false,
         };
     }
 
     pub fn llvmTypeName(self: Type) []const u8 {
         return switch (self) {
             .primitive => |p| p.llvmTypeName(),
-            .tuple => unreachable,
+            .tuple, .struct_type, .named => unreachable,
         };
     }
 
     pub fn minValue(self: Type) i64 {
         return switch (self) {
             .primitive => |p| p.minValue(),
-            .tuple => 0,
+            .tuple, .struct_type, .named => 0,
         };
     }
 
     pub fn maxValue(self: Type) i64 {
         return switch (self) {
             .primitive => |p| p.maxValue(),
-            .tuple => 0,
+            .tuple, .struct_type, .named => 0,
         };
     }
 
@@ -167,6 +189,15 @@ pub const Type = union(enum) {
                 }
                 return true;
             },
+            .struct_type => |fields| {
+                if (fields.len != other.struct_type.len) return false;
+                for (fields, other.struct_type) |a, b| {
+                    if (!std.mem.eql(u8, a.name, b.name)) return false;
+                    if (!a.field_type.eql(b.field_type.*)) return false;
+                }
+                return true;
+            },
+            .named => |name| std.mem.eql(u8, name, other.named),
         };
     }
 };
@@ -220,6 +251,11 @@ pub const UnaryOp = enum {
     }
 };
 
+pub const StructLiteralField = struct {
+    name: []const u8,
+    value: *Expr,
+};
+
 pub const Expr = union(enum) {
     integer_literal: struct {
         value: i64,
@@ -253,6 +289,14 @@ pub const Expr = union(enum) {
     tuple_index: struct {
         tuple: *Expr,
         index: usize,
+    },
+    struct_literal: struct {
+        type_name: []const u8,
+        fields: []StructLiteralField,
+    },
+    field_access: struct {
+        object: *Expr,
+        field_name: []const u8,
     },
 };
 
@@ -295,6 +339,15 @@ pub const Stmt = union(enum) {
         body: *Expr,
     },
     return_stmt: *Expr,
+};
+
+pub const TypeDef = struct {
+    name: []const u8,
+    type_value: Type,
+
+    pub fn deinit(self: *TypeDef, allocator: std.mem.Allocator) void {
+        self.type_value.deinit(allocator);
+    }
 };
 
 pub const FunctionDecl = struct {
@@ -398,14 +451,30 @@ pub const FunctionDecl = struct {
                 deinitExpr(allocator, idx.tuple);
                 allocator.destroy(idx.tuple);
             },
+            .struct_literal => |lit| {
+                for (lit.fields) |field| {
+                    deinitExpr(allocator, field.value);
+                    allocator.destroy(field.value);
+                }
+                allocator.free(lit.fields);
+            },
+            .field_access => |access| {
+                deinitExpr(allocator, access.object);
+                allocator.destroy(access.object);
+            },
         }
     }
 };
 
 pub const AST = struct {
+    type_defs: std.ArrayList(TypeDef),
     functions: std.ArrayList(FunctionDecl),
 
     pub fn deinit(self: *AST, allocator: std.mem.Allocator) void {
+        for (self.type_defs.items) |*typedef| {
+            typedef.deinit(allocator);
+        }
+        self.type_defs.deinit(allocator);
         for (self.functions.items) |*func| {
             func.deinit(allocator);
         }
@@ -427,15 +496,24 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Parser) !AST {
+        var type_defs: std.ArrayList(TypeDef) = .empty;
+        errdefer type_defs.deinit(self.allocator);
         var functions: std.ArrayList(FunctionDecl) = .empty;
         errdefer functions.deinit(self.allocator);
 
         while (!self.isAtEnd()) {
-            const func = try self.parseFunction();
-            try functions.append(self.allocator, func);
+            if (self.check(.type_keyword)) {
+                const typedef = try self.parseTypeDef();
+                try type_defs.append(self.allocator, typedef);
+            } else if (self.check(.fn_keyword)) {
+                const func = try self.parseFunction();
+                try functions.append(self.allocator, func);
+            } else {
+                return error.UnexpectedToken;
+            }
         }
 
-        return AST{ .functions = functions };
+        return AST{ .type_defs = type_defs, .functions = functions };
     }
 
     fn parseFunction(self: *Parser) !FunctionDecl {
@@ -489,6 +567,18 @@ pub const Parser = struct {
         };
     }
 
+    fn parseTypeDef(self: *Parser) !TypeDef {
+        _ = try self.expect(.type_keyword);
+        const name_token = try self.expect(.identifier);
+        _ = try self.expect(.equal);
+        const type_value = try self.parseType();
+
+        return TypeDef{
+            .name = name_token.lexeme,
+            .type_value = type_value,
+        };
+    }
+
     const type_name_map = std.StaticStringMap(PrimitiveType).initComptime(.{
         .{ "Bool", .bool },
         .{ "I8", .i8 },
@@ -534,9 +624,44 @@ pub const Parser = struct {
             return Type{ .tuple = try element_types.toOwnedSlice(self.allocator) };
         }
 
+        if (self.check(.left_brace)) {
+            _ = try self.expect(.left_brace);
+
+            var fields: std.ArrayList(StructField) = .empty;
+            errdefer {
+                for (fields.items) |field| {
+                    field.field_type.deinit(self.allocator);
+                    self.allocator.destroy(field.field_type);
+                }
+                fields.deinit(self.allocator);
+            }
+
+            while (!self.check(.right_brace)) {
+                const field_name = try self.expect(.identifier);
+                _ = try self.expect(.colon);
+                const field_type_ptr = try self.allocator.create(Type);
+                field_type_ptr.* = try self.parseType();
+
+                try fields.append(self.allocator, StructField{
+                    .name = field_name.lexeme,
+                    .field_type = field_type_ptr,
+                });
+
+                if (self.check(.comma)) {
+                    _ = try self.expect(.comma);
+                }
+            }
+
+            _ = try self.expect(.right_brace);
+            return Type{ .struct_type = try fields.toOwnedSlice(self.allocator) };
+        }
+
         const type_token = try self.expect(.identifier);
-        const prim = type_name_map.get(type_token.lexeme) orelse return error.UnknownType;
-        return Type{ .primitive = prim };
+        if (type_name_map.get(type_token.lexeme)) |prim| {
+            return Type{ .primitive = prim };
+        } else {
+            return Type{ .named = type_token.lexeme };
+        }
     }
 
     fn skipOptionalSemicolon(self: *Parser) void {
@@ -936,6 +1061,47 @@ pub const Parser = struct {
                 };
             }
 
+            // Only parse as struct literal if identifier starts with uppercase (type names are capitalized)
+            if (self.check(.left_brace) and token.lexeme.len > 0 and std.ascii.isUpper(token.lexeme[0])) {
+                _ = try self.expect(.left_brace);
+
+                var fields: std.ArrayList(StructLiteralField) = .empty;
+                errdefer {
+                    for (fields.items) |field| {
+                        FunctionDecl.deinitExpr(self.allocator, field.value);
+                        self.allocator.destroy(field.value);
+                    }
+                    fields.deinit(self.allocator);
+                }
+
+                if (!self.check(.right_brace)) {
+                    while (true) {
+                        const field_name = try self.expect(.identifier);
+                        _ = try self.expect(.colon);
+                        const field_value = try self.parseExpression();
+                        const field_value_ptr = try self.allocator.create(Expr);
+                        field_value_ptr.* = field_value;
+
+                        try fields.append(self.allocator, StructLiteralField{
+                            .name = field_name.lexeme,
+                            .value = field_value_ptr,
+                        });
+
+                        if (!self.check(.comma)) break;
+                        _ = try self.expect(.comma);
+                    }
+                }
+
+                _ = try self.expect(.right_brace);
+
+                return .{
+                    .struct_literal = .{
+                        .type_name = token.lexeme,
+                        .fields = try fields.toOwnedSlice(self.allocator),
+                    },
+                };
+            }
+
             // Just a variable
             return .{ .variable = token.lexeme };
         }
@@ -991,6 +1157,7 @@ pub const Parser = struct {
             _ = try self.expect(.dot);
 
             if (self.check(.integer)) {
+                // Tuple indexing: expr.0, expr.1, etc.
                 const index_token = try self.expect(.integer);
                 const index = try std.fmt.parseInt(usize, index_token.lexeme, 10);
 
@@ -1000,6 +1167,17 @@ pub const Parser = struct {
                 expr = .{ .tuple_index = .{
                     .tuple = tuple_ptr,
                     .index = index,
+                } };
+            } else if (self.check(.identifier)) {
+                // Struct field access: expr.field
+                const field_name = try self.expect(.identifier);
+
+                const object_ptr = try self.allocator.create(Expr);
+                object_ptr.* = expr;
+
+                expr = .{ .field_access = .{
+                    .object = object_ptr,
+                    .field_name = field_name.lexeme,
                 } };
             } else {
                 return error.ExpectedExpression;
