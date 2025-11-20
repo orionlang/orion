@@ -1160,3 +1160,35 @@ test "integration: while loop as function argument" {
     // Function definitions should be present
     try testing.expect(std.mem.indexOf(u8, ir, "define") != null);
 }
+
+test "integration: assignment to immutable variable should fail" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let x: I32 = 5; x = 10; return x }";
+    const result = compile(source, testing.allocator);
+
+    try testing.expectError(error.AssignmentToImmutable, result);
+}
+
+test "integration: assignment to mutable variable" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { var x: I32 = 5; x = 10; return x }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should have allocation and stores
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "store i32 5") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "store i32 10") != null);
+}
+
+test "integration: var keyword for mutable variables" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { var counter: I32 = 0; counter = counter + 1; return counter }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(std.mem.indexOf(u8, ir, "define") != null);
+}

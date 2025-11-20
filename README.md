@@ -58,8 +58,8 @@ zig build run
 
 ```orion
 fn factorial(n: I32) I32 {
-    let result: I32 = 1;
-    let counter: I32 = n;
+    var result: I32 = 1;
+    var counter: I32 = n;
     while counter > 1 {
         result = result * counter;
         counter = counter - 1;

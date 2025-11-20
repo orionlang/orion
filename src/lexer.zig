@@ -5,6 +5,7 @@ pub const TokenKind = enum {
     fn_keyword,
     return_keyword,
     let_keyword,
+    var_keyword,
     if_keyword,
     else_keyword,
     elseif_keyword,
@@ -200,6 +201,7 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, lexeme, "fn")) return .fn_keyword;
         if (std.mem.eql(u8, lexeme, "return")) return .return_keyword;
         if (std.mem.eql(u8, lexeme, "let")) return .let_keyword;
+        if (std.mem.eql(u8, lexeme, "var")) return .var_keyword;
         if (std.mem.eql(u8, lexeme, "if")) return .if_keyword;
         if (std.mem.eql(u8, lexeme, "else")) return .else_keyword;
         if (std.mem.eql(u8, lexeme, "elseif")) return .elseif_keyword;

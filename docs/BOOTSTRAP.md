@@ -21,7 +21,7 @@ The goal is a language just powerful enough to write a compiler while teaching d
 ### 1.1 Keywords
 
 ```
-let fn type class instance match if else while unsafe
+let var fn type class instance match if else while unsafe
 return import pub extern true false
 ```
 
@@ -32,7 +32,7 @@ Arithmetic: + - * / %
 Comparison: == != < > <= >=
 Logical: && || !
 Bitwise: & | ^ << >>
-Assignment: = (not in bootstrap)
+Assignment: =
 Access: .
 ```
 
@@ -124,7 +124,7 @@ type Point = {
 **Semantics:**
 - Structs are value types (passed by value, copied)
 - Fields accessed with `.` operator
-- Fields immutable (no mutation in bootstrap)
+- Fields immutable (no field mutation, but variables can be reassigned)
 
 ### 2.4 Sum Types (ADTs)
 
@@ -530,7 +530,8 @@ let (a, b) = tuple;        // Tuple destructuring
 ```
 
 **Semantics:**
-- Bindings are immutable (no reassignment)
+- `let` bindings are immutable (cannot be reassigned)
+- `var` bindings are mutable and can be reassigned with `=`
 - Variables are stack-allocated
 - Type inference if annotation omitted
 - **Each binding must be used exactly once** (if linear)
@@ -561,7 +562,34 @@ let x = 10;
 - Value stored in `alloca` stack slot
 - Subsequent uses `load` from slot
 
-### 4.2 Expression Statements
+### 4.2 Assignment Statements
+
+```orion
+x = expr;           // Reassign existing mutable variable
+counter = counter + 1;
+```
+
+**Semantics:**
+- Variable must already exist and be declared with `var` (not `let`)
+- `let` bindings are immutable and cannot be reassigned
+- Type of expression must match variable's declared type
+- Linear values are consumed by assignment (old value dropped)
+
+**Example:**
+```orion
+fn main() I32 {
+    var x: I32 = 5;   // Mutable variable
+    x = 10;           // OK: reassign to new value
+    x = x * 2;        // OK: use and reassign
+
+    let y: I32 = 5;   // Immutable binding
+    // y = 10;        // ERROR: cannot assign to immutable variable
+
+    return x
+}
+```
+
+### 4.3 Expression Statements
 
 ```orion
 f(x);

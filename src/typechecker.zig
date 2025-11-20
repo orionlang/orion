@@ -17,17 +17,23 @@ const TypeCheckError = error{
     ArgumentCountMismatch,
     EmptyFunctionBody,
     OutOfMemory,
+    AssignmentToImmutable,
+};
+
+const VariableInfo = struct {
+    var_type: Type,
+    mutable: bool,
 };
 
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
-    variables: std.StringHashMap(Type),
+    variables: std.StringHashMap(VariableInfo),
     functions: std.StringHashMap(FunctionSignature),
 
     pub fn init(allocator: std.mem.Allocator) TypeChecker {
         return .{
             .allocator = allocator,
-            .variables = std.StringHashMap(Type).init(allocator),
+            .variables = std.StringHashMap(VariableInfo).init(allocator),
             .functions = std.StringHashMap(FunctionSignature).init(allocator),
         };
     }
@@ -60,13 +66,22 @@ pub const TypeChecker = struct {
         }
     }
 
+    fn printTypeMismatch(context: []const u8, name: []const u8, expected: Type, actual: Type) void {
+        std.debug.print("Type mismatch in {s} '{s}': expected {s}, got {s}\n", .{
+            context,
+            name,
+            @tagName(expected),
+            @tagName(actual),
+        });
+    }
+
     fn checkFunction(self: *TypeChecker, func: *const parser.FunctionDecl) !void {
         // Clear variables from previous function
         self.variables.clearRetainingCapacity();
 
-        // Add parameters to variable environment
+        // Add parameters to variable environment (immutable)
         for (func.params) |param| {
-            try self.variables.put(param.name, param.param_type);
+            try self.variables.put(param.name, .{ .var_type = param.param_type, .mutable = false });
         }
 
         // Check that function has a body
@@ -80,11 +95,7 @@ pub const TypeChecker = struct {
             if (stmt == .return_stmt) {
                 const expr_type = try self.inferExprType(stmt.return_stmt);
                 if (!self.canImplicitlyConvert(expr_type, func.return_type)) {
-                    std.debug.print("Type mismatch in function '{s}': expected {s}, got {s}\n", .{
-                        func.name,
-                        @tagName(func.return_type),
-                        @tagName(expr_type),
-                    });
+                    printTypeMismatch("function", func.name, func.return_type, expr_type);
                     return error.TypeMismatch;
                 }
             }
@@ -98,28 +109,24 @@ pub const TypeChecker = struct {
                 const var_type = binding.type_annotation orelse value_type;
                 if (binding.type_annotation) |expected_type| {
                     if (!self.canImplicitlyConvert(value_type, expected_type)) {
-                        std.debug.print("Type mismatch in let binding '{s}': expected {s}, got {s}\n", .{
-                            binding.name,
-                            @tagName(expected_type),
-                            @tagName(value_type),
-                        });
+                        printTypeMismatch("let binding", binding.name, expected_type, value_type);
                         return error.TypeMismatch;
                     }
                 }
-                try self.variables.put(binding.name, var_type);
+                try self.variables.put(binding.name, .{ .var_type = var_type, .mutable = binding.mutable });
             },
             .assignment => |assign| {
-                const var_type = self.variables.get(assign.name) orelse {
+                const var_info = self.variables.get(assign.name) orelse {
                     std.debug.print("Assignment to undefined variable: {s}\n", .{assign.name});
                     return error.UndefinedVariable;
                 };
+                if (!var_info.mutable) {
+                    std.debug.print("Cannot assign to immutable variable: {s}\n", .{assign.name});
+                    return error.AssignmentToImmutable;
+                }
                 const value_type = try self.inferExprType(assign.value);
-                if (!self.canImplicitlyConvert(value_type, var_type)) {
-                    std.debug.print("Type mismatch in assignment to '{s}': expected {s}, got {s}\n", .{
-                        assign.name,
-                        @tagName(var_type),
-                        @tagName(value_type),
-                    });
+                if (!self.canImplicitlyConvert(value_type, var_info.var_type)) {
+                    printTypeMismatch("assignment to", assign.name, var_info.var_type, value_type);
                     return error.TypeMismatch;
                 }
             },
@@ -147,8 +154,8 @@ pub const TypeChecker = struct {
             .integer_literal => return .i32,
             .bool_literal => return .bool,
             .variable => |name| {
-                if (self.variables.get(name)) |var_type| {
-                    return var_type;
+                if (self.variables.get(name)) |var_info| {
+                    return var_info.var_type;
                 }
                 std.debug.print("Undefined variable: {s}\n", .{name});
                 return error.UndefinedVariable;

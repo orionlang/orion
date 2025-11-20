@@ -136,6 +136,7 @@ pub const Stmt = union(enum) {
         name: []const u8,
         type_annotation: ?Type,
         value: *Expr,
+        mutable: bool,
     },
     assignment: struct {
         name: []const u8,
@@ -343,6 +344,7 @@ pub const Parser = struct {
 
     fn isStatementStart(self: *Parser) bool {
         return self.check(.let_keyword) or
+               self.check(.var_keyword) or
                self.check(.return_keyword) or
                self.check(.while_keyword) or
                (self.check(.identifier) and self.peekAhead(1).kind == .equal);
@@ -350,7 +352,10 @@ pub const Parser = struct {
 
     fn parseStatement(self: *Parser) !Stmt {
         if (self.check(.let_keyword)) {
-            return try self.parseLetBinding();
+            return try self.parseLetBinding(false);
+        }
+        if (self.check(.var_keyword)) {
+            return try self.parseLetBinding(true);
         }
         if (self.check(.return_keyword)) {
             return try self.parseReturnStatement();
@@ -381,8 +386,12 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseLetBinding(self: *Parser) !Stmt {
-        _ = try self.expect(.let_keyword);
+    fn parseLetBinding(self: *Parser, mutable: bool) !Stmt {
+        if (mutable) {
+            _ = try self.expect(.var_keyword);
+        } else {
+            _ = try self.expect(.let_keyword);
+        }
         const name_token = try self.expect(.identifier);
 
         var type_annotation: ?Type = null;
@@ -403,6 +412,7 @@ pub const Parser = struct {
             .name = name_token.lexeme,
             .type_annotation = type_annotation,
             .value = value_ptr,
+            .mutable = mutable,
         } };
     }
 
