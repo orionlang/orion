@@ -20,6 +20,7 @@ pub const Codegen = struct {
     next_temp: usize,
     variables: std.StringHashMap(VarInfo),
     functions: std.StringHashMap(FunctionInfo),
+    current_block: ?[]const u8,
 
     pub fn init(allocator: std.mem.Allocator) Codegen {
         return .{
@@ -28,6 +29,7 @@ pub const Codegen = struct {
             .next_temp = 0,
             .variables = std.StringHashMap(VarInfo).init(allocator),
             .functions = std.StringHashMap(FunctionInfo).init(allocator),
+            .current_block = null,
         };
     }
 
@@ -36,6 +38,10 @@ pub const Codegen = struct {
         var iter = self.variables.valueIterator();
         while (iter.next()) |var_info| {
             self.allocator.free(var_info.llvm_ptr);
+        }
+
+        if (self.current_block) |block| {
+            self.allocator.free(block);
         }
 
         self.output.deinit(self.allocator);
@@ -47,6 +53,21 @@ pub const Codegen = struct {
         const temp_name = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
         self.next_temp += 1;
         return temp_name;
+    }
+
+    fn setCurrentBlock(self: *Codegen, label: []const u8) !void {
+        if (self.current_block) |old_block| self.allocator.free(old_block);
+        self.current_block = try self.allocator.dupe(u8, label);
+    }
+
+    fn convertConditionToBool(self: *Codegen, condition_val: []const u8, condition_type: Type) ![]const u8 {
+        if (condition_type == .bool) {
+            return try self.allocator.dupe(u8, condition_val);
+        }
+        const temp = try self.allocTempName();
+        const cond_type_str = self.llvmType(condition_type);
+        try self.output.writer(self.allocator).print("  {s} = icmp ne {s} {s}, 0\n", .{ temp, cond_type_str, condition_val });
+        return temp;
     }
 
     pub fn generate(self: *Codegen, ast: *const AST) ![]const u8 {
@@ -217,6 +238,9 @@ pub const Codegen = struct {
             .integer_literal => |value| {
                 return try std.fmt.allocPrint(self.allocator, "{d}", .{value});
             },
+            .bool_literal => |value| {
+                return try std.fmt.allocPrint(self.allocator, "{d}", .{if (value) @as(i32, 1) else @as(i32, 0)});
+            },
             .variable => |name| {
                 // Load variable from stack
                 const var_info = self.variables.get(name).?;
@@ -239,7 +263,7 @@ pub const Codegen = struct {
                 // Logical operators need special handling: convert i32 to i1 first
                 switch (binop.op) {
                     .logical_and, .logical_or => {
-                        return try self.generateLogicalBinOp(binop.op, left_val, right_val, temp_name);
+                        return try self.generateLogicalBinOp(binop.op, binop.left, left_val, right_val, temp_name);
                     },
                     else => {
                         // Get type of left operand (both should be same type after type checking)
@@ -304,23 +328,104 @@ pub const Codegen = struct {
 
                 return try self.allocator.dupe(u8, temp_name);
             },
+            .if_expr => |if_expr| {
+                // Generate condition
+                const condition_val = try self.generateExpression(if_expr.condition);
+                defer self.allocator.free(condition_val);
+
+                // Convert condition to i1 if needed
+                const condition_type = self.inferExprType(if_expr.condition);
+                const cond_bool = try self.convertConditionToBool(condition_val, condition_type);
+                defer self.allocator.free(cond_bool);
+
+                // Create labels for then, else, and merge blocks
+                const then_label = try std.fmt.allocPrint(self.allocator, "then{d}", .{self.next_temp});
+                const else_label = try std.fmt.allocPrint(self.allocator, "else{d}", .{self.next_temp});
+                const merge_label = try std.fmt.allocPrint(self.allocator, "merge{d}", .{self.next_temp});
+                self.next_temp += 1;
+
+                // Branch on condition
+                try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n", .{ cond_bool, then_label, else_label });
+
+                // Then block
+                try self.output.writer(self.allocator).print("{s}:\n", .{then_label});
+                try self.setCurrentBlock(then_label);
+
+                const then_val = try self.generateExpression(if_expr.then_branch);
+
+                // After generating then_branch, current_block tells us where we are
+                const then_end_block = try self.allocator.dupe(u8, self.current_block.?);
+                try self.output.writer(self.allocator).print("  br label %{s}\n", .{merge_label});
+
+                // Else block
+                try self.output.writer(self.allocator).print("{s}:\n", .{else_label});
+                try self.setCurrentBlock(else_label);
+
+                // Else branch is guaranteed to exist by typechecker
+                const else_val = try self.generateExpression(if_expr.else_branch.?);
+
+                // After generating else_branch, current_block tells us where we are
+                const else_end_block = try self.allocator.dupe(u8, self.current_block.?);
+                try self.output.writer(self.allocator).print("  br label %{s}\n", .{merge_label});
+
+                // Merge block with phi node
+                try self.output.writer(self.allocator).print("{s}:\n", .{merge_label});
+                try self.setCurrentBlock(merge_label);
+
+                const result_type = self.inferExprType(expr);
+                const result_type_str = self.llvmType(result_type);
+                const result_temp = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = phi {s} [ {s}, %{s} ], [ {s}, %{s} ]\n", .{
+                    result_temp,
+                    result_type_str,
+                    then_val,
+                    then_end_block,
+                    else_val,
+                    else_end_block,
+                });
+
+                // Clean up labels and blocks
+                self.allocator.free(then_label);
+                self.allocator.free(else_label);
+                self.allocator.free(merge_label);
+                self.allocator.free(then_end_block);
+                self.allocator.free(else_end_block);
+                self.allocator.free(then_val);
+                self.allocator.free(else_val);
+
+                return result_temp;
+            },
         }
     }
 
-    fn generateLogicalBinOp(self: *Codegen, op: parser.BinaryOp, left_val: []const u8, right_val: []const u8, result_name: []const u8) ![]const u8 {
-        // Convert left to bool
-        const left_bool = try self.allocTempName();
-        defer self.allocator.free(left_bool);
-        try self.output.writer(self.allocator).print("  {s} = icmp ne i32 {s}, 0\n", .{ left_bool, left_val });
+    fn generateLogicalBinOp(self: *Codegen, op: parser.BinaryOp, left_expr: *const parser.Expr, left_val: []const u8, right_val: []const u8, result_name: []const u8) ![]const u8 {
+        // Logical operators can work on both bools and integers
+        // Determine the type from the left operand
+        const operand_type = self.inferExprType(left_expr);
 
-        // Convert right to bool
-        const right_bool = try self.allocTempName();
-        defer self.allocator.free(right_bool);
-        try self.output.writer(self.allocator).print("  {s} = icmp ne i32 {s}, 0\n", .{ right_bool, right_val });
+        if (operand_type == .bool) {
+            // Boolean operation on i1 values
+            const bool_op = if (op == .logical_and) "and" else "or";
+            try self.output.writer(self.allocator).print("  {s} = {s} i1 {s}, {s}\n", .{ result_name, bool_op, left_val, right_val });
+        } else {
+            // Integer operation - convert to bool first
+            const left_bool = try self.allocTempName();
+            defer self.allocator.free(left_bool);
+            const type_str = self.llvmType(operand_type);
+            try self.output.writer(self.allocator).print("  {s} = icmp ne {s} {s}, 0\n", .{ left_bool, type_str, left_val });
 
-        // Boolean operation (result is i1)
-        const bool_op = if (op == .logical_and) "and" else "or";
-        try self.output.writer(self.allocator).print("  {s} = {s} i1 {s}, {s}\n", .{ result_name, bool_op, left_bool, right_bool });
+            const right_bool = try self.allocTempName();
+            defer self.allocator.free(right_bool);
+            try self.output.writer(self.allocator).print("  {s} = icmp ne {s} {s}, 0\n", .{ right_bool, type_str, right_val });
+
+            const bool_op = if (op == .logical_and) "and" else "or";
+            const temp_result = try self.allocTempName();
+            defer self.allocator.free(temp_result);
+            try self.output.writer(self.allocator).print("  {s} = {s} i1 {s}, {s}\n", .{ temp_result, bool_op, left_bool, right_bool });
+
+            // Convert back to integer
+            try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to {s}\n", .{ result_name, temp_result, type_str });
+        }
 
         return try self.allocator.dupe(u8, result_name);
     }
@@ -332,6 +437,7 @@ pub const Codegen = struct {
     fn inferExprType(self: *Codegen, expr: *const Expr) Type {
         switch (expr.*) {
             .integer_literal => return .i32,
+            .bool_literal => return .bool,
             .variable => |name| {
                 if (self.variables.get(name)) |var_info| {
                     return var_info.var_type;
@@ -349,6 +455,9 @@ pub const Codegen = struct {
                     return func_info.return_type;
                 }
                 return .i32;
+            },
+            .if_expr => |if_expr| {
+                return self.inferExprType(if_expr.then_branch);
             },
         }
     }
@@ -594,5 +703,197 @@ test "codegen: logical operators" {
         // Verify extension back to i32 for return
         try testing.expect(std.mem.indexOf(u8, llvm_ir, "zext i1") != null);
     }
+}
+
+test "codegen: bool literals" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return if true { 1 } else { 0 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // Bool literal should be used directly in br
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "br i1 1") != null);
+}
+
+test "codegen: simple if expression" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return if true { 42 } else { 0 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // Check basic blocks created
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "then0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "else0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge0:") != null);
+
+    // Check phi node
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "phi i32") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "[ 42,") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "[ 0,") != null);
+}
+
+test "codegen: if with integer condition" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return if 5 { 1 } else { 0 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // Integer condition needs conversion to i1
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "icmp ne i32 5, 0") != null);
+}
+
+test "codegen: if with comparison condition" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return if 10 > 5 { 1 } else { 0 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // Comparison already returns i1, no conversion needed
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "icmp sgt i32 10, 5") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "br i1 %") != null);
+}
+
+test "codegen: nested if expressions" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return if true { if false { 1 } else { 2 } } else { 3 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // Check multiple levels of basic blocks
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "then0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "then1:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge1:") != null);
+
+    // Check multiple phi nodes
+    const phi_count = std.mem.count(u8, llvm_ir, "phi i32");
+    try testing.expectEqual(@as(usize, 2), phi_count);
+}
+
+test "codegen: elseif creates nested if" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // Elseif should create nested if structure
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "then0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "else0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "then1:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "else1:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge1:") != null);
+
+    // Check phi nodes with correct predecessors
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "phi i32 [ 2, %then1 ], [ 3, %else1 ]") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "phi i32 [ 1, %then0 ]") != null);
+}
+
+test "codegen: basic block tracking in elseif" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // The outer phi node should reference merge1 (not else0) as predecessor
+    // because after evaluating the nested if in else0, we're in merge1
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%merge1 ]") != null);
 }
 

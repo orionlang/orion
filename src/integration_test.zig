@@ -97,7 +97,7 @@ test "integration: unary operators" {
     }
 }
 
-test "integration: logical operators" {
+test "integration: logical operators on integers" {
     const testing = std.testing;
 
     const cases = [_][]const u8{
@@ -105,8 +105,6 @@ test "integration: logical operators" {
         "fn f() -> I32 { return 5 || 3 }",
         "fn f() -> I32 { return 1 && 0 }",
         "fn f() -> I32 { return 0 || 1 }",
-        "fn f() -> Bool { return 5 && 3 }",
-        "fn f() -> Bool { return 5 || 3 }",
     };
 
     for (cases) |source| {
@@ -114,6 +112,25 @@ test "integration: logical operators" {
         defer testing.allocator.free(llvm_ir);
 
         try testing.expect(std.mem.indexOf(u8, llvm_ir, "icmp ne i32") != null);
+    }
+}
+
+test "integration: logical operators on bools" {
+    const testing = std.testing;
+
+    const cases = [_][]const u8{
+        "fn f() -> Bool { return true && false }",
+        "fn f() -> Bool { return true || false }",
+        "fn f() -> Bool { return (5 > 3) && (2 < 4) }",
+        "fn f() -> Bool { return (5 > 3) || (2 < 4) }",
+    };
+
+    for (cases) |source| {
+        const llvm_ir = try compile(source, testing.allocator);
+        defer testing.allocator.free(llvm_ir);
+
+        // Bool logical operators don't need icmp conversion
+        try testing.expect(std.mem.indexOf(u8, llvm_ir, "and i1") != null or std.mem.indexOf(u8, llvm_ir, "or i1") != null);
     }
 }
 
@@ -746,4 +763,300 @@ test "integration: function returning different small types" {
     try testing.expect(std.mem.indexOf(u8, ir, "define i8 @get_u8(i8 %x)") != null);
     try testing.expect(std.mem.indexOf(u8, ir, "define i16 @get_i16(i16 %x)") != null);
     try testing.expect(std.mem.indexOf(u8, ir, "define i32 @get_u32(i32 %x)") != null);
+}
+
+test "integration: bool literals" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if true { 1 } else { 0 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check that bool literals work (br on i1 constant)
+    try testing.expect(std.mem.indexOf(u8, ir, "br i1 1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "phi i32") != null);
+}
+
+test "integration: simple if/else expression" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if true { 42 } else { 0 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check basic blocks are created
+    try testing.expect(std.mem.indexOf(u8, ir, "br i1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "then") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "else") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge") != null);
+    // Check phi node
+    try testing.expect(std.mem.indexOf(u8, ir, "phi i32") != null);
+}
+
+test "integration: if/else with condition" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if 10 > 5 { 1 } else { 0 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check comparison
+    try testing.expect(std.mem.indexOf(u8, ir, "icmp sgt i32 10, 5") != null);
+    // Check control flow
+    try testing.expect(std.mem.indexOf(u8, ir, "br i1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "phi i32") != null);
+}
+
+test "integration: nested if expressions" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if true { if false { 1 } else { 2 } } else { 3 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check multiple basic blocks
+    try testing.expect(std.mem.indexOf(u8, ir, "then0") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "else0") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge0") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "then1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "else1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge1") != null);
+    // Check multiple phi nodes
+    const phi_count = std.mem.count(u8, ir, "phi i32");
+    try testing.expectEqual(@as(usize, 2), phi_count);
+}
+
+test "integration: if/elseif/else chain" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check nested structure created by elseif
+    try testing.expect(std.mem.indexOf(u8, ir, "then0") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "else0") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge0") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "then1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "else1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge1") != null);
+    // Check multiple phi nodes for nested structure
+    const phi_count = std.mem.count(u8, ir, "phi i32");
+    try testing.expectEqual(@as(usize, 2), phi_count);
+}
+
+test "integration: multiple elseif chain" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if false { 1 } elseif false { 2 } elseif false { 3 } elseif true { 4 } else { 5 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check that deeply nested structure is created
+    try testing.expect(std.mem.indexOf(u8, ir, "merge0") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge2") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge3") != null);
+    // Check multiple phi nodes
+    const phi_count = std.mem.count(u8, ir, "phi i32");
+    try testing.expectEqual(@as(usize, 4), phi_count);
+}
+
+test "integration: if expression with variables" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let x: I32 = 10; let y: I32 = 20; return if x > y { x } else { y } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check variables allocated
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca i32") != null);
+    // Check comparison loads variables
+    try testing.expect(std.mem.indexOf(u8, ir, "load i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "icmp sgt") != null);
+    // Check phi node
+    try testing.expect(std.mem.indexOf(u8, ir, "phi i32") != null);
+}
+
+test "integration: if expression returning different types" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I64 { return if true { 100 } else { 200 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check phi node uses i32 (literals are I32)
+    try testing.expect(std.mem.indexOf(u8, ir, "phi i32") != null);
+    // Check sign extension to i64
+    try testing.expect(std.mem.indexOf(u8, ir, "sext i32") != null);
+    // Check return type
+    try testing.expect(std.mem.indexOf(u8, ir, "ret i64") != null);
+}
+
+test "integration: if expression with bool logical operators" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if (10 > 5) && (3 < 7) { 1 } else { 0 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check comparisons
+    try testing.expect(std.mem.indexOf(u8, ir, "icmp sgt") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "icmp slt") != null);
+    // Check logical and on bool values
+    try testing.expect(std.mem.indexOf(u8, ir, "and i1") != null);
+}
+
+test "integration: if expression in let binding" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let result: I32 = if true { 42 } else { 0 }; return result }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check if expression generates phi
+    try testing.expect(std.mem.indexOf(u8, ir, "phi i32") != null);
+    // Check result stored and loaded
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "store i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "load i32") != null);
+}
+
+test "integration: if expression in binary operation" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return (if true { 10 } else { 20 }) + (if false { 30 } else { 40 }) }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check two if expressions (4 phi nodes for nested structure)
+    const phi_count = std.mem.count(u8, ir, "phi i32");
+    try testing.expectEqual(@as(usize, 2), phi_count);
+    // Check addition
+    try testing.expect(std.mem.indexOf(u8, ir, "add i32") != null);
+}
+
+test "integration: if expression with function calls in branches" {
+    const testing = std.testing;
+
+    const source =
+        \\fn get_a() -> I32 { return 10 }
+        \\fn get_b() -> I32 { return 20 }
+        \\fn main() -> I32 { return if true { get_a() } else { get_b() } }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function calls in branches
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @get_a()") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @get_b()") != null);
+    // Check phi node merges results
+    try testing.expect(std.mem.indexOf(u8, ir, "phi i32") != null);
+}
+
+test "integration: elseif without final else should fail" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if false { 1 } elseif true { 2 } }";
+    const result = compile(source, testing.allocator);
+
+    // This should fail type checking (no else branch)
+    try testing.expectError(error.TypeMismatch, result);
+}
+
+test "integration: if without else should fail" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if true { 1 } }";
+    const result = compile(source, testing.allocator);
+
+    // This should fail type checking (no else branch)
+    try testing.expectError(error.TypeMismatch, result);
+}
+
+test "integration: deeply nested elseif chain" {
+    const testing = std.testing;
+
+    // 10 levels of elseif
+    const source =
+        \\fn main() -> I32 {
+        \\  return if false { 1 }
+        \\    elseif false { 2 }
+        \\    elseif false { 3 }
+        \\    elseif false { 4 }
+        \\    elseif false { 5 }
+        \\    elseif false { 6 }
+        \\    elseif false { 7 }
+        \\    elseif false { 8 }
+        \\    elseif false { 9 }
+        \\    elseif true { 10 }
+        \\    else { 11 }
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should compile successfully with many nested ifs
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @main()") != null);
+    // Should have many phi nodes
+    const phi_count = std.mem.count(u8, ir, "phi i32");
+    try testing.expect(phi_count >= 10);
+}
+
+test "integration: if expression as function argument" {
+    const testing = std.testing;
+
+    const source =
+        \\fn add(x: I32, y: I32) -> I32 { return x + y }
+        \\fn main() -> I32 { return add(if true { 10 } else { 20 }, if false { 30 } else { 40 }) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check that if expressions are evaluated and passed to function
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @add(") != null);
+    // Should have phi nodes from both if expressions
+    const phi_count = std.mem.count(u8, ir, "phi i32");
+    try testing.expectEqual(@as(usize, 2), phi_count);
+}
+
+test "integration: multiple if expressions in same statement" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return (if true { 1 } else { 2 }) + (if false { 3 } else { 4 }) + (if true { 5 } else { 6 }) }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should have three phi nodes
+    const phi_count = std.mem.count(u8, ir, "phi i32");
+    try testing.expectEqual(@as(usize, 3), phi_count);
+
+    // Should have addition operations
+    const add_count = std.mem.count(u8, ir, "add i32");
+    try testing.expectEqual(@as(usize, 2), add_count);
+}
+
+test "integration: if expression with logical operator on bools" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return if (true && false) || (false || true) { 1 } else { 0 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should have bool logical operations
+    try testing.expect(std.mem.indexOf(u8, ir, "and i1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "or i1") != null);
+}
+
+test "integration: if in let binding with elseif" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let x: I32 = if false { 1 } elseif false { 2 } elseif true { 3 } else { 4 }; return x }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should compile successfully
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "store i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "load i32") != null);
 }

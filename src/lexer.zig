@@ -5,6 +5,11 @@ pub const TokenKind = enum {
     fn_keyword,
     return_keyword,
     let_keyword,
+    if_keyword,
+    else_keyword,
+    elseif_keyword,
+    true_keyword,
+    false_keyword,
 
     // Literals
     integer,
@@ -194,6 +199,11 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, lexeme, "fn")) return .fn_keyword;
         if (std.mem.eql(u8, lexeme, "return")) return .return_keyword;
         if (std.mem.eql(u8, lexeme, "let")) return .let_keyword;
+        if (std.mem.eql(u8, lexeme, "if")) return .if_keyword;
+        if (std.mem.eql(u8, lexeme, "else")) return .else_keyword;
+        if (std.mem.eql(u8, lexeme, "elseif")) return .elseif_keyword;
+        if (std.mem.eql(u8, lexeme, "true")) return .true_keyword;
+        if (std.mem.eql(u8, lexeme, "false")) return .false_keyword;
         return .identifier;
     }
 
@@ -318,5 +328,30 @@ test "lexer: line comments" {
     try testing.expectEqual(@as(usize, 9), tokens.items.len);
     try testing.expectEqual(TokenKind.fn_keyword, tokens.items[0].kind);
     try testing.expectEqual(TokenKind.left_brace, tokens.items[4].kind);
+}
+
+test "lexer: bool keywords" {
+    const testing = std.testing;
+    const source = "true false";
+    var lexer = Lexer.init(source);
+
+    var tokens = try lexer.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    try testing.expectEqual(TokenKind.true_keyword, tokens.items[0].kind);
+    try testing.expectEqual(TokenKind.false_keyword, tokens.items[1].kind);
+}
+
+test "lexer: if else elseif keywords" {
+    const testing = std.testing;
+    const source = "if else elseif";
+    var lexer = Lexer.init(source);
+
+    var tokens = try lexer.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    try testing.expectEqual(TokenKind.if_keyword, tokens.items[0].kind);
+    try testing.expectEqual(TokenKind.else_keyword, tokens.items[1].kind);
+    try testing.expectEqual(TokenKind.elseif_keyword, tokens.items[2].kind);
 }
 

@@ -100,6 +100,7 @@ pub const UnaryOp = enum {
 
 pub const Expr = union(enum) {
     integer_literal: i32,
+    bool_literal: bool,
     variable: []const u8,
     binary_op: struct {
         op: BinaryOp,
@@ -113,6 +114,11 @@ pub const Expr = union(enum) {
     function_call: struct {
         name: []const u8,
         args: []*Expr,
+    },
+    if_expr: struct {
+        condition: *Expr,
+        then_branch: *Expr,
+        else_branch: ?*Expr,
     },
 };
 
@@ -156,6 +162,7 @@ pub const FunctionDecl = struct {
     fn deinitExpr(allocator: std.mem.Allocator, expr: *Expr) void {
         switch (expr.*) {
             .integer_literal => {},
+            .bool_literal => {},
             .variable => {},
             .binary_op => |binop| {
                 deinitExpr(allocator, binop.left);
@@ -173,6 +180,16 @@ pub const FunctionDecl = struct {
                     allocator.destroy(arg);
                 }
                 allocator.free(call.args);
+            },
+            .if_expr => |if_expr| {
+                deinitExpr(allocator, if_expr.condition);
+                allocator.destroy(if_expr.condition);
+                deinitExpr(allocator, if_expr.then_branch);
+                allocator.destroy(if_expr.then_branch);
+                if (if_expr.else_branch) |else_branch| {
+                    deinitExpr(allocator, else_branch);
+                    allocator.destroy(else_branch);
+                }
             },
         }
     }
@@ -523,6 +540,20 @@ pub const Parser = struct {
             return .{ .integer_literal = value };
         }
 
+        if (self.check(.true_keyword)) {
+            _ = try self.expect(.true_keyword);
+            return .{ .bool_literal = true };
+        }
+
+        if (self.check(.false_keyword)) {
+            _ = try self.expect(.false_keyword);
+            return .{ .bool_literal = false };
+        }
+
+        if (self.check(.if_keyword)) {
+            return try self.parseIfExpression();
+        }
+
         if (self.check(.identifier)) {
             const token = try self.expect(.identifier);
 
@@ -574,6 +605,67 @@ pub const Parser = struct {
         }
 
         return error.ExpectedExpression;
+    }
+
+    fn parseIfExpression(self: *Parser) ParseError!Expr {
+        _ = try self.expect(.if_keyword);
+        return try self.parseIfExpressionContinuation();
+    }
+
+    fn parseIfExpressionContinuation(self: *Parser) ParseError!Expr {
+        // Parse condition
+        const condition_expr = try self.parseExpression();
+        const condition = try self.allocator.create(Expr);
+        errdefer self.allocator.destroy(condition);
+        condition.* = condition_expr;
+
+        // Parse then branch
+        _ = try self.expect(.left_brace);
+        const then_expr = try self.parseExpression();
+        const then_branch = try self.allocator.create(Expr);
+        errdefer {
+            FunctionDecl.deinitExpr(self.allocator, condition);
+            self.allocator.destroy(condition);
+            self.allocator.destroy(then_branch);
+        }
+        then_branch.* = then_expr;
+        _ = try self.expect(.right_brace);
+
+        // Parse optional elseif/else branch
+        const else_branch = blk: {
+            if (self.check(.elseif_keyword)) {
+                // elseif becomes a nested if expression
+                _ = try self.expect(.elseif_keyword);
+                const nested_if = try self.parseIfExpressionContinuation();
+                const else_ptr = try self.allocator.create(Expr);
+                else_ptr.* = nested_if;
+                break :blk else_ptr;
+            } else if (self.check(.else_keyword)) {
+                _ = try self.expect(.else_keyword);
+                _ = try self.expect(.left_brace);
+                const else_expr = try self.parseExpression();
+                const else_ptr = try self.allocator.create(Expr);
+                else_ptr.* = else_expr;
+                _ = try self.expect(.right_brace);
+                break :blk else_ptr;
+            } else {
+                break :blk null;
+            }
+        };
+        errdefer {
+            if (else_branch) |eb| {
+                FunctionDecl.deinitExpr(self.allocator, eb);
+                self.allocator.destroy(eb);
+            }
+        }
+
+        return .{
+            .if_expr = .{
+                .condition = condition,
+                .then_branch = then_branch,
+                .else_branch = else_branch,
+            },
+        };
     }
 
     fn expect(self: *Parser, kind: TokenKind) !Token {
@@ -902,5 +994,173 @@ test "parser: unary with binary operators" {
     try testing.expectEqual(@as(i32, 5), left.unary_op.operand.integer_literal);
 
     try testing.expectEqual(@as(i32, 3), stmt.return_stmt.binary_op.right.integer_literal);
+}
+
+test "parser: bool literals" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> Bool { return true }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .bool_literal);
+    try testing.expectEqual(true, stmt.return_stmt.bool_literal);
+}
+
+test "parser: simple if expression" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return if true { 1 } else { 2 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .if_expr);
+
+    const if_expr = stmt.return_stmt.if_expr;
+    // Check condition
+    try testing.expect(if_expr.condition.* == .bool_literal);
+    try testing.expectEqual(true, if_expr.condition.bool_literal);
+
+    // Check then branch
+    try testing.expect(if_expr.then_branch.* == .integer_literal);
+    try testing.expectEqual(@as(i32, 1), if_expr.then_branch.integer_literal);
+
+    // Check else branch
+    try testing.expect(if_expr.else_branch != null);
+    try testing.expect(if_expr.else_branch.?.* == .integer_literal);
+    try testing.expectEqual(@as(i32, 2), if_expr.else_branch.?.integer_literal);
+}
+
+test "parser: if expression with comparison condition" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return if 10 > 5 { 1 } else { 0 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .if_expr);
+
+    const if_expr = stmt.return_stmt.if_expr;
+    // Condition should be binary_op
+    try testing.expect(if_expr.condition.* == .binary_op);
+    try testing.expectEqual(BinaryOp.greater_than, if_expr.condition.binary_op.op);
+}
+
+test "parser: elseif chain" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .if_expr);
+
+    const if_expr = stmt.return_stmt.if_expr;
+    // First condition
+    try testing.expect(if_expr.condition.* == .bool_literal);
+    try testing.expectEqual(false, if_expr.condition.bool_literal);
+
+    // Then branch
+    try testing.expectEqual(@as(i32, 1), if_expr.then_branch.integer_literal);
+
+    // Else branch should be another if_expr (the elseif)
+    try testing.expect(if_expr.else_branch != null);
+    try testing.expect(if_expr.else_branch.?.* == .if_expr);
+
+    const nested_if = if_expr.else_branch.?.if_expr;
+    try testing.expect(nested_if.condition.* == .bool_literal);
+    try testing.expectEqual(true, nested_if.condition.bool_literal);
+    try testing.expectEqual(@as(i32, 2), nested_if.then_branch.integer_literal);
+    try testing.expectEqual(@as(i32, 3), nested_if.else_branch.?.integer_literal);
+}
+
+test "parser: multiple elseif chain" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return if false { 1 } elseif false { 2 } elseif true { 3 } else { 4 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .if_expr);
+
+    // Should create deeply nested if expressions
+    const if1 = stmt.return_stmt.if_expr;
+    try testing.expectEqual(@as(i32, 1), if1.then_branch.integer_literal);
+
+    // First elseif
+    try testing.expect(if1.else_branch.?.* == .if_expr);
+    const if2 = if1.else_branch.?.if_expr;
+    try testing.expectEqual(@as(i32, 2), if2.then_branch.integer_literal);
+
+    // Second elseif
+    try testing.expect(if2.else_branch.?.* == .if_expr);
+    const if3 = if2.else_branch.?.if_expr;
+    try testing.expectEqual(@as(i32, 3), if3.then_branch.integer_literal);
+
+    // Final else
+    try testing.expectEqual(@as(i32, 4), if3.else_branch.?.integer_literal);
+}
+
+test "parser: nested if expressions" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return if true { if false { 1 } else { 2 } } else { 3 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .if_expr);
+
+    const outer_if = stmt.return_stmt.if_expr;
+    // Then branch should be another if_expr
+    try testing.expect(outer_if.then_branch.* == .if_expr);
+
+    const inner_if = outer_if.then_branch.if_expr;
+    try testing.expectEqual(@as(i32, 1), inner_if.then_branch.integer_literal);
+    try testing.expectEqual(@as(i32, 2), inner_if.else_branch.?.integer_literal);
+
+    // Outer else
+    try testing.expectEqual(@as(i32, 3), outer_if.else_branch.?.integer_literal);
 }
 

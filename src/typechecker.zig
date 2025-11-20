@@ -105,6 +105,7 @@ pub const TypeChecker = struct {
     fn inferExprType(self: *TypeChecker, expr: *const Expr) !Type {
         switch (expr.*) {
             .integer_literal => return .i32,
+            .bool_literal => return .bool,
             .variable => |name| {
                 if (self.variables.get(name)) |var_type| {
                     return var_type;
@@ -116,7 +117,24 @@ pub const TypeChecker = struct {
                 const left_type = try self.inferExprType(binop.left);
                 const right_type = try self.inferExprType(binop.right);
 
-                // Both operands must be integer types
+                // Logical operators work on both bool and integers
+                if (binop.op == .logical_and or binop.op == .logical_or) {
+                    // If both are bool, result is bool
+                    if (left_type == .bool and right_type == .bool) {
+                        return .bool;
+                    }
+                    // If both are integers, result is integer (old behavior for compatibility)
+                    if (self.isIntegerType(left_type) and self.isIntegerType(right_type)) {
+                        if (!self.typesMatch(left_type, right_type)) {
+                            return error.TypeMismatch;
+                        }
+                        return left_type;
+                    }
+                    // Mixed types not allowed
+                    return error.TypeMismatch;
+                }
+
+                // All other operators require integer operands
                 if (!self.isIntegerType(left_type) or !self.isIntegerType(right_type)) {
                     return error.TypeMismatch;
                 }
@@ -176,6 +194,34 @@ pub const TypeChecker = struct {
                 }
 
                 return sig.return_type;
+            },
+            .if_expr => |if_expr| {
+                // Condition must be bool
+                const condition_type = try self.inferExprType(if_expr.condition);
+                if (condition_type != .bool) {
+                    std.debug.print("If condition must be bool, got {s}\n", .{@tagName(condition_type)});
+                    return error.TypeMismatch;
+                }
+
+                // Then branch type
+                const then_type = try self.inferExprType(if_expr.then_branch);
+
+                // If there's an else branch, both branches must have same type
+                if (if_expr.else_branch) |else_branch| {
+                    const else_type = try self.inferExprType(else_branch);
+                    if (!self.typesMatch(then_type, else_type)) {
+                        std.debug.print("If branches have different types: then={s}, else={s}\n", .{
+                            @tagName(then_type),
+                            @tagName(else_type),
+                        });
+                        return error.TypeMismatch;
+                    }
+                    return then_type;
+                } else {
+                    // If expressions must have else branch to produce a value
+                    std.debug.print("If expression must have else branch\n", .{});
+                    return error.TypeMismatch;
+                }
             },
         }
     }
@@ -285,15 +331,43 @@ test "typechecker: comparison operators return bool" {
     }
 }
 
-test "typechecker: logical operators return bool" {
+test "typechecker: logical operators on integers return integers" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_][]const u8{
-        "fn f() -> Bool { return 5 && 3 }",
-        "fn f() -> Bool { return 5 || 3 }",
-        "fn f() -> Bool { return !5 }",
+        "fn f() -> I32 { return 5 && 3 }",
+        "fn f() -> I32 { return 5 || 3 }",
+        "fn f() -> I32 { return !5 }",
+    };
+
+    for (cases) |case| {
+        var lex = Lexer.init(case);
+        var tokens = try lex.tokenize(testing.allocator);
+        defer tokens.deinit(testing.allocator);
+
+        var p = Parser.init(tokens.items, testing.allocator);
+        var ast = try p.parse();
+        defer ast.deinit(testing.allocator);
+
+        var typechecker = TypeChecker.init(testing.allocator);
+        defer typechecker.deinit();
+
+        try typechecker.check(&ast);
+    }
+}
+
+test "typechecker: logical operators on bools return bool" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const cases = [_][]const u8{
+        "fn f() -> Bool { return (5 > 3) && (2 < 4) }",
+        "fn f() -> Bool { return (5 > 3) || (2 < 4) }",
+        "fn f() -> Bool { return true && false }",
+        "fn f() -> Bool { return true || false }",
     };
 
     for (cases) |case| {
