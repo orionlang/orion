@@ -7,6 +7,7 @@ const Stmt = parser.Stmt;
 
 pub const CodegenError = error{
     OutOfMemory,
+    UndefinedVariable,
 };
 
 const VarInfo = struct {
@@ -57,6 +58,12 @@ pub const Codegen = struct {
         const temp_name = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
         self.next_temp += 1;
         return temp_name;
+    }
+
+    fn allocLabel(self: *Codegen, prefix: []const u8) ![]const u8 {
+        const label = try std.fmt.allocPrint(self.allocator, "{s}{d}", .{ prefix, self.next_temp });
+        self.next_temp += 1;
+        return label;
     }
 
     fn setCurrentBlock(self: *Codegen, label: []const u8) !void {
@@ -160,7 +167,7 @@ pub const Codegen = struct {
         try self.output.appendSlice(self.allocator, "}\n\n");
     }
 
-    fn generateStatement(self: *Codegen, stmt: *const Stmt, return_type: Type) !void {
+    fn generateStatement(self: *Codegen, stmt: *const Stmt, return_type: Type) CodegenError!void {
         switch (stmt.*) {
             .let_binding => |binding| {
                 // Infer the type of the value
@@ -190,6 +197,64 @@ pub const Codegen = struct {
                     .llvm_ptr = var_name,
                     .var_type = var_type,
                 });
+            },
+            .assignment => |assign| {
+                // Look up the variable
+                const var_info = self.variables.get(assign.name) orelse {
+                    return error.UndefinedVariable;
+                };
+
+                const var_type = var_info.var_type;
+                const llvm_type_str = self.llvmType(var_type);
+
+                // Generate value expression
+                const value = try self.generateExpression(assign.value);
+                defer self.allocator.free(value);
+
+                // Get value type and convert if needed
+                const value_type = self.inferExprType(assign.value);
+                const final_value = try self.convertIfNeeded(value, value_type, var_type);
+                defer self.allocator.free(final_value);
+
+                // Store new value in variable
+                try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ llvm_type_str, final_value, var_info.llvm_ptr });
+            },
+            .while_stmt => |while_stmt| {
+                const header_label = try self.allocLabel("while_header");
+                const body_label = try self.allocLabel("while_body");
+                const exit_label = try self.allocLabel("while_exit");
+
+                // Branch to header
+                try self.output.writer(self.allocator).print("  br label %{s}\n", .{header_label});
+
+                // Header block: evaluate condition
+                try self.output.writer(self.allocator).print("{s}:\n", .{header_label});
+                try self.setCurrentBlock(header_label);
+
+                const cond_bool = try self.generateConditionAsBool(while_stmt.condition);
+                defer self.allocator.free(cond_bool);
+
+                // Branch on condition: true -> body, false -> exit
+                try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n", .{ cond_bool, body_label, exit_label });
+
+                // Body block
+                try self.output.writer(self.allocator).print("{s}:\n", .{body_label});
+                try self.setCurrentBlock(body_label);
+
+                const body_val = try self.generateExpression(while_stmt.body);
+                defer self.allocator.free(body_val);
+
+                // Branch back to header
+                try self.output.writer(self.allocator).print("  br label %{s}\n", .{header_label});
+
+                // Exit block
+                try self.output.writer(self.allocator).print("{s}:\n", .{exit_label});
+                try self.setCurrentBlock(exit_label);
+
+                // Clean up labels
+                self.allocator.free(header_label);
+                self.allocator.free(body_label);
+                self.allocator.free(exit_label);
             },
             .return_stmt => |expr| {
                 const value = try self.generateExpression(expr);
@@ -341,11 +406,9 @@ pub const Codegen = struct {
                 const cond_bool = try self.generateConditionAsBool(if_expr.condition);
                 defer self.allocator.free(cond_bool);
 
-                // Create labels for then, else, and merge blocks
-                const then_label = try std.fmt.allocPrint(self.allocator, "then{d}", .{self.next_temp});
-                const else_label = try std.fmt.allocPrint(self.allocator, "else{d}", .{self.next_temp});
-                const merge_label = try std.fmt.allocPrint(self.allocator, "merge{d}", .{self.next_temp});
-                self.next_temp += 1;
+                const then_label = try self.allocLabel("then");
+                const else_label = try self.allocLabel("else");
+                const merge_label = try self.allocLabel("merge");
 
                 // Branch on condition
                 try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n", .{ cond_bool, then_label, else_label });
@@ -398,47 +461,18 @@ pub const Codegen = struct {
 
                 return result_temp;
             },
-            .while_expr => |while_expr| {
-                // Create labels for header, body, and exit blocks
-                const header_label = try std.fmt.allocPrint(self.allocator, "while_header{d}", .{self.next_temp});
-                const body_label = try std.fmt.allocPrint(self.allocator, "while_body{d}", .{self.next_temp});
-                const exit_label = try std.fmt.allocPrint(self.allocator, "while_exit{d}", .{self.next_temp});
-                self.next_temp += 1;
+            .block_expr => |block| {
+                // Generate all statements
+                for (block.statements) |*stmt| {
+                    try self.generateStatement(stmt, .i32); // Dummy return type for blocks
+                }
 
-                // Branch to header
-                try self.output.writer(self.allocator).print("  br label %{s}\n", .{header_label});
-
-                // Header block: evaluate condition
-                try self.output.writer(self.allocator).print("{s}:\n", .{header_label});
-                try self.setCurrentBlock(header_label);
-
-                const cond_bool = try self.generateConditionAsBool(while_expr.condition);
-                defer self.allocator.free(cond_bool);
-
-                // Branch on condition: true -> body, false -> exit
-                try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n", .{ cond_bool, body_label, exit_label });
-
-                // Body block
-                try self.output.writer(self.allocator).print("{s}:\n", .{body_label});
-                try self.setCurrentBlock(body_label);
-
-                const body_val = try self.generateExpression(while_expr.body);
-                defer self.allocator.free(body_val); // Discard - while returns unit
-
-                // Branch back to header
-                try self.output.writer(self.allocator).print("  br label %{s}\n", .{header_label});
-
-                // Exit block
-                try self.output.writer(self.allocator).print("{s}:\n", .{exit_label});
-                try self.setCurrentBlock(exit_label);
-
-                // Clean up labels
-                self.allocator.free(header_label);
-                self.allocator.free(body_label);
-                self.allocator.free(exit_label);
-
-                // While loops return unit value
-                return try self.unitValue();
+                // Generate result expression or unit value
+                if (block.result) |result| {
+                    return try self.generateExpression(result);
+                } else {
+                    return try self.unitValue();
+                }
             },
         }
     }
@@ -511,8 +545,12 @@ pub const Codegen = struct {
             .if_expr => |if_expr| {
                 return self.inferExprType(if_expr.then_branch);
             },
-            .while_expr => {
-                return .i32; // While loops return i32 (unit value)
+            .block_expr => |block| {
+                if (block.result) |result| {
+                    return self.inferExprType(result);
+                } else {
+                    return .i32; // Unit value
+                }
             },
         }
     }
@@ -806,8 +844,8 @@ test "codegen: simple if expression" {
 
     // Check basic blocks created
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "then0:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "else0:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "else1:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge2:") != null);
 
     // Check phi node
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "phi i32") != null);
@@ -886,9 +924,9 @@ test "codegen: nested if expressions" {
 
     // Check multiple levels of basic blocks
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "then0:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "then1:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge0:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge1:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "then3:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge2:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge5:") != null);
 
     // Check multiple phi nodes
     const phi_count = std.mem.count(u8, llvm_ir, "phi i32");
@@ -917,13 +955,13 @@ test "codegen: elseif creates nested if" {
 
     // Elseif should create nested if structure
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "then0:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "else0:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "then1:") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "else1:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge1:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "then3:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "else4:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "merge5:") != null);
 
     // Check phi nodes with correct predecessors
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "phi i32 [ 2, %then1 ], [ 3, %else1 ]") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "phi i32 [ 2, %then3 ], [ 3, %else4 ]") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "phi i32 [ 1, %then0 ]") != null);
 }
 
@@ -947,9 +985,9 @@ test "codegen: basic block tracking in elseif" {
     const llvm_ir = try codegen.generate(&ast);
     defer testing.allocator.free(llvm_ir);
 
-    // The outer phi node should reference merge1 (not else0) as predecessor
-    // because after evaluating the nested if in else0, we're in merge1
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%merge1 ]") != null);
+    // The outer phi node should reference merge5 (not else1) as predecessor
+    // because after evaluating the nested if in else1, we're in merge5
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%merge5 ]") != null);
 }
 
 test "codegen: simple while loop" {
@@ -957,7 +995,7 @@ test "codegen: simple while loop" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return while true { 42 } }";
+    const source = "fn f() I32 { while true { 42 }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -974,8 +1012,8 @@ test "codegen: simple while loop" {
 
     // Should have header, body, and exit labels
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_header0:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_body0:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_exit0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_body1:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_exit2:") != null);
 
     // Should have conditional branch in header
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "br i1") != null);
@@ -983,7 +1021,7 @@ test "codegen: simple while loop" {
     // Body should branch back to header
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "br label %while_header0") != null);
 
-    // Should return 0 (unit value)
+    // Should return 0
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "ret i32 0") != null);
 }
 
@@ -992,7 +1030,7 @@ test "codegen: while loop with comparison condition" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return while 5 > 3 { 1 } }";
+    const source = "fn f() I32 { while 5 > 3 { 1 }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -1016,7 +1054,7 @@ test "codegen: nested while loops" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return while true { while false { 1 } } }";
+    const source = "fn f() I32 { while true { while false { 1 } }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -1033,8 +1071,8 @@ test "codegen: nested while loops" {
 
     // Should have two sets of while blocks (outer and inner)
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_header0:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_header1:") != null);
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_body0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_header3:") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_body1:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_body4:") != null);
 }
 

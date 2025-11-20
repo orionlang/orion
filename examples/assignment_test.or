@@ -1,0 +1,5 @@
+fn main() I32 {
+    let x: I32 = 5;
+    x = 10;
+    return x
+}

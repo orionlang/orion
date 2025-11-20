@@ -120,9 +120,9 @@ pub const Expr = union(enum) {
         then_branch: *Expr,
         else_branch: ?*Expr,
     },
-    while_expr: struct {
-        condition: *Expr,
-        body: *Expr,
+    block_expr: struct {
+        statements: []Stmt,
+        result: ?*Expr,
     },
 };
 
@@ -137,6 +137,14 @@ pub const Stmt = union(enum) {
         type_annotation: ?Type,
         value: *Expr,
     },
+    assignment: struct {
+        name: []const u8,
+        value: *Expr,
+    },
+    while_stmt: struct {
+        condition: *Expr,
+        body: *Expr,
+    },
     return_stmt: *Expr,
 };
 
@@ -149,18 +157,32 @@ pub const FunctionDecl = struct {
     pub fn deinit(self: *FunctionDecl, allocator: std.mem.Allocator) void {
         allocator.free(self.params);
         for (self.body.items) |*stmt| {
-            switch (stmt.*) {
-                .let_binding => |binding| {
-                    deinitExpr(allocator, binding.value);
-                    allocator.destroy(binding.value);
-                },
-                .return_stmt => |expr| {
-                    deinitExpr(allocator, expr);
-                    allocator.destroy(expr);
-                },
-            }
+            deinitStmt(allocator, stmt);
         }
         self.body.deinit(allocator);
+    }
+
+    fn deinitStmt(allocator: std.mem.Allocator, stmt: *Stmt) void {
+        switch (stmt.*) {
+            .let_binding => |binding| {
+                deinitExpr(allocator, binding.value);
+                allocator.destroy(binding.value);
+            },
+            .assignment => |assign| {
+                deinitExpr(allocator, assign.value);
+                allocator.destroy(assign.value);
+            },
+            .while_stmt => |while_stmt| {
+                deinitExpr(allocator, while_stmt.condition);
+                allocator.destroy(while_stmt.condition);
+                deinitExpr(allocator, while_stmt.body);
+                allocator.destroy(while_stmt.body);
+            },
+            .return_stmt => |expr| {
+                deinitExpr(allocator, expr);
+                allocator.destroy(expr);
+            },
+        }
     }
 
     fn deinitExpr(allocator: std.mem.Allocator, expr: *Expr) void {
@@ -195,11 +217,15 @@ pub const FunctionDecl = struct {
                     allocator.destroy(else_branch);
                 }
             },
-            .while_expr => |while_expr| {
-                deinitExpr(allocator, while_expr.condition);
-                allocator.destroy(while_expr.condition);
-                deinitExpr(allocator, while_expr.body);
-                allocator.destroy(while_expr.body);
+            .block_expr => |block| {
+                for (block.statements) |*stmt| {
+                    deinitStmt(allocator, stmt);
+                }
+                allocator.free(block.statements);
+                if (block.result) |result| {
+                    deinitExpr(allocator, result);
+                    allocator.destroy(result);
+                }
             },
         }
     }
@@ -309,6 +335,19 @@ pub const Parser = struct {
         return type_name_map.get(type_token.lexeme) orelse error.UnknownType;
     }
 
+    fn skipOptionalSemicolon(self: *Parser) void {
+        if (self.check(.semicolon)) {
+            _ = self.expect(.semicolon) catch {};
+        }
+    }
+
+    fn isStatementStart(self: *Parser) bool {
+        return self.check(.let_keyword) or
+               self.check(.return_keyword) or
+               self.check(.while_keyword) or
+               (self.check(.identifier) and self.peekAhead(1).kind == .equal);
+    }
+
     fn parseStatement(self: *Parser) !Stmt {
         if (self.check(.let_keyword)) {
             return try self.parseLetBinding();
@@ -316,7 +355,30 @@ pub const Parser = struct {
         if (self.check(.return_keyword)) {
             return try self.parseReturnStatement();
         }
+        if (self.check(.while_keyword)) {
+            return try self.parseWhileStatement();
+        }
+        // Check for assignment: identifier = expr;
+        if (self.check(.identifier) and self.peekAhead(1).kind == .equal) {
+            return try self.parseAssignment();
+        }
         return error.ExpectedStatement;
+    }
+
+    fn parseAssignment(self: *Parser) !Stmt {
+        const name_token = try self.expect(.identifier);
+        _ = try self.expect(.equal);
+
+        const value_ptr = try self.allocator.create(Expr);
+        errdefer self.allocator.destroy(value_ptr);
+        value_ptr.* = try self.parseExpression();
+
+        self.skipOptionalSemicolon();
+
+        return .{ .assignment = .{
+            .name = name_token.lexeme,
+            .value = value_ptr,
+        } };
     }
 
     fn parseLetBinding(self: *Parser) !Stmt {
@@ -335,7 +397,7 @@ pub const Parser = struct {
         errdefer self.allocator.destroy(value_ptr);
         value_ptr.* = try self.parseExpression();
 
-        _ = try self.expect(.semicolon);
+        self.skipOptionalSemicolon();
 
         return .{ .let_binding = .{
             .name = name_token.lexeme,
@@ -350,6 +412,27 @@ pub const Parser = struct {
         errdefer self.allocator.destroy(expr);
         expr.* = try self.parseExpression();
         return .{ .return_stmt = expr };
+    }
+
+    fn parseWhileStatement(self: *Parser) !Stmt {
+        _ = try self.expect(.while_keyword);
+
+        // Parse condition
+        const condition = try self.parseExpressionPtr(&.{});
+
+        // Parse body (must be block expression)
+        const body = try self.allocator.create(Expr);
+        errdefer self.allocator.destroy(body);
+        body.* = try self.parseBlockExpression();
+
+        self.skipOptionalSemicolon();
+
+        return .{
+            .while_stmt = .{
+                .condition = condition,
+                .body = body,
+            },
+        };
     }
 
     fn parseExpression(self: *Parser) ParseError!Expr {
@@ -563,8 +646,8 @@ pub const Parser = struct {
             return try self.parseIfExpression();
         }
 
-        if (self.check(.while_keyword)) {
-            return try self.parseWhileExpression();
+        if (self.check(.left_brace)) {
+            return try self.parseBlockExpression();
         }
 
         if (self.check(.identifier)) {
@@ -683,23 +766,52 @@ pub const Parser = struct {
         };
     }
 
-    fn parseWhileExpression(self: *Parser) ParseError!Expr {
-        _ = try self.expect(.while_keyword);
-
-        // Parse condition
-        const condition = try self.parseExpressionPtr(&.{});
-
-        // Parse body
+    fn parseBlockExpression(self: *Parser) ParseError!Expr {
         _ = try self.expect(.left_brace);
-        const body = try self.parseExpressionPtr(&.{condition});
-        _ = try self.expect(.right_brace);
 
+        var stmts: std.ArrayList(Stmt) = .empty;
+        errdefer {
+            for (stmts.items) |*stmt| {
+                FunctionDecl.deinitStmt(self.allocator, stmt);
+            }
+            stmts.deinit(self.allocator);
+        }
+
+        // Parse statements until we hit right_brace or final expression
+        while (!self.check(.right_brace)) {
+            if (self.isStatementStart()) {
+                const stmt = try self.parseStatement();
+                try stmts.append(self.allocator, stmt);
+            } else {
+                // It's a final expression (no semicolon)
+                const result_ptr = try self.allocator.create(Expr);
+                errdefer self.allocator.destroy(result_ptr);
+                result_ptr.* = try self.parseExpression();
+                _ = try self.expect(.right_brace);
+                return .{
+                    .block_expr = .{
+                        .statements = try stmts.toOwnedSlice(self.allocator),
+                        .result = result_ptr,
+                    },
+                };
+            }
+        }
+
+        _ = try self.expect(.right_brace);
         return .{
-            .while_expr = .{
-                .condition = condition,
-                .body = body,
+            .block_expr = .{
+                .statements = try stmts.toOwnedSlice(self.allocator),
+                .result = null,
             },
         };
+    }
+
+    fn peekAhead(self: *Parser, n: usize) Token {
+        const target_pos = self.pos + n;
+        if (target_pos >= self.tokens.len) {
+            return self.tokens[self.tokens.len - 1]; // Return EOF token
+        }
+        return self.tokens[target_pos];
     }
 
     fn expect(self: *Parser, kind: TokenKind) !Token {
@@ -1202,7 +1314,7 @@ test "parser: simple while loop" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return while true { 42 } }";
+    const source = "fn f() I32 { while true { 42 }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -1212,20 +1324,19 @@ test "parser: simple while loop" {
     defer ast.deinit(testing.allocator);
 
     const stmt = ast.functions.items[0].body.items[0];
-    try testing.expect(stmt.return_stmt.* == .while_expr);
+    try testing.expect(stmt == .while_stmt);
 
-    const while_loop = stmt.return_stmt.while_expr;
+    const while_loop = stmt.while_stmt;
     try testing.expect(while_loop.condition.* == .bool_literal);
     try testing.expectEqual(true, while_loop.condition.bool_literal);
-    try testing.expect(while_loop.body.* == .integer_literal);
-    try testing.expectEqual(@as(i32, 42), while_loop.body.integer_literal);
+    try testing.expect(while_loop.body.* == .block_expr);
 }
 
 test "parser: while loop with comparison condition" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return while 5 > 3 { 1 } }";
+    const source = "fn f() I32 { while 5 > 3 { 1 }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -1235,9 +1346,9 @@ test "parser: while loop with comparison condition" {
     defer ast.deinit(testing.allocator);
 
     const stmt = ast.functions.items[0].body.items[0];
-    try testing.expect(stmt.return_stmt.* == .while_expr);
+    try testing.expect(stmt == .while_stmt);
 
-    const while_loop = stmt.return_stmt.while_expr;
+    const while_loop = stmt.while_stmt;
     try testing.expect(while_loop.condition.* == .binary_op);
     try testing.expectEqual(BinaryOp.greater_than, while_loop.condition.binary_op.op);
 }
@@ -1246,7 +1357,7 @@ test "parser: nested while loops" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return while true { while false { 1 } } }";
+    const source = "fn f() I32 { while true { while false { 1 } }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -1256,12 +1367,15 @@ test "parser: nested while loops" {
     defer ast.deinit(testing.allocator);
 
     const stmt = ast.functions.items[0].body.items[0];
-    try testing.expect(stmt.return_stmt.* == .while_expr);
+    try testing.expect(stmt == .while_stmt);
 
-    const outer_while = stmt.return_stmt.while_expr;
-    try testing.expect(outer_while.body.* == .while_expr);
+    const outer_while = stmt.while_stmt;
+    try testing.expect(outer_while.body.* == .block_expr);
+    const outer_body = outer_while.body.block_expr;
+    try testing.expectEqual(@as(usize, 1), outer_body.statements.len);
+    try testing.expect(outer_body.statements[0] == .while_stmt);
 
-    const inner_while = outer_while.body.while_expr;
+    const inner_while = outer_body.statements[0].while_stmt;
     try testing.expect(inner_while.condition.* == .bool_literal);
     try testing.expectEqual(false, inner_while.condition.bool_literal);
 }

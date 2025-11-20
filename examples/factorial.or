@@ -1,0 +1,11 @@
+fn factorial(n: I32) I32 {
+    return if n <= 1 {
+        1
+    } else {
+        n * factorial(n - 1)
+    }
+}
+
+fn main() I32 {
+    return factorial(5)
+}

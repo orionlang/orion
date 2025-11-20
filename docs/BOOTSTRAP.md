@@ -155,7 +155,7 @@ struct ADT {
 ### 2.5 Function Types
 
 ```orion
-fn(I32, I32) -> I64    // Function taking two I32s, returning I64
+fn(I32, I32) I64    // Function taking two I32s, returning I64
 ```
 
 **LLVM Representation:**
@@ -203,7 +203,7 @@ Bootstrap Orion uses **linear types** to enforce resource safety and prevent ali
 - No borrowing or references in bootstrap
 - Function parameters consume their arguments
 - Return values transfer ownership back to caller
-- To "inspect" a value, functions must return it: `fn inspect(x: T) -> (Result, T)`
+- To "inspect" a value, functions must return it: `fn inspect(x: T) (Result, T)`
 
 **Explicit Copying:**
 - Linear types can implement the `Copy` class
@@ -310,7 +310,7 @@ module.f(x)     // Qualified function call
 
 **Example:**
 ```orion
-fn process_and_return(p: Point) -> (I32, Point) {
+fn process_and_return(p: Point) (I32, Point) {
     let sum = p.x + p.y;
     (sum, p)  // Return result + original value
 }
@@ -359,7 +359,7 @@ let x_val = p.x;  // p consumed, cannot use p again
 // let y_val = p.y;  // ERROR: p already consumed
 
 // To access multiple fields, destructure or thread through
-fn get_both(p: Point) -> (I32, I32, Point) {
+fn get_both(p: Point) (I32, I32, Point) {
     let x = p.x;
     let y = p.y;
     (x, y, p)
@@ -432,7 +432,7 @@ let result = match opt {
 // opt is consumed, cannot use it here
 
 // Thread value through match
-fn inspect_option(opt: Option) -> (Bool, Option) {
+fn inspect_option(opt: Option) (Bool, Option) {
     let has_value = match opt {
         None => false,
         Some(_) => true,
@@ -611,15 +611,15 @@ type Size = U64
 ### 5.2 Function Definitions
 
 ```orion
-fn add(x: I32, y: I32) -> I32 {
+fn add(x: I32, y: I32) I32 {
     x + y
 }
 
-pub fn multiply(x: I32, y: I32) -> I32 {
+pub fn multiply(x: I32, y: I32) I32 {
     x * y
 }
 
-unsafe fn read_ptr(ptr: Ptr[I32]) -> I32 {
+unsafe fn read_ptr(ptr: Ptr[I32]) I32 {
     @ptr_read(ptr)
 }
 ```
@@ -635,7 +635,7 @@ unsafe fn read_ptr(ptr: Ptr[I32]) -> I32 {
 **Linearity & Ownership:**
 ```orion
 // Simple ownership transfer
-fn consume(p: Point) -> I32 {
+fn consume(p: Point) I32 {
     p.x + p.y  // p consumed here
 }
 
@@ -644,7 +644,7 @@ let sum = consume(point);  // point consumed, can't use it after
 // let x = point.x;  // ERROR: point already consumed
 
 // Threading pattern - inspect and return
-fn inspect_point(p: Point) -> (I32, Point) {
+fn inspect_point(p: Point) (I32, Point) {
     let sum = p.x + p.y;
     (sum, p)  // Return result and original value
 }
@@ -654,7 +654,7 @@ let (sum, point) = inspect_point(point);  // Thread through
 // Can use point again here
 
 // Multiple linear parameters
-fn combine(p1: Point, p2: Point) -> Point {
+fn combine(p1: Point, p2: Point) Point {
     Point { x: p1.x + p2.x, y: p1.y + p2.y }
 }
 
@@ -672,13 +672,13 @@ let p3 = combine(p1, p2);  // Both p1 and p2 consumed
 
 ```orion
 extern "C" {
-    fn malloc(size: U64) -> Ptr[U8]
+    fn malloc(size: U64) Ptr[U8]
     fn free(ptr: Ptr[U8])
-    fn printf(fmt: Ptr[U8], ...) -> I32
+    fn printf(fmt: Ptr[U8], ...) I32
 }
 
 pub extern "C" {
-    fn exported_func(x: I32) -> I32
+    fn exported_func(x: I32) I32
 }
 ```
 
@@ -698,15 +698,15 @@ Bootstrap Orion has a **minimal type class system** for basic polymorphism.
 **Class Declaration:**
 ```orion
 class Copy {
-    copy: fn(Self) -> Self
+    copy: fn(Self) Self
 }
 
 class Eq {
-    eq: fn(Self, Self) -> Bool
+    eq: fn(Self, Self) Bool
 }
 
 class Display {
-    display: fn(Self) -> Ptr[U8]
+    display: fn(Self) Ptr[U8]
 }
 ```
 
@@ -725,13 +725,13 @@ type Point = {
 }
 
 instance Copy[Point] {
-    copy = fn(self: Point) -> Point {
+    copy = fn(self: Point) Point {
         Point { x: self.x, y: self.y }
     }
 }
 
 instance Eq[Point] {
-    eq = fn(self: Point, other: Point) -> Bool {
+    eq = fn(self: Point, other: Point) Bool {
         self.x == other.x && self.y == other.y
     }
 }
@@ -793,7 +793,7 @@ import compiler.lexer       // Import submodule
 
 ```orion
 pub type Node = { ... }     // Exported type
-pub fn parse() -> Node { }  // Exported function
+pub fn parse() Node { }  // Exported function
 ```
 
 **Semantics:**
@@ -809,7 +809,7 @@ Bootstrap Orion has exactly 4 intrinsics:
 ### 7.1 @ptr_of
 
 ```orion
-@ptr_of(value) -> Ptr[T]
+@ptr_of(value) Ptr[T]
 ```
 
 **Semantics:**
@@ -834,7 +834,7 @@ unsafe {
 ### 7.2 @ptr_read
 
 ```orion
-@ptr_read(ptr: Ptr[T]) -> T
+@ptr_read(ptr: Ptr[T]) T
 ```
 
 **Semantics:**
@@ -858,7 +858,7 @@ unsafe {
 ### 7.3 @ptr_write
 
 ```orion
-@ptr_write(ptr: Ptr[T], value: T) -> ()
+@ptr_write(ptr: Ptr[T], value: T) ()
 ```
 
 **Semantics:**
@@ -882,7 +882,7 @@ unsafe {
 ### 7.4 @ptr_offset
 
 ```orion
-@ptr_offset(ptr: Ptr[T], offset: I64) -> Ptr[T]
+@ptr_offset(ptr: Ptr[T], offset: I64) Ptr[T]
 ```
 
 **Semantics:**
@@ -1031,7 +1031,7 @@ Example:
 
 Bootstrap programs must have:
 ```orion
-fn main() -> I32 {
+fn main() I32 {
     // Program entry point
 }
 ```
@@ -1049,9 +1049,9 @@ Bootstrap standard library provides only:
 ```orion
 // In module: std.mem
 extern "C" {
-    fn malloc(size: U64) -> Ptr[U8]
+    fn malloc(size: U64) Ptr[U8]
     fn free(ptr: Ptr[U8])
-    fn memcpy(dest: Ptr[U8], src: Ptr[U8], n: U64) -> Ptr[U8]
+    fn memcpy(dest: Ptr[U8], src: Ptr[U8], n: U64) Ptr[U8]
 }
 ```
 
@@ -1060,9 +1060,9 @@ extern "C" {
 ```orion
 // In module: std.io
 extern "C" {
-    fn putchar(c: I32) -> I32
-    fn puts(s: Ptr[U8]) -> I32
-    fn printf(fmt: Ptr[U8], ...) -> I32
+    fn putchar(c: I32) I32
+    fn puts(s: Ptr[U8]) I32
+    fn printf(fmt: Ptr[U8], ...) I32
 }
 ```
 
@@ -1122,7 +1122,7 @@ Bootstrap Orion intentionally **does not have**:
 ```orion
 import std.io
 
-fn main() -> I32 {
+fn main() I32 {
     unsafe {
         io.puts("Hello, World!")
     }
@@ -1132,7 +1132,7 @@ fn main() -> I32 {
 ### 13.2 Factorial
 
 ```orion
-fn factorial(n: I32) -> I32 {
+fn factorial(n: I32) I32 {
     if n <= 1 {
         1
     } else {
@@ -1140,7 +1140,7 @@ fn factorial(n: I32) -> I32 {
     }
 }
 
-fn main() -> I32 {
+fn main() I32 {
     factorial(5)
 }
 ```
@@ -1152,7 +1152,7 @@ type Option =
     | None
     | Some(I32)
 
-fn divide(a: I32, b: I32) -> Option {
+fn divide(a: I32, b: I32) Option {
     if b == 0 {
         None
     } else {
@@ -1160,7 +1160,7 @@ fn divide(a: I32, b: I32) -> Option {
     }
 }
 
-fn main() -> I32 {
+fn main() I32 {
     let result = divide(10, 2);
     match result {
         None => 0,
@@ -1180,20 +1180,20 @@ type Point = {
 
 // Implement Copy class to allow explicit copying
 instance Copy[Point] {
-    copy = fn(self: Point) -> Point {
+    copy = fn(self: Point) Point {
         Point { x: self.x, y: self.y }
     }
 }
 
 // Function consumes Point, returns result and Point
-fn distance_squared(p: Point) -> (I32, Point) {
+fn distance_squared(p: Point) (I32, Point) {
     let dx = p.x;
     let dy = p.y;
     let dist = dx * dx + dy * dy;
     (dist, p)
 }
 
-fn main() -> I32 {
+fn main() I32 {
     let p1 = Point { x: 3, y: 4 };
 
     // Thread p1 through to keep using it
@@ -1219,7 +1219,7 @@ type List =
     | Nil
     | Cons(I32, Ptr[List])
 
-fn cons(value: I32, rest: Ptr[List]) -> Ptr[List] {
+fn cons(value: I32, rest: Ptr[List]) Ptr[List] {
     unsafe {
         let node = mem.malloc(16);  // size of List struct
         let list_ptr = node;
@@ -1233,7 +1233,7 @@ fn cons(value: I32, rest: Ptr[List]) -> Ptr[List] {
     }
 }
 
-fn sum_list(list: Ptr[List]) -> I32 {
+fn sum_list(list: Ptr[List]) I32 {
     unsafe {
         let tag = @ptr_read(list);
         if tag == 0 {
@@ -1271,15 +1271,15 @@ field = IDENT ":" type ;
 sum_type = "|" variant { "|" variant } ;
 variant = IDENT [ "(" type { "," type } ")" ] ;
 
-fn_def = [ "pub" ] [ "unsafe" ] "fn" IDENT "(" params ")" "->" type block ;
+fn_def = [ "pub" ] [ "unsafe" ] "fn" IDENT "(" params ")" type block ;
 params = [ param { "," param } ] ;
 param = IDENT ":" type ;
 
 extern_block = [ "pub" ] "extern" STRING "{" { extern_fn } "}" ;
-extern_fn = "fn" IDENT "(" params ")" [ "->" type ] ;
+extern_fn = "fn" IDENT "(" params ")" [ type ] ;
 
 class_def = "class" IDENT "{" { class_method } "}" ;
-class_method = IDENT ":" "fn" "(" "Self" { "," type } ")" [ "->" type ] ";" ;
+class_method = IDENT ":" "fn" "(" "Self" { "," type } ")" [ type ] ";" ;
 
 class_instance = "instance" IDENT "[" type "]" "{" { method_impl } "}" ;
 method_impl = IDENT "=" fn_literal ;
@@ -1287,7 +1287,7 @@ method_impl = IDENT "=" fn_literal ;
 type = IDENT                        (* Named type *)
      | "Ptr" "[" type "]"          (* Pointer type *)
      | "(" [ type { "," type } ] ")" (* Tuple type *)
-     | "fn" "(" [ type { "," type } ] ")" "->" type (* Function type *)
+     | "fn" "(" [ type { "," type } ] ")" type (* Function type *)
      | "Self" ;                     (* Self type in trait *)
 
 stmt = let_binding
@@ -1370,7 +1370,7 @@ qualified_name = IDENT { "." IDENT } ;
 
 **Orion:**
 ```orion
-fn add(x: I32, y: I32) -> I32 {
+fn add(x: I32, y: I32) I32 {
     x + y
 }
 ```
@@ -1390,7 +1390,7 @@ entry:
 ```orion
 type Point = { x: I32, y: I32 }
 
-fn make_point(x: I32, y: I32) -> Point {
+fn make_point(x: I32, y: I32) Point {
     Point { x: x, y: y }
 }
 ```

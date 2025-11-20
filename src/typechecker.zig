@@ -3,10 +3,20 @@ const parser = @import("parser.zig");
 const AST = parser.AST;
 const Type = parser.Type;
 const Expr = parser.Expr;
+const Stmt = parser.Stmt;
 
 const FunctionSignature = struct {
     params: []const Type,
     return_type: Type,
+};
+
+const TypeCheckError = error{
+    TypeMismatch,
+    UndefinedVariable,
+    UndefinedFunction,
+    ArgumentCountMismatch,
+    EmptyFunctionBody,
+    OutOfMemory,
 };
 
 pub const TypeChecker = struct {
@@ -66,39 +76,69 @@ pub const TypeChecker = struct {
 
         // Check all statements
         for (func.body.items) |stmt| {
-            switch (stmt) {
-                .let_binding => |binding| {
-                    const value_type = try self.inferExprType(binding.value);
+            try self.checkStatement(stmt, null);
+            if (stmt == .return_stmt) {
+                const expr_type = try self.inferExprType(stmt.return_stmt);
+                if (!self.canImplicitlyConvert(expr_type, func.return_type)) {
+                    std.debug.print("Type mismatch in function '{s}': expected {s}, got {s}\n", .{
+                        func.name,
+                        @tagName(func.return_type),
+                        @tagName(expr_type),
+                    });
+                    return error.TypeMismatch;
+                }
+            }
+        }
+    }
 
-                    // Determine actual variable type
-                    const var_type = if (binding.type_annotation) |expected_type| blk: {
-                        if (!self.canImplicitlyConvert(value_type, expected_type)) {
-                            std.debug.print("Type mismatch in let binding '{s}': expected {s}, got {s}\n", .{
-                                binding.name,
-                                @tagName(expected_type),
-                                @tagName(value_type),
-                            });
-                            return error.TypeMismatch;
-                        }
-                        break :blk expected_type;
-                    } else value_type;
-
-                    // Add variable to environment
-                    try self.variables.put(binding.name, var_type);
-                },
-                .return_stmt => |expr| {
-                    const expr_type = try self.inferExprType(expr);
-
-                    if (!self.canImplicitlyConvert(expr_type, func.return_type)) {
-                        std.debug.print("Type mismatch in function '{s}': expected {s}, got {s}\n", .{
-                            func.name,
-                            @tagName(func.return_type),
-                            @tagName(expr_type),
+    fn checkStatement(self: *TypeChecker, stmt: Stmt, func_return_type: ?Type) TypeCheckError!void {
+        switch (stmt) {
+            .let_binding => |binding| {
+                const value_type = try self.inferExprType(binding.value);
+                const var_type = binding.type_annotation orelse value_type;
+                if (binding.type_annotation) |expected_type| {
+                    if (!self.canImplicitlyConvert(value_type, expected_type)) {
+                        std.debug.print("Type mismatch in let binding '{s}': expected {s}, got {s}\n", .{
+                            binding.name,
+                            @tagName(expected_type),
+                            @tagName(value_type),
                         });
                         return error.TypeMismatch;
                     }
-                },
-            }
+                }
+                try self.variables.put(binding.name, var_type);
+            },
+            .assignment => |assign| {
+                const var_type = self.variables.get(assign.name) orelse {
+                    std.debug.print("Assignment to undefined variable: {s}\n", .{assign.name});
+                    return error.UndefinedVariable;
+                };
+                const value_type = try self.inferExprType(assign.value);
+                if (!self.canImplicitlyConvert(value_type, var_type)) {
+                    std.debug.print("Type mismatch in assignment to '{s}': expected {s}, got {s}\n", .{
+                        assign.name,
+                        @tagName(var_type),
+                        @tagName(value_type),
+                    });
+                    return error.TypeMismatch;
+                }
+            },
+            .while_stmt => |while_stmt| {
+                const condition_type = try self.inferExprType(while_stmt.condition);
+                if (condition_type != .bool) {
+                    std.debug.print("While condition must be bool, got {s}\n", .{@tagName(condition_type)});
+                    return error.TypeMismatch;
+                }
+                _ = try self.inferExprType(while_stmt.body);
+            },
+            .return_stmt => |ret_expr| {
+                const expr_type = try self.inferExprType(ret_expr);
+                if (func_return_type) |expected_type| {
+                    if (!self.canImplicitlyConvert(expr_type, expected_type)) {
+                        return error.TypeMismatch;
+                    }
+                }
+            },
         }
     }
 
@@ -223,19 +263,16 @@ pub const TypeChecker = struct {
                     return error.TypeMismatch;
                 }
             },
-            .while_expr => |while_expr| {
-                // Condition must be bool
-                const condition_type = try self.inferExprType(while_expr.condition);
-                if (condition_type != .bool) {
-                    std.debug.print("While condition must be bool, got {s}\n", .{@tagName(condition_type)});
-                    return error.TypeMismatch;
+            .block_expr => |block| {
+                for (block.statements) |stmt| {
+                    try self.checkStatement(stmt, null);
                 }
 
-                // Type check the body (but ignore its type)
-                _ = try self.inferExprType(while_expr.body);
-
-                // While loops always return i32 as unit value (body type is ignored)
-                return .i32;
+                if (block.result) |result| {
+                    return try self.inferExprType(result);
+                } else {
+                    return .i32;
+                }
             },
         }
     }

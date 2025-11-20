@@ -816,11 +816,11 @@ test "integration: nested if expressions" {
 
     // Check multiple basic blocks
     try testing.expect(std.mem.indexOf(u8, ir, "then0") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "else0") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "merge0") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "then1") != null);
     try testing.expect(std.mem.indexOf(u8, ir, "else1") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "merge1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge2") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "then3") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "else4") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge5") != null);
     // Check multiple phi nodes
     const phi_count = std.mem.count(u8, ir, "phi i32");
     try testing.expectEqual(@as(usize, 2), phi_count);
@@ -835,11 +835,11 @@ test "integration: if/elseif/else chain" {
 
     // Check nested structure created by elseif
     try testing.expect(std.mem.indexOf(u8, ir, "then0") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "else0") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "merge0") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "then1") != null);
     try testing.expect(std.mem.indexOf(u8, ir, "else1") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "merge1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge2") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "then3") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "else4") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge5") != null);
     // Check multiple phi nodes for nested structure
     const phi_count = std.mem.count(u8, ir, "phi i32");
     try testing.expectEqual(@as(usize, 2), phi_count);
@@ -853,10 +853,10 @@ test "integration: multiple elseif chain" {
     defer testing.allocator.free(ir);
 
     // Check that deeply nested structure is created
-    try testing.expect(std.mem.indexOf(u8, ir, "merge0") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "merge1") != null);
     try testing.expect(std.mem.indexOf(u8, ir, "merge2") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "merge3") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge5") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge8") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "merge11") != null);
     // Check multiple phi nodes
     const phi_count = std.mem.count(u8, ir, "phi i32");
     try testing.expectEqual(@as(usize, 4), phi_count);
@@ -1064,23 +1064,23 @@ test "integration: if in let binding with elseif" {
 test "integration: simple while loop" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { return while true { 42 } }";
+    const source = "fn main() I32 { while true { 42 }; return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
     // Should have while blocks
     try testing.expect(std.mem.indexOf(u8, ir, "while_header0:") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "while_body0:") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "while_exit0:") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "while_body1:") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "while_exit2:") != null);
 
-    // Should return 0 (unit value)
+    // Should return 0
     try testing.expect(std.mem.indexOf(u8, ir, "ret i32 0") != null);
 }
 
 test "integration: while loop with comparison condition" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { return while 5 > 3 { 1 } }";
+    const source = "fn main() I32 { while 5 > 3 { 1 }; return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1092,7 +1092,7 @@ test "integration: while loop with comparison condition" {
 test "integration: while loop with variable condition" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let x: Bool = true; return while x { 1 } }";
+    const source = "fn main() I32 { let x: Bool = true; while x { 1 }; return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1104,31 +1104,31 @@ test "integration: while loop with variable condition" {
 test "integration: nested while loops" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { return while true { while false { 1 } } }";
+    const source = "fn main() I32 { while true { while false { 1 } }; return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
     // Should have two sets of while blocks
     try testing.expect(std.mem.indexOf(u8, ir, "while_header0:") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "while_header1:") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "while_header3:") != null);
 }
 
 test "integration: while loop in let binding" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let x: I32 = while false { 1 }; return x }";
+    const source = "fn main() I32 { while false { 1 }; let x: I32 = 0; return x }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
     // Should store result in variable
     try testing.expect(std.mem.indexOf(u8, ir, "alloca i32") != null);
-    try testing.expect(std.mem.indexOf(u8, ir, "store i32 0") != null); // Store unit value
+    try testing.expect(std.mem.indexOf(u8, ir, "store i32 0") != null);
 }
 
 test "integration: while with integer condition should fail" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { return while 5 { 1 } }";
+    const source = "fn main() I32 { while 5 { 1 }; return 0 }";
     const result = compile(source, testing.allocator);
 
     // Should fail type checking
@@ -1138,7 +1138,7 @@ test "integration: while with integer condition should fail" {
 test "integration: while loop with if in body" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { return while true { if false { 1 } else { 2 } } }";
+    const source = "fn main() I32 { while true { if false { 1 } else { 2 } }; return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1151,7 +1151,7 @@ test "integration: while loop with if in body" {
 test "integration: while loop as function argument" {
     const testing = std.testing;
 
-    const source = "fn identity(x: I32) I32 { return x } fn main() I32 { return identity(while false { 1 }) }";
+    const source = "fn identity(x: I32) I32 { return x } fn main() I32 { while false { 1 }; return identity(0) }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
