@@ -99,6 +99,148 @@ pub const Codegen = struct {
         return try self.allocator.dupe(u8, "0");
     }
 
+    fn storePayloadsSequentially(
+        self: *Codegen,
+        sum_type_str: []const u8,
+        current_val: []const u8,
+        args: []const *Expr,
+    ) CodegenError![]const u8 {
+        // Allocate stack space to build the sum type value
+        const data_ptr_temp = try self.allocTempName();
+        defer self.allocator.free(data_ptr_temp);
+        try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ data_ptr_temp, sum_type_str });
+        try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ sum_type_str, current_val, data_ptr_temp });
+
+        // Get pointer to data field
+        const data_field_ptr = try self.allocTempName();
+        defer self.allocator.free(data_field_ptr);
+        try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds {s}, ptr {s}, i32 0, i32 1\n", .{
+            data_field_ptr,
+            sum_type_str,
+            data_ptr_temp,
+        });
+
+        // Store each argument sequentially in the data field
+        var byte_offset: usize = 0;
+        for (args) |arg| {
+            const arg_val = try self.generateExpression(arg);
+            defer self.allocator.free(arg_val);
+
+            const arg_type = self.inferExprType(arg);
+            const arg_type_str = try self.llvmTypeString(arg_type);
+            defer self.allocator.free(arg_type_str);
+
+            // Get pointer at byte offset
+            const offset_ptr = try self.allocTempName();
+            defer self.allocator.free(offset_ptr);
+            try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds i8, ptr {s}, i32 {d}\n", .{
+                offset_ptr,
+                data_field_ptr,
+                byte_offset,
+            });
+
+            // Store the argument value at this offset
+            try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{
+                arg_type_str,
+                arg_val,
+                offset_ptr,
+            });
+
+            // Update byte offset for next argument
+            byte_offset += arg_type.bitWidth() / 8;
+        }
+
+        // Load back the complete sum type value
+        const final_temp = try self.allocTempName();
+        try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{
+            final_temp,
+            sum_type_str,
+            data_ptr_temp,
+        });
+
+        return final_temp;
+    }
+
+    fn extractPayloadsSequentially(
+        self: *Codegen,
+        scrutinee_type_str: []const u8,
+        scrutinee_val: []const u8,
+        bindings: []const []const u8,
+        payload_types: []const *Type,
+    ) CodegenError!void {
+        // Allocate stack space to store the scrutinee
+        const scrutinee_ptr = try self.allocTempName();
+        defer self.allocator.free(scrutinee_ptr);
+        try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{
+            scrutinee_ptr,
+            scrutinee_type_str,
+        });
+        try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{
+            scrutinee_type_str,
+            scrutinee_val,
+            scrutinee_ptr,
+        });
+
+        // Get pointer to data field (index 1)
+        const data_field_ptr = try self.allocTempName();
+        defer self.allocator.free(data_field_ptr);
+        try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds {s}, ptr {s}, i32 0, i32 1\n", .{
+            data_field_ptr,
+            scrutinee_type_str,
+            scrutinee_ptr,
+        });
+
+        // Extract each binding from the data field at its byte offset
+        var byte_offset: usize = 0;
+        for (bindings, payload_types) |binding, payload_type| {
+            // Get pointer at byte offset
+            const offset_ptr = try self.allocTempName();
+            defer self.allocator.free(offset_ptr);
+            try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds i8, ptr {s}, i32 {d}\n", .{
+                offset_ptr,
+                data_field_ptr,
+                byte_offset,
+            });
+
+            // Allocate stack space for this binding
+            const binding_ptr = try self.allocTempName();
+            // Note: binding_ptr is NOT freed here because it's stored in variables map
+            // and will be freed when the variable is removed from scope
+            const payload_type_str = try self.llvmTypeString(payload_type.*);
+            defer self.allocator.free(payload_type_str);
+
+            try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{
+                binding_ptr,
+                payload_type_str,
+            });
+
+            // Load the value from the data field
+            const loaded_val = try self.allocTempName();
+            defer self.allocator.free(loaded_val);
+            try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{
+                loaded_val,
+                payload_type_str,
+                offset_ptr,
+            });
+
+            // Store it in the binding's stack location
+            try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{
+                payload_type_str,
+                loaded_val,
+                binding_ptr,
+            });
+
+            // Add to variables map
+            try self.variables.put(binding, .{
+                .var_type = payload_type.*,
+                .llvm_ptr = binding_ptr,
+            });
+
+            // Update byte offset for next payload
+            byte_offset += payload_type.*.bitWidth() / 8;
+        }
+    }
+
     pub fn generate(self: *Codegen, ast: *const AST) ![]const u8 {
         // First pass: collect type definitions
         for (ast.type_defs.items) |typedef| {
@@ -716,59 +858,7 @@ pub const Codegen = struct {
                 // Since we use [N x i8] representation, we need to bitcast
 
                 if (call.args.len > 0) {
-                    // Allocate stack space to build the sum type value
-                    const data_ptr_temp = try self.allocTempName();
-                    defer self.allocator.free(data_ptr_temp);
-                    try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ data_ptr_temp, sum_type_str });
-                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ sum_type_str, current_val, data_ptr_temp });
-
-                    // Get pointer to data field
-                    const data_field_ptr = try self.allocTempName();
-                    defer self.allocator.free(data_field_ptr);
-                    try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds {s}, ptr {s}, i32 0, i32 1\n", .{
-                        data_field_ptr,
-                        sum_type_str,
-                        data_ptr_temp,
-                    });
-
-                    // Store each argument sequentially in the data field
-                    var byte_offset: usize = 0;
-                    for (call.args) |arg| {
-                        const arg_val = try self.generateExpression(arg);
-                        defer self.allocator.free(arg_val);
-
-                        const arg_type = self.inferExprType(arg);
-                        const arg_type_str = try self.llvmTypeString(arg_type);
-                        defer self.allocator.free(arg_type_str);
-
-                        // Get pointer at byte offset
-                        const offset_ptr = try self.allocTempName();
-                        defer self.allocator.free(offset_ptr);
-                        try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds i8, ptr {s}, i32 {d}\n", .{
-                            offset_ptr,
-                            data_field_ptr,
-                            byte_offset,
-                        });
-
-                        // Store the argument value at this offset
-                        try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{
-                            arg_type_str,
-                            arg_val,
-                            offset_ptr,
-                        });
-
-                        // Update byte offset for next argument
-                        byte_offset += arg_type.bitWidth() / 8;
-                    }
-
-                    // Load back the complete sum type value
-                    const final_temp = try self.allocTempName();
-                    try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{
-                        final_temp,
-                        sum_type_str,
-                        data_ptr_temp,
-                    });
-
+                    const final_temp = try self.storePayloadsSequentially(sum_type_str, current_val, call.args);
                     self.allocator.free(current_val);
                     return final_temp;
                 }
@@ -878,77 +968,12 @@ pub const Codegen = struct {
                                 // We need to extract the data field and access payloads at byte offsets
 
                                 if (constructor.bindings.len > 0) {
-                                    // Allocate stack space to store the scrutinee
-                                    const scrutinee_ptr = try self.allocTempName();
-                                    defer self.allocator.free(scrutinee_ptr);
-                                    try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{
-                                        scrutinee_ptr,
-                                        scrutinee_type_str,
-                                    });
-                                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{
+                                    try self.extractPayloadsSequentially(
                                         scrutinee_type_str,
                                         scrutinee_val,
-                                        scrutinee_ptr,
-                                    });
-
-                                    // Get pointer to data field (index 1)
-                                    const data_field_ptr = try self.allocTempName();
-                                    defer self.allocator.free(data_field_ptr);
-                                    try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds {s}, ptr {s}, i32 0, i32 1\n", .{
-                                        data_field_ptr,
-                                        scrutinee_type_str,
-                                        scrutinee_ptr,
-                                    });
-
-                                    // Extract each binding from the data field at its byte offset
-                                    var byte_offset: usize = 0;
-                                    for (constructor.bindings, variant.payload_types) |binding, payload_type| {
-                                        // Get pointer at byte offset
-                                        const offset_ptr = try self.allocTempName();
-                                        defer self.allocator.free(offset_ptr);
-                                        try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds i8, ptr {s}, i32 {d}\n", .{
-                                            offset_ptr,
-                                            data_field_ptr,
-                                            byte_offset,
-                                        });
-
-                                        // Allocate stack space for this binding
-                                        const binding_ptr = try self.allocTempName();
-                                        // Note: binding_ptr is NOT freed here because it's stored in variables map
-                                        // and will be freed when the variable is removed from scope
-                                        const payload_type_str = try self.llvmTypeString(payload_type.*);
-                                        defer self.allocator.free(payload_type_str);
-
-                                        try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{
-                                            binding_ptr,
-                                            payload_type_str,
-                                        });
-
-                                        // Load the value from the data field
-                                        const loaded_val = try self.allocTempName();
-                                        defer self.allocator.free(loaded_val);
-                                        try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{
-                                            loaded_val,
-                                            payload_type_str,
-                                            offset_ptr,
-                                        });
-
-                                        // Store it in the binding's stack location
-                                        try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{
-                                            payload_type_str,
-                                            loaded_val,
-                                            binding_ptr,
-                                        });
-
-                                        // Add to variables map
-                                        try self.variables.put(binding, .{
-                                            .var_type = payload_type.*,
-                                            .llvm_ptr = binding_ptr,
-                                        });
-
-                                        // Update byte offset for next payload
-                                        byte_offset += payload_type.*.bitWidth() / 8;
-                                    }
+                                        constructor.bindings,
+                                        variant.payload_types,
+                                    );
                                 }
                             }
                         },
