@@ -80,6 +80,83 @@ test "integration: nested block comments" {
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "ret i32 42") != null);
 }
 
+test "integration: integer type inference from context" {
+    const testing = std.testing;
+
+    const source =
+        \\fn test_types() I32 {
+        \\    let a: I8 = 127;
+        \\    let b: I16 = 32000;
+        \\    let c: I64 = 9000;
+        \\    let d: U8 = 255;
+        \\    let e: U16 = 65000;
+        \\    let f: U32 = 4000000;
+        \\    let g: U64 = 9000000;
+        \\    return 42
+        \\}
+        \\fn main() I32 { return test_types() }
+    ;
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    // Check that different integer types are used
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "i8") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "i16") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "i64") != null);
+}
+
+test "integration: integer literal out of range error" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let x: I8 = 200; return x }";
+    const result = compile(source, testing.allocator);
+
+    try testing.expectError(error.TypeMismatch, result);
+}
+
+test "integration: unsigned type with valid value" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let x: U8 = 255; return 0 }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "i8") != null);
+}
+
+test "integration: assignment contextual typing" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\    var x: I8 = 10;
+        \\    x = 20;
+        \\    x = 127;
+        \\    return 0
+        \\}
+    ;
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    // Should compile successfully with I8 type
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "i8") != null);
+}
+
+test "integration: assignment out of range error" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\    var x: I8 = 10;
+        \\    x = 200;
+        \\    return 0
+        \\}
+    ;
+    const result = compile(source, testing.allocator);
+
+    try testing.expectError(error.TypeMismatch, result);
+}
+
 test "integration: compile binary operations end-to-end" {
     const testing = std.testing;
 
@@ -459,27 +536,75 @@ test "integration: type extension conversions" {
 test "integration: implicit literal conversions" {
     const testing = std.testing;
 
-    // I32 literal -> I64: sign extend (preserves sign of literal)
-    const i32_to_i64 = "fn f() I64 { return 42 }";
-    const ir1 = try compile(i32_to_i64, testing.allocator);
+    // With contextual typing, literals infer their type from context
+    // So there should be NO conversion instructions for literals
+
+    // Literal infers I64 from return type - no conversion needed
+    const i64_literal = "fn f() I64 { return 42 }";
+    const ir1 = try compile(i64_literal, testing.allocator);
     defer testing.allocator.free(ir1);
-    try testing.expect(std.mem.indexOf(u8, ir1, "sext i32 42 to i64") != null);
+    try testing.expect(std.mem.indexOf(u8, ir1, "ret i64 42") != null);
 
-    // I32 literal -> U64: uses sext (treating literal as signed source)
-    // This is safe for positive literals; negative literals would sign-extend
-    const i32_to_u64 = "fn f() U64 { return 42 }";
-    const ir2 = try compile(i32_to_u64, testing.allocator);
+    // Literal infers U64 from return type - no conversion needed
+    const u64_literal = "fn f() U64 { return 42 }";
+    const ir2 = try compile(u64_literal, testing.allocator);
     defer testing.allocator.free(ir2);
-    try testing.expect(std.mem.indexOf(u8, ir2, "sext i32 42 to i64") != null);
+    try testing.expect(std.mem.indexOf(u8, ir2, "ret i64 42") != null);
 
-    // I32 literal -> U32: no conversion needed (same LLVM type)
-    const i32_to_u32 = "fn f() U32 { return 42 }";
-    const ir3 = try compile(i32_to_u32, testing.allocator);
+    // Literal infers U32 from return type - no conversion needed
+    const u32_literal = "fn f() U32 { return 42 }";
+    const ir3 = try compile(u32_literal, testing.allocator);
     defer testing.allocator.free(ir3);
     try testing.expect(std.mem.indexOf(u8, ir3, "ret i32 42") != null);
 
-    // I32 literal -> I8/U8: narrowing not allowed (would lose data)
-    // These are compile errors now - no implicit narrowing conversions
+    // Literal infers I8 from return type - no conversion needed
+    const i8_literal = "fn f() I8 { return 42 }";
+    const ir4 = try compile(i8_literal, testing.allocator);
+    defer testing.allocator.free(ir4);
+    try testing.expect(std.mem.indexOf(u8, ir4, "ret i8 42") != null);
+}
+
+test "integration: binary op requires exact type match" {
+    const testing = std.testing;
+
+    // Binary ops require both operands to have same type
+    // Mixed I32/I64 should fail
+    const mixed_types =
+        \\fn f() I64 {
+        \\    let x: I32 = 100;
+        \\    let y: I64 = 42;
+        \\    return x + y
+        \\}
+    ;
+    try testing.expectError(error.TypeMismatch, compile(mixed_types, testing.allocator));
+
+    // But same types work
+    const same_types =
+        \\fn f() I64 {
+        \\    let x: I64 = 100;
+        \\    let y: I64 = 42;
+        \\    return x + y
+        \\}
+    ;
+    const ir = try compile(same_types, testing.allocator);
+    defer testing.allocator.free(ir);
+    try testing.expect(std.mem.indexOf(u8, ir, "add i64") != null);
+}
+
+test "integration: binary op type mismatch with contextual typing" {
+    const testing = std.testing;
+
+    // Literal gets typed as U32 due to context, but variable is I32
+    // This creates a type mismatch in the binary op
+    const source =
+        \\fn f() U32 {
+        \\    let x: I32 = 100;
+        \\    let y: U32 = x + 42;
+        \\    return y
+        \\}
+    ;
+    // Should fail because: literal 42 becomes U32, but x is I32, so x + 42 fails
+    try testing.expectError(error.TypeMismatch, compile(source, testing.allocator));
 }
 
 test "integration: bool to integer type conversions" {

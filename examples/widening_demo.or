@@ -1,0 +1,16 @@
+fn main() I64 {
+    // Literals infer types from context
+    var x: I8 = 100;
+    var y: I16 = 1000;
+    var z: I32 = 100000;
+
+    // Widening conversions work for variables
+    let a: I16 = x;    // I8 -> I16
+    let b: I32 = y;    // I16 -> I32
+    let c: I64 = z;    // I32 -> I64
+
+    // Direct widening from I8 all the way to I64
+    let result: I64 = x;
+
+    return result
+}

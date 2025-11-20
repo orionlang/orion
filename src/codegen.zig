@@ -308,8 +308,8 @@ pub const Codegen = struct {
 
     fn generateExpression(self: *Codegen, expr: *const Expr) ![]const u8 {
         switch (expr.*) {
-            .integer_literal => |value| {
-                return try std.fmt.allocPrint(self.allocator, "{d}", .{value});
+            .integer_literal => |lit| {
+                return try std.fmt.allocPrint(self.allocator, "{d}", .{lit.value});
             },
             .bool_literal => |value| {
                 return try std.fmt.allocPrint(self.allocator, "{d}", .{if (value) @as(i32, 1) else @as(i32, 0)});
@@ -522,7 +522,7 @@ pub const Codegen = struct {
 
     fn inferExprType(self: *Codegen, expr: *const Expr) Type {
         switch (expr.*) {
-            .integer_literal => return .i32,
+            .integer_literal => |lit| return lit.inferred_type,
             .bool_literal => return .bool,
             .variable => |name| {
                 if (self.variables.get(name)) |var_info| {

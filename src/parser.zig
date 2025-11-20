@@ -47,6 +47,37 @@ pub const Type = enum {
             .i64, .u64 => "i64",
         };
     }
+
+    pub fn minValue(self: Type) i64 {
+        if (!self.isInteger()) {
+            if (self == .bool) return 0;
+            return 0;
+        }
+        if (!self.isSigned()) return 0; // Unsigned types have min of 0
+
+        // Signed types: -2^(bits-1)
+        return switch (self) {
+            .i8 => -128,
+            .i16 => -32768,
+            .i32 => -2147483648,
+            .i64 => std.math.minInt(i64),
+            else => 0,
+        };
+    }
+
+    pub fn maxValue(self: Type) i64 {
+        return switch (self) {
+            .bool => 1,
+            .i8 => 127,
+            .i16 => 32767,
+            .i32 => 2147483647,
+            .i64 => std.math.maxInt(i64),
+            .u8 => 255,
+            .u16 => 65535,
+            .u32 => 4294967295,
+            .u64 => std.math.maxInt(i64), // Limited by i64 storage
+        };
+    }
 };
 
 pub const ParseError = error{
@@ -99,7 +130,10 @@ pub const UnaryOp = enum {
 };
 
 pub const Expr = union(enum) {
-    integer_literal: i32,
+    integer_literal: struct {
+        value: i64,
+        inferred_type: Type,
+    },
     bool_literal: bool,
     variable: []const u8,
     binary_op: struct {
@@ -638,8 +672,8 @@ pub const Parser = struct {
     fn parsePrimary(self: *Parser) ParseError!Expr {
         if (self.check(.integer)) {
             const token = try self.expect(.integer);
-            const value = try std.fmt.parseInt(i32, token.lexeme, 10);
-            return .{ .integer_literal = value };
+            const value = try std.fmt.parseInt(i64, token.lexeme, 10);
+            return .{ .integer_literal = .{ .value = value, .inferred_type = .i32 } };
         }
 
         if (self.check(.true_keyword)) {
@@ -876,7 +910,7 @@ test "parser: simple function" {
     const stmt = func.body.items[0];
     try testing.expect(stmt == .return_stmt);
     try testing.expect(stmt.return_stmt.* == .integer_literal);
-    try testing.expectEqual(@as(i32, 42), stmt.return_stmt.integer_literal);
+    try testing.expectEqual(@as(i64, 42), stmt.return_stmt.integer_literal.value);
 }
 
 test "parser: binary addition" {
@@ -897,8 +931,8 @@ test "parser: binary addition" {
     try testing.expect(stmt == .return_stmt);
     try testing.expect(stmt.return_stmt.* == .binary_op);
     try testing.expectEqual(BinaryOp.add, stmt.return_stmt.binary_op.op);
-    try testing.expectEqual(@as(i32, 1), stmt.return_stmt.binary_op.left.integer_literal);
-    try testing.expectEqual(@as(i32, 2), stmt.return_stmt.binary_op.right.integer_literal);
+    try testing.expectEqual(@as(i64, 1), stmt.return_stmt.binary_op.left.integer_literal.value);
+    try testing.expectEqual(@as(i64, 2), stmt.return_stmt.binary_op.right.integer_literal.value);
 }
 
 test "parser: operator precedence" {
@@ -919,13 +953,13 @@ test "parser: operator precedence" {
     // Should parse as 1 + (2 * 3)
     try testing.expect(stmt.return_stmt.* == .binary_op);
     try testing.expectEqual(BinaryOp.add, stmt.return_stmt.binary_op.op);
-    try testing.expectEqual(@as(i32, 1), stmt.return_stmt.binary_op.left.integer_literal);
+    try testing.expectEqual(@as(i64, 1), stmt.return_stmt.binary_op.left.integer_literal.value);
 
     const right = stmt.return_stmt.binary_op.right;
     try testing.expect(right.* == .binary_op);
     try testing.expectEqual(BinaryOp.multiply, right.binary_op.op);
-    try testing.expectEqual(@as(i32, 2), right.binary_op.left.integer_literal);
-    try testing.expectEqual(@as(i32, 3), right.binary_op.right.integer_literal);
+    try testing.expectEqual(@as(i64, 2), right.binary_op.left.integer_literal.value);
+    try testing.expectEqual(@as(i64, 3), right.binary_op.right.integer_literal.value);
 }
 
 test "parser: arithmetic operators" {
@@ -1067,13 +1101,13 @@ test "parser: parentheses" {
     // Should parse as (1 + 2) * 3
     try testing.expect(stmt.return_stmt.* == .binary_op);
     try testing.expectEqual(BinaryOp.multiply, stmt.return_stmt.binary_op.op);
-    try testing.expectEqual(@as(i32, 3), stmt.return_stmt.binary_op.right.integer_literal);
+    try testing.expectEqual(@as(i64, 3), stmt.return_stmt.binary_op.right.integer_literal.value);
 
     const left = stmt.return_stmt.binary_op.left;
     try testing.expect(left.* == .binary_op);
     try testing.expectEqual(BinaryOp.add, left.binary_op.op);
-    try testing.expectEqual(@as(i32, 1), left.binary_op.left.integer_literal);
-    try testing.expectEqual(@as(i32, 2), left.binary_op.right.integer_literal);
+    try testing.expectEqual(@as(i64, 1), left.binary_op.left.integer_literal.value);
+    try testing.expectEqual(@as(i64, 2), left.binary_op.right.integer_literal.value);
 }
 
 test "parser: unary operators" {
@@ -1098,7 +1132,7 @@ test "parser: unary operators" {
         const stmt = ast.functions.items[0].body.items[0];
         try testing.expect(stmt.return_stmt.* == .unary_op);
         try testing.expectEqual(case.op, stmt.return_stmt.unary_op.op);
-        try testing.expectEqual(@as(i32, 5), stmt.return_stmt.unary_op.operand.integer_literal);
+        try testing.expectEqual(@as(i64, 5), stmt.return_stmt.unary_op.operand.integer_literal.value);
     }
 }
 
@@ -1123,7 +1157,7 @@ test "parser: nested unary operators" {
     const inner = stmt.return_stmt.unary_op.operand;
     try testing.expect(inner.* == .unary_op);
     try testing.expectEqual(UnaryOp.negate, inner.unary_op.op);
-    try testing.expectEqual(@as(i32, 5), inner.unary_op.operand.integer_literal);
+    try testing.expectEqual(@as(i64, 5), inner.unary_op.operand.integer_literal.value);
 }
 
 test "parser: unary with binary operators" {
@@ -1147,9 +1181,9 @@ test "parser: unary with binary operators" {
     const left = stmt.return_stmt.binary_op.left;
     try testing.expect(left.* == .unary_op);
     try testing.expectEqual(UnaryOp.negate, left.unary_op.op);
-    try testing.expectEqual(@as(i32, 5), left.unary_op.operand.integer_literal);
+    try testing.expectEqual(@as(i64, 5), left.unary_op.operand.integer_literal.value);
 
-    try testing.expectEqual(@as(i32, 3), stmt.return_stmt.binary_op.right.integer_literal);
+    try testing.expectEqual(@as(i64, 3), stmt.return_stmt.binary_op.right.integer_literal.value);
 }
 
 test "parser: bool literals" {
@@ -1193,12 +1227,12 @@ test "parser: simple if expression" {
 
     // Check then branch
     try testing.expect(if_expr.then_branch.* == .integer_literal);
-    try testing.expectEqual(@as(i32, 1), if_expr.then_branch.integer_literal);
+    try testing.expectEqual(@as(i64, 1), if_expr.then_branch.integer_literal.value);
 
     // Check else branch
     try testing.expect(if_expr.else_branch != null);
     try testing.expect(if_expr.else_branch.?.* == .integer_literal);
-    try testing.expectEqual(@as(i32, 2), if_expr.else_branch.?.integer_literal);
+    try testing.expectEqual(@as(i64, 2), if_expr.else_branch.?.integer_literal.value);
 }
 
 test "parser: if expression with comparison condition" {
@@ -1245,7 +1279,7 @@ test "parser: elseif chain" {
     try testing.expectEqual(false, if_expr.condition.bool_literal);
 
     // Then branch
-    try testing.expectEqual(@as(i32, 1), if_expr.then_branch.integer_literal);
+    try testing.expectEqual(@as(i64, 1), if_expr.then_branch.integer_literal.value);
 
     // Else branch should be another if_expr (the elseif)
     try testing.expect(if_expr.else_branch != null);
@@ -1254,8 +1288,8 @@ test "parser: elseif chain" {
     const nested_if = if_expr.else_branch.?.if_expr;
     try testing.expect(nested_if.condition.* == .bool_literal);
     try testing.expectEqual(true, nested_if.condition.bool_literal);
-    try testing.expectEqual(@as(i32, 2), nested_if.then_branch.integer_literal);
-    try testing.expectEqual(@as(i32, 3), nested_if.else_branch.?.integer_literal);
+    try testing.expectEqual(@as(i64, 2), nested_if.then_branch.integer_literal.value);
+    try testing.expectEqual(@as(i64, 3), nested_if.else_branch.?.integer_literal.value);
 }
 
 test "parser: multiple elseif chain" {
@@ -1276,20 +1310,20 @@ test "parser: multiple elseif chain" {
 
     // Should create deeply nested if expressions
     const if1 = stmt.return_stmt.if_expr;
-    try testing.expectEqual(@as(i32, 1), if1.then_branch.integer_literal);
+    try testing.expectEqual(@as(i64, 1), if1.then_branch.integer_literal.value);
 
     // First elseif
     try testing.expect(if1.else_branch.?.* == .if_expr);
     const if2 = if1.else_branch.?.if_expr;
-    try testing.expectEqual(@as(i32, 2), if2.then_branch.integer_literal);
+    try testing.expectEqual(@as(i64, 2), if2.then_branch.integer_literal.value);
 
     // Second elseif
     try testing.expect(if2.else_branch.?.* == .if_expr);
     const if3 = if2.else_branch.?.if_expr;
-    try testing.expectEqual(@as(i32, 3), if3.then_branch.integer_literal);
+    try testing.expectEqual(@as(i64, 3), if3.then_branch.integer_literal.value);
 
     // Final else
-    try testing.expectEqual(@as(i32, 4), if3.else_branch.?.integer_literal);
+    try testing.expectEqual(@as(i64, 4), if3.else_branch.?.integer_literal.value);
 }
 
 test "parser: nested if expressions" {
@@ -1313,11 +1347,11 @@ test "parser: nested if expressions" {
     try testing.expect(outer_if.then_branch.* == .if_expr);
 
     const inner_if = outer_if.then_branch.if_expr;
-    try testing.expectEqual(@as(i32, 1), inner_if.then_branch.integer_literal);
-    try testing.expectEqual(@as(i32, 2), inner_if.else_branch.?.integer_literal);
+    try testing.expectEqual(@as(i64, 1), inner_if.then_branch.integer_literal.value);
+    try testing.expectEqual(@as(i64, 2), inner_if.else_branch.?.integer_literal.value);
 
     // Outer else
-    try testing.expectEqual(@as(i32, 3), outer_if.else_branch.?.integer_literal);
+    try testing.expectEqual(@as(i64, 3), outer_if.else_branch.?.integer_literal.value);
 }
 
 test "parser: simple while loop" {

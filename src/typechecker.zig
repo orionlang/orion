@@ -91,20 +91,26 @@ pub const TypeChecker = struct {
 
         // Check all statements
         for (func.body.items) |stmt| {
-            try self.checkStatement(stmt, null);
+            // Propagate expected types to return statement expressions before checking
             if (stmt == .return_stmt) {
-                const expr_type = try self.inferExprType(stmt.return_stmt);
-                if (!self.canImplicitlyConvert(expr_type, func.return_type)) {
-                    printTypeMismatch("function", func.name, func.return_type, expr_type);
-                    return error.TypeMismatch;
-                }
+                try self.checkExprWithExpectedType(stmt.return_stmt, func.return_type);
             }
+
+            try self.checkStatement(stmt, func.return_type);
         }
+
+        // Validate that at least one return statement exists and has correct type
+        // Type validation happens in checkStatement for .return_stmt case
     }
 
     fn checkStatement(self: *TypeChecker, stmt: Stmt, func_return_type: ?Type) TypeCheckError!void {
         switch (stmt) {
             .let_binding => |binding| {
+                // For literals, update their inferred type to match context
+                if (binding.type_annotation) |expected_type| {
+                    try self.checkExprWithExpectedType(binding.value, expected_type);
+                }
+                // Verify the final type matches (catches type errors for non-literal expressions)
                 const value_type = try self.inferExprType(binding.value);
                 const var_type = binding.type_annotation orelse value_type;
                 if (binding.type_annotation) |expected_type| {
@@ -124,6 +130,9 @@ pub const TypeChecker = struct {
                     std.debug.print("Cannot assign to immutable variable: {s}\n", .{assign.name});
                     return error.AssignmentToImmutable;
                 }
+                // Propagate expected type to RHS expression (for literal inference)
+                try self.checkExprWithExpectedType(assign.value, var_info.var_type);
+
                 const value_type = try self.inferExprType(assign.value);
                 if (!self.canImplicitlyConvert(value_type, var_info.var_type)) {
                     printTypeMismatch("assignment to", assign.name, var_info.var_type, value_type);
@@ -142,6 +151,10 @@ pub const TypeChecker = struct {
                 const expr_type = try self.inferExprType(ret_expr);
                 if (func_return_type) |expected_type| {
                     if (!self.canImplicitlyConvert(expr_type, expected_type)) {
+                        std.debug.print("Type mismatch in return statement: expected {s}, got {s}\n", .{
+                            @tagName(expected_type),
+                            @tagName(expr_type),
+                        });
                         return error.TypeMismatch;
                     }
                 }
@@ -149,9 +162,72 @@ pub const TypeChecker = struct {
         }
     }
 
+    fn checkExprWithExpectedType(self: *TypeChecker, expr: *Expr, expected_type: Type) !void {
+        // For integer literals, update the inferred type and validate range
+        switch (expr.*) {
+            .integer_literal => |*lit| {
+                // Check if the value fits in the expected type
+                const value = lit.value;
+                const min = expected_type.minValue();
+                const max = expected_type.maxValue();
+
+                if (value < min or value > max) {
+                    // Provide clear error messages for common cases
+                    if (!expected_type.isSigned() and value < 0) {
+                        std.debug.print("Integer literal {d} is negative but type {s} is unsigned\n", .{
+                            value,
+                            @tagName(expected_type),
+                        });
+                    } else {
+                        std.debug.print("Integer literal {d} does not fit in type {s} (range: {d} to {d})\n", .{
+                            value,
+                            @tagName(expected_type),
+                            min,
+                            max,
+                        });
+                    }
+                    return error.TypeMismatch;
+                }
+
+                // Update the inferred type
+                lit.inferred_type = expected_type;
+            },
+            .binary_op => |*binop| {
+                // For arithmetic binary operations, propagate expected type to both operands
+                // This allows `let x: U32 = 10 + 5` to type both literals as U32
+                if (!binop.op.returns_bool()) {
+                    try self.checkExprWithExpectedType(binop.left, expected_type);
+                    try self.checkExprWithExpectedType(binop.right, expected_type);
+                }
+                // For comparison ops, we don't propagate type (result is bool anyway)
+            },
+            .unary_op => |*unop| {
+                // TODO: Propagate expected type to operand for unary minus
+                // Example: `let x: I64 = -42` should type the literal 42 as I64 before negating
+                _ = unop;
+            },
+            .if_expr => |*if_expr| {
+                // TODO: Propagate expected type to both branches
+                // Example: `let x: I64 = if cond { 42 } else { 100 }` should type both literals as I64
+                _ = if_expr;
+            },
+            .block_expr => |*block| {
+                // TODO: Propagate expected type to result expression
+                // Example: `let x: I64 = { stmt; stmt; 42 }` should type 42 as I64
+                _ = block;
+            },
+            .bool_literal, .variable, .function_call => {
+                // These expressions have fixed types that can't be influenced by context:
+                // - bool_literal: always Bool
+                // - variable: type determined at declaration
+                // - function_call: return type is fixed by function signature
+            },
+        }
+    }
+
     fn inferExprType(self: *TypeChecker, expr: *const Expr) !Type {
         switch (expr.*) {
-            .integer_literal => return .i32,
+            .integer_literal => |lit| return lit.inferred_type,
             .bool_literal => return .bool,
             .variable => |name| {
                 if (self.variables.get(name)) |var_info| {
@@ -290,12 +366,16 @@ pub const TypeChecker = struct {
         if (std.meta.eql(from, to)) return true;
 
         // Bool can convert to any integer type (safe: 0 or 1)
-        if (from == .bool and to != .bool) return true;
+        if (from == .bool and to.isInteger()) return true;
 
-        // TODO: Add typed integer literals to avoid need for I32 promotion
-        // I32 literals can widen to same or larger width types (no data loss)
-        if (from == .i32) {
-            return to.bitWidth() >= from.bitWidth();
+        // Allow widening conversions between integer types (no data loss)
+        // Signed can widen to larger signed, unsigned can widen to larger unsigned
+        // We don't allow mixing signed/unsigned to prevent unexpected behavior
+        if (from.isInteger() and to.isInteger()) {
+            // Same signedness and target is wider (not equal - handled by exact match above)
+            if (from.isSigned() == to.isSigned() and to.bitWidth() > from.bitWidth()) {
+                return true;
+            }
         }
 
         // No other implicit conversions allowed

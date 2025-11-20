@@ -1,0 +1,7 @@
+fn main() I32 {
+    var x: I8 = 10;
+    x = 20;
+    x = 127;
+    let result: I32 = x;
+    return result
+}

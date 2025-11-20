@@ -54,10 +54,32 @@ Access: .
 
 **Integer literals:**
 ```orion
-42          // I32 default
-42i64       // Explicit I64
-0xFF        // Hexadecimal
-0b1010      // Binary
+42          // Type inferred from context, defaults to I32
+let x: I8 = 42;     // Literal infers I8 from context
+let y: U64 = 1000;  // Literal infers U64 from context
+let z = 42;         // No context: defaults to I32
+```
+
+**Semantics:**
+- Integer literals are untyped until type inference
+- Type is inferred from context (variable type annotation, function parameter type, etc.)
+- When no context is available, literals default to I32
+- Compile-time range checking ensures literals fit in target type
+- Out-of-range literals cause compile error
+
+**Examples:**
+```orion
+let a: I8 = 127;    // OK: 127 fits in I8 (-128 to 127)
+let b: I8 = 200;    // ERROR: 200 doesn't fit in I8
+let c: U8 = 255;    // OK: 255 fits in U8 (0 to 255)
+let d: U8 = 300;    // ERROR: 300 doesn't fit in U8
+```
+
+**Not yet implemented:**
+```orion
+42i64       // Explicit type suffix (future)
+0xFF        // Hexadecimal (future)
+0b1010      // Binary (future)
 ```
 
 **String literals:**
@@ -965,16 +987,30 @@ Bootstrap Orion has no ownership system:
 
 ### 9.1 Type Inference
 
-Limited type inference:
-- Let bindings infer from RHS
-- Function return types infer from body
+**Variable bindings:**
+- Let/var bindings infer type from RHS expression
+- If type annotation present, RHS must match (or be contextually typed)
+
+**Integer literals:**
+- Integer literals are untyped until inference
+- Type inferred from context (variable annotation, parameter type, etc.)
+- Defaults to I32 when no context available
+- Compile-time range checking validates literal fits in target type
+
+**Function return types:**
+- Must be explicitly annotated (no inference from body in bootstrap)
+
+**Limitations:**
 - No cross-function inference
+- No generic type inference
+- No bidirectional type inference (beyond literals)
 
 ### 9.2 Type Compatibility
 
-- No implicit conversions
+- No implicit conversions between different types
 - No subtyping
-- Exact type match required
+- Exact type match required (exception: contextual typing of literals)
+- Bool can be used in integer contexts (converts to 0 or 1)
 
 ### 9.3 Linearity Checking
 

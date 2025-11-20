@@ -23,7 +23,10 @@ Currently implemented:
 - Let bindings (immutable) and var bindings (mutable)
 - Assignment statements
 - Block expressions
-- Basic types: `I32`, `Bool`
+- Integer types: `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`
+- Contextual integer typing (literals infer type from context)
+- Integer literal range validation
+- Boolean type: `Bool`
 - Binary and unary operators
 - Function calls with parameters
 
