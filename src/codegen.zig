@@ -4,10 +4,13 @@ const AST = parser.AST;
 const Type = parser.Type;
 const Expr = parser.Expr;
 const Stmt = parser.Stmt;
+const Pattern = parser.Pattern;
 
 pub const CodegenError = error{
     OutOfMemory,
     UndefinedVariable,
+    TupleNotImplemented,
+    TupleDestructuringNotImplemented,
 };
 
 const VarInfo = struct {
@@ -26,6 +29,7 @@ pub const Codegen = struct {
     variables: std.StringHashMap(VarInfo),
     functions: std.StringHashMap(FunctionInfo),
     current_block: ?[]const u8,
+    inferred_types: std.ArrayList(Type),
 
     pub fn init(allocator: std.mem.Allocator) Codegen {
         return .{
@@ -35,6 +39,7 @@ pub const Codegen = struct {
             .variables = std.StringHashMap(VarInfo).init(allocator),
             .functions = std.StringHashMap(FunctionInfo).init(allocator),
             .current_block = null,
+            .inferred_types = .empty,
         };
     }
 
@@ -44,6 +49,12 @@ pub const Codegen = struct {
         while (iter.next()) |var_info| {
             self.allocator.free(var_info.llvm_ptr);
         }
+
+        // Free all inferred tuple types (shallow - nested tuples tracked separately)
+        for (self.inferred_types.items) |*typ| {
+            typ.deinitShallow(self.allocator);
+        }
+        self.inferred_types.deinit(self.allocator);
 
         if (self.current_block) |block| {
             self.allocator.free(block);
@@ -72,7 +83,7 @@ pub const Codegen = struct {
     }
 
     fn convertConditionToBool(self: *Codegen, condition_val: []const u8, condition_type: Type) ![]const u8 {
-        if (condition_type == .bool) {
+        if (condition_type == .primitive and condition_type.primitive == .bool) {
             return try self.allocator.dupe(u8, condition_val);
         }
         const temp = try self.allocTempName();
@@ -133,13 +144,15 @@ pub const Codegen = struct {
         self.variables.clearRetainingCapacity();
 
         // Function signature with parameters
-        const return_type_str = self.llvmType(func.return_type);
+        const return_type_str = try self.llvmTypeString(func.return_type);
+        defer self.allocator.free(return_type_str);
         try self.output.writer(self.allocator).print("define {s} @{s}(", .{ return_type_str, func.name });
 
         // Generate parameter list
         for (func.params, 0..) |param, i| {
             if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-            const param_type_str = self.llvmType(param.param_type);
+            const param_type_str = try self.llvmTypeString(param.param_type);
+            defer self.allocator.free(param_type_str);
             try self.output.writer(self.allocator).print("{s} %{s}", .{ param_type_str, param.name });
         }
 
@@ -147,7 +160,8 @@ pub const Codegen = struct {
 
         // Allocate and store parameters
         for (func.params) |param| {
-            const param_type_str = self.llvmType(param.param_type);
+            const param_type_str = try self.llvmTypeString(param.param_type);
+            defer self.allocator.free(param_type_str);
             const var_name = try std.fmt.allocPrint(self.allocator, "%{s}.addr", .{param.name});
 
             try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ var_name, param_type_str });
@@ -175,11 +189,6 @@ pub const Codegen = struct {
 
                 // If type annotation provided, use it; otherwise use inferred type
                 const var_type = binding.type_annotation orelse value_expr_type;
-                const llvm_type_str = self.llvmType(var_type);
-
-                // Allocate stack slot for variable
-                const var_name = try std.fmt.allocPrint(self.allocator, "%{s}", .{binding.name});
-                try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ var_name, llvm_type_str });
 
                 // Generate value expression
                 const value = try self.generateExpression(binding.value);
@@ -189,14 +198,8 @@ pub const Codegen = struct {
                 const final_value = try self.convertIfNeeded(value, value_expr_type, var_type);
                 defer self.allocator.free(final_value);
 
-                // Store value in variable
-                try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ llvm_type_str, final_value, var_name });
-
-                // Remember variable for later references (reuse var_name, no duplication needed)
-                try self.variables.put(binding.name, .{
-                    .llvm_ptr = var_name,
-                    .var_type = var_type,
-                });
+                // Bind pattern to variables
+                try self.bindPattern(binding.pattern, var_type, final_value, binding.mutable);
             },
             .assignment => |assign| {
                 // Look up the variable
@@ -205,7 +208,8 @@ pub const Codegen = struct {
                 };
 
                 const var_type = var_info.var_type;
-                const llvm_type_str = self.llvmType(var_type);
+                const llvm_type_str = try self.llvmTypeString(var_type);
+                defer self.allocator.free(llvm_type_str);
 
                 // Generate value expression
                 const value = try self.generateExpression(assign.value);
@@ -260,7 +264,8 @@ pub const Codegen = struct {
                 const value = try self.generateExpression(expr);
                 defer self.allocator.free(value);
                 const expr_type = self.inferExprType(expr);
-                const return_type_str = self.llvmType(return_type);
+                const return_type_str = try self.llvmTypeString(return_type);
+                defer self.allocator.free(return_type_str);
 
                 // Convert type if needed
                 const converted = try self.convertIfNeeded(value, expr_type, return_type);
@@ -270,8 +275,52 @@ pub const Codegen = struct {
         }
     }
 
+    fn bindPattern(self: *Codegen, pattern: Pattern, value_type: Type, value_llvm: []const u8, mutable: bool) !void {
+        switch (pattern) {
+            .identifier => |name| {
+                const llvm_type_str = try self.llvmTypeString(value_type);
+                defer self.allocator.free(llvm_type_str);
+
+                // Allocate stack slot for variable
+                const var_name = try std.fmt.allocPrint(self.allocator, "%{s}", .{name});
+                try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ var_name, llvm_type_str });
+
+                // Store value in variable
+                try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ llvm_type_str, value_llvm, var_name });
+
+                // Remember variable for later references
+                try self.variables.put(name, .{
+                    .llvm_ptr = var_name,
+                    .var_type = value_type,
+                });
+            },
+            .tuple => |sub_patterns| {
+                // Extract each element from the tuple and bind recursively
+                const tuple_type_str = try self.llvmTypeString(value_type);
+                defer self.allocator.free(tuple_type_str);
+
+                for (sub_patterns, 0..) |sub_pattern, i| {
+                    const elem_type = value_type.tuple[i].*;
+                    const elem_temp = try self.allocTempName();
+
+                    // Extract element from tuple
+                    try self.output.writer(self.allocator).print("  {s} = extractvalue {s} {s}, {d}\n", .{
+                        elem_temp,
+                        tuple_type_str,
+                        value_llvm,
+                        i,
+                    });
+
+                    // Recursively bind the pattern
+                    try self.bindPattern(sub_pattern.*, elem_type, elem_temp, mutable);
+                    self.allocator.free(elem_temp);
+                }
+            },
+        }
+    }
+
     fn convertIfNeeded(self: *Codegen, value: []const u8, from_type: Type, to_type: Type) ![]const u8 {
-        if (from_type == to_type) {
+        if (from_type.eql(to_type)) {
             return try self.allocator.dupe(u8, value);
         }
         return try self.convertType(value, from_type, to_type);
@@ -282,7 +331,7 @@ pub const Codegen = struct {
         const to_llvm = self.llvmType(to_type);
 
         // Bool uses zero extension (unsigned)
-        if (from_type == .bool) {
+        if (from_type == .primitive and from_type.primitive == .bool) {
             const temp = try self.allocTempName();
             try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to {s}\n", .{ temp, value, to_llvm });
             return temp;
@@ -319,10 +368,73 @@ pub const Codegen = struct {
                 const var_info = self.variables.get(name).?;
                 const temp_name = try self.allocTempName();
 
-                const llvm_type_str = self.llvmType(var_info.var_type);
+                const llvm_type_str = try self.llvmTypeString(var_info.var_type);
+                defer self.allocator.free(llvm_type_str);
                 try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ temp_name, llvm_type_str, var_info.llvm_ptr });
 
                 return temp_name;
+            },
+            .tuple_literal => |elements| {
+                // Generate tuple value using insertvalue instructions
+                const tuple_type = self.inferExprType(expr);
+                const tuple_type_str = try self.llvmTypeString(tuple_type);
+                defer self.allocator.free(tuple_type_str);
+
+                // Empty tuple case
+                if (elements.len == 0) {
+                    return try std.fmt.allocPrint(self.allocator, "undef", .{});
+                }
+
+                // Start with undef
+                var current_val: []const u8 = try std.fmt.allocPrint(self.allocator, "undef", .{});
+
+                for (elements, 0..) |elem, i| {
+                    const elem_val = try self.generateExpression(elem);
+                    defer self.allocator.free(elem_val);
+
+                    const elem_type = self.inferExprType(elem);
+                    const elem_type_str = try self.llvmTypeString(elem_type);
+                    defer self.allocator.free(elem_type_str);
+
+                    const temp = try self.allocTempName();
+                    try self.output.writer(self.allocator).print("  {s} = insertvalue {s} {s}, {s} {s}, {d}\n", .{
+                        temp,
+                        tuple_type_str,
+                        current_val,
+                        elem_type_str,
+                        elem_val,
+                        i,
+                    });
+
+                    if (i < elements.len - 1) {
+                        self.allocator.free(current_val);
+                        current_val = try self.allocator.dupe(u8, temp);
+                        self.allocator.free(temp);
+                    } else {
+                        self.allocator.free(current_val);
+                        return temp;
+                    }
+                }
+
+                unreachable;
+            },
+            .tuple_index => |index| {
+                const tuple_val = try self.generateExpression(index.tuple);
+                defer self.allocator.free(tuple_val);
+
+                const tuple_type = self.inferExprType(index.tuple);
+                const tuple_type_str = try self.llvmTypeString(tuple_type);
+                defer self.allocator.free(tuple_type_str);
+
+                const temp = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = extractvalue {s} {s}, {d}\n", .{
+                    temp,
+                    tuple_type_str,
+                    tuple_val,
+                    index.index,
+                });
+
+                return temp;
             },
             .binary_op => |binop| {
                 const left_val = try self.generateExpression(binop.left);
@@ -378,7 +490,8 @@ pub const Codegen = struct {
 
                 // Get function return type from the function we're calling
                 const return_type = self.inferExprType(expr);
-                const return_type_str = self.llvmType(return_type);
+                const return_type_str = try self.llvmTypeString(return_type);
+                defer self.allocator.free(return_type_str);
 
                 // Generate call instruction
                 const temp_name = try self.allocTempName();
@@ -393,7 +506,8 @@ pub const Codegen = struct {
                 for (arg_values, 0..) |arg_val, i| {
                     if (i > 0) try self.output.appendSlice(self.allocator, ", ");
                     const arg_type = self.inferExprType(call.args[i]);
-                    const arg_type_str = self.llvmType(arg_type);
+                    const arg_type_str = try self.llvmTypeString(arg_type);
+                    defer self.allocator.free(arg_type_str);
                     try self.output.writer(self.allocator).print("{s} {s}", .{ arg_type_str, arg_val });
                 }
 
@@ -439,7 +553,8 @@ pub const Codegen = struct {
                 try self.setCurrentBlock(merge_label);
 
                 const result_type = self.inferExprType(expr);
-                const result_type_str = self.llvmType(result_type);
+                const result_type_str = try self.llvmTypeString(result_type);
+                defer self.allocator.free(result_type_str);
                 const result_temp = try self.allocTempName();
                 try self.output.writer(self.allocator).print("  {s} = phi {s} [ {s}, %{s} ], [ {s}, %{s} ]\n", .{
                     result_temp,
@@ -464,7 +579,7 @@ pub const Codegen = struct {
             .block_expr => |block| {
                 // Generate all statements
                 for (block.statements) |*stmt| {
-                    try self.generateStatement(stmt, .i32); // Dummy return type for blocks
+                    try self.generateStatement(stmt, .{ .primitive = .i32 }); // Dummy return type for blocks
                 }
 
                 // Generate result expression or unit value
@@ -489,7 +604,7 @@ pub const Codegen = struct {
         // Determine the type from the left operand
         const operand_type = self.inferExprType(left_expr);
 
-        if (operand_type == .bool) {
+        if (operand_type == .primitive and operand_type.primitive == .bool) {
             // Boolean operation on i1 values
             const bool_op = if (op == .logical_and) "and" else "or";
             try self.output.writer(self.allocator).print("  {s} = {s} i1 {s}, {s}\n", .{ result_name, bool_op, left_val, right_val });
@@ -520,27 +635,64 @@ pub const Codegen = struct {
         return typ.llvmTypeName();
     }
 
+    fn llvmTypeString(self: *Codegen, typ: Type) ![]const u8 {
+        switch (typ) {
+            .primitive => return try self.allocator.dupe(u8, typ.llvmTypeName()),
+            .tuple => |elements| {
+                var type_parts: std.ArrayList(u8) = .empty;
+                try type_parts.ensureTotalCapacity(self.allocator, 256);
+                defer type_parts.deinit(self.allocator);
+                try type_parts.appendSlice(self.allocator, "{ ");
+
+                for (elements, 0..) |elem, i| {
+                    if (i > 0) try type_parts.appendSlice(self.allocator, ", ");
+                    const elem_str = try self.llvmTypeString(elem.*);
+                    defer self.allocator.free(elem_str);
+                    try type_parts.appendSlice(self.allocator, elem_str);
+                }
+                try type_parts.appendSlice(self.allocator, " }");
+                return try type_parts.toOwnedSlice(self.allocator);
+            },
+        }
+    }
+
     fn inferExprType(self: *Codegen, expr: *const Expr) Type {
         switch (expr.*) {
             .integer_literal => |lit| return lit.inferred_type,
-            .bool_literal => return .bool,
+            .bool_literal => return .{ .primitive = .bool },
+            .tuple_literal => |elements| {
+                const elem_types = self.allocator.alloc(*Type, elements.len) catch unreachable;
+                for (elements, 0..) |elem, i| {
+                    const elem_type_ptr = self.allocator.create(Type) catch unreachable;
+                    elem_type_ptr.* = self.inferExprType(elem);
+                    elem_types[i] = elem_type_ptr;
+                }
+                const tuple_type = Type{ .tuple = elem_types };
+                // Track ALL tuple types (including nested) for cleanup
+                self.inferred_types.append(self.allocator, tuple_type) catch unreachable;
+                return tuple_type;
+            },
+            .tuple_index => |index| {
+                const tuple_type = self.inferExprType(index.tuple);
+                return tuple_type.tuple[index.index].*;
+            },
             .variable => |name| {
                 if (self.variables.get(name)) |var_info| {
                     return var_info.var_type;
                 }
-                return .i32;
+                return .{ .primitive = .i32 };
             },
             .binary_op => |binop| {
-                return if (binop.op.returns_bool()) .bool else self.inferExprType(binop.left);
+                return if (binop.op.returns_bool()) .{ .primitive = .bool } else self.inferExprType(binop.left);
             },
             .unary_op => |unop| {
-                return if (unop.op.returns_bool()) .bool else self.inferExprType(unop.operand);
+                return if (unop.op.returns_bool()) .{ .primitive = .bool } else self.inferExprType(unop.operand);
             },
             .function_call => |call| {
                 if (self.functions.get(call.name)) |func_info| {
                     return func_info.return_type;
                 }
-                return .i32;
+                return .{ .primitive = .i32 };
             },
             .if_expr => |if_expr| {
                 return self.inferExprType(if_expr.then_branch);
@@ -549,7 +701,7 @@ pub const Codegen = struct {
                 if (block.result) |result| {
                     return self.inferExprType(result);
                 } else {
-                    return .i32; // Unit value
+                    return .{ .primitive = .i32 }; // Unit value
                 }
             },
         }

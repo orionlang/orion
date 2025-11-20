@@ -4,6 +4,7 @@ const AST = parser.AST;
 const Type = parser.Type;
 const Expr = parser.Expr;
 const Stmt = parser.Stmt;
+const Pattern = parser.Pattern;
 
 const FunctionSignature = struct {
     params: []const Type,
@@ -29,12 +30,14 @@ pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     variables: std.StringHashMap(VariableInfo),
     functions: std.StringHashMap(FunctionSignature),
+    allocated_tuple_types: std.ArrayList(Type),
 
     pub fn init(allocator: std.mem.Allocator) TypeChecker {
         return .{
             .allocator = allocator,
             .variables = std.StringHashMap(VariableInfo).init(allocator),
             .functions = std.StringHashMap(FunctionSignature).init(allocator),
+            .allocated_tuple_types = .empty,
         };
     }
 
@@ -43,6 +46,11 @@ pub const TypeChecker = struct {
         while (iter.next()) |sig| {
             self.allocator.free(sig.params);
         }
+        // Free all tuple types (shallow - nested tuples tracked separately)
+        for (self.allocated_tuple_types.items) |*tuple_type| {
+            tuple_type.deinitShallow(self.allocator);
+        }
+        self.allocated_tuple_types.deinit(self.allocator);
         self.variables.deinit();
         self.functions.deinit();
     }
@@ -115,11 +123,12 @@ pub const TypeChecker = struct {
                 const var_type = binding.type_annotation orelse value_type;
                 if (binding.type_annotation) |expected_type| {
                     if (!self.canImplicitlyConvert(value_type, expected_type)) {
-                        printTypeMismatch("let binding", binding.name, expected_type, value_type);
+                        std.debug.print("Type mismatch in let binding\n", .{});
                         return error.TypeMismatch;
                     }
                 }
-                try self.variables.put(binding.name, .{ .var_type = var_type, .mutable = binding.mutable });
+                // Bind pattern to variables
+                try self.bindPattern(binding.pattern, var_type, binding.mutable);
             },
             .assignment => |assign| {
                 const var_info = self.variables.get(assign.name) orelse {
@@ -141,8 +150,8 @@ pub const TypeChecker = struct {
             },
             .while_stmt => |while_stmt| {
                 const condition_type = try self.inferExprType(while_stmt.condition);
-                if (condition_type != .bool) {
-                    std.debug.print("While condition must be bool, got {s}\n", .{@tagName(condition_type)});
+                if (condition_type != .primitive or condition_type.primitive != .bool) {
+                    std.debug.print("While condition must be bool, got {any}\n", .{condition_type});
                     return error.TypeMismatch;
                 }
                 _ = try self.inferExprType(while_stmt.body);
@@ -162,9 +171,46 @@ pub const TypeChecker = struct {
         }
     }
 
+    fn bindPattern(self: *TypeChecker, pattern: Pattern, value_type: Type, mutable: bool) !void {
+        switch (pattern) {
+            .identifier => |name| {
+                try self.variables.put(name, .{ .var_type = value_type, .mutable = mutable });
+            },
+            .tuple => |sub_patterns| {
+                if (value_type != .tuple) {
+                    std.debug.print("Cannot destructure non-tuple type\n", .{});
+                    return error.TypeMismatch;
+                }
+                if (sub_patterns.len != value_type.tuple.len) {
+                    std.debug.print("Pattern has {d} elements but value has {d}\n", .{ sub_patterns.len, value_type.tuple.len });
+                    return error.TypeMismatch;
+                }
+                for (sub_patterns, value_type.tuple) |sub_pattern, elem_type| {
+                    try self.bindPattern(sub_pattern.*, elem_type.*, mutable);
+                }
+            },
+        }
+    }
+
     fn checkExprWithExpectedType(self: *TypeChecker, expr: *Expr, expected_type: Type) !void {
         // For integer literals, update the inferred type and validate range
         switch (expr.*) {
+            .tuple_literal => |elements| {
+                if (expected_type != .tuple) {
+                    std.debug.print("Expected tuple type but got non-tuple\n", .{});
+                    return error.TypeMismatch;
+                }
+                if (elements.len != expected_type.tuple.len) {
+                    std.debug.print("Tuple literal has {d} elements but expected {d}\n", .{ elements.len, expected_type.tuple.len });
+                    return error.TypeMismatch;
+                }
+                for (elements, expected_type.tuple) |elem, expected_elem_type| {
+                    try self.checkExprWithExpectedType(elem, expected_elem_type.*);
+                }
+            },
+            .tuple_index => {
+                // Tuple indexing result type is determined by the tuple structure, not expected type
+            },
             .integer_literal => |*lit| {
                 // Check if the value fits in the expected type
                 const value = lit.value;
@@ -228,7 +274,31 @@ pub const TypeChecker = struct {
     fn inferExprType(self: *TypeChecker, expr: *const Expr) !Type {
         switch (expr.*) {
             .integer_literal => |lit| return lit.inferred_type,
-            .bool_literal => return .bool,
+            .bool_literal => return .{ .primitive = .bool },
+            .tuple_literal => |elements| {
+                const elem_types = try self.allocator.alloc(*Type, elements.len);
+                for (elements, 0..) |elem, i| {
+                    const elem_type_ptr = try self.allocator.create(Type);
+                    elem_type_ptr.* = try self.inferExprType(elem);
+                    elem_types[i] = elem_type_ptr;
+                }
+                const tuple_type = Type{ .tuple = elem_types };
+                // Track ALL tuple types (including nested) for cleanup
+                try self.allocated_tuple_types.append(self.allocator, tuple_type);
+                return tuple_type;
+            },
+            .tuple_index => |index| {
+                const tuple_type = try self.inferExprType(index.tuple);
+                if (tuple_type != .tuple) {
+                    std.debug.print("Cannot index non-tuple type\n", .{});
+                    return error.TypeMismatch;
+                }
+                if (index.index >= tuple_type.tuple.len) {
+                    std.debug.print("Tuple index {d} out of bounds (tuple has {d} elements)\n", .{ index.index, tuple_type.tuple.len });
+                    return error.TypeMismatch;
+                }
+                return tuple_type.tuple[index.index].*;
+            },
             .variable => |name| {
                 if (self.variables.get(name)) |var_info| {
                     return var_info.var_type;
@@ -243,8 +313,10 @@ pub const TypeChecker = struct {
                 // Logical operators work on both bool and integers
                 if (binop.op == .logical_and or binop.op == .logical_or) {
                     // If both are bool, result is bool
-                    if (left_type == .bool and right_type == .bool) {
-                        return .bool;
+                    if (left_type == .primitive and left_type.primitive == .bool and
+                        right_type == .primitive and right_type.primitive == .bool)
+                    {
+                        return .{ .primitive = .bool };
                     }
                     // If both are integers, result is integer (old behavior for compatibility)
                     if (self.isIntegerType(left_type) and self.isIntegerType(right_type)) {
@@ -263,7 +335,7 @@ pub const TypeChecker = struct {
                 }
 
                 // Comparison operators return bool
-                if (binop.op.returns_bool()) return .bool;
+                if (binop.op.returns_bool()) return .{ .primitive = .bool };
 
                 // For arithmetic operators, both operands must be the same type
                 if (!self.typesMatch(left_type, right_type)) {
@@ -281,7 +353,7 @@ pub const TypeChecker = struct {
                 }
 
                 // Comparison operators return bool, arithmetic operators preserve type
-                return if (unop.op.returns_bool()) .bool else operand_type;
+                return if (unop.op.returns_bool()) .{ .primitive = .bool } else operand_type;
             },
             .function_call => |call| {
                 // Look up function signature
@@ -321,8 +393,8 @@ pub const TypeChecker = struct {
             .if_expr => |if_expr| {
                 // Condition must be bool
                 const condition_type = try self.inferExprType(if_expr.condition);
-                if (condition_type != .bool) {
-                    std.debug.print("If condition must be bool, got {s}\n", .{@tagName(condition_type)});
+                if (condition_type != .primitive or condition_type.primitive != .bool) {
+                    std.debug.print("If condition must be bool, got {any}\n", .{condition_type});
                     return error.TypeMismatch;
                 }
 
@@ -354,7 +426,7 @@ pub const TypeChecker = struct {
                 if (block.result) |result| {
                     return try self.inferExprType(result);
                 } else {
-                    return .i32;
+                    return .{ .primitive = .i32 };
                 }
             },
         }
@@ -363,10 +435,10 @@ pub const TypeChecker = struct {
     fn canImplicitlyConvert(_: *TypeChecker, from: Type, to: Type) bool {
 
         // Exact match is always allowed
-        if (std.meta.eql(from, to)) return true;
+        if (from.eql(to)) return true;
 
         // Bool can convert to any integer type (safe: 0 or 1)
-        if (from == .bool and to.isInteger()) return true;
+        if (from == .primitive and from.primitive == .bool and to.isInteger()) return true;
 
         // Allow widening conversions between integer types (no data loss)
         // Signed can widen to larger signed, unsigned can widen to larger unsigned
@@ -383,7 +455,7 @@ pub const TypeChecker = struct {
     }
 
     fn typesMatch(_: *TypeChecker, a: Type, b: Type) bool {
-        return std.meta.eql(a, b);
+        return a.eql(b);
     }
 
     fn isIntegerType(_: *TypeChecker, typ: Type) bool {

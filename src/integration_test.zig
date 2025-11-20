@@ -1363,3 +1363,333 @@ test "integration: var keyword for mutable variables" {
 
     try testing.expect(std.mem.indexOf(u8, ir, "define") != null);
 }
+
+// Tuple integration tests
+
+test "integration: empty tuple literal" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (); return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Empty tuple should allocate {  } type (note: two spaces)
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca {  }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "store {  } undef") != null);
+}
+
+test "integration: simple tuple literal" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (1, 2); return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check tuple type is created
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32 }") != null);
+    // Check insertvalue instructions
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32, i32 }") != null);
+    // Check alloca for tuple
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca { i32, i32 }") != null);
+}
+
+test "integration: tuple with mixed types" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (42, true, 100); return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check tuple type with i32, i1, i32
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i1, i32 }") != null);
+    // Check multiple insertvalue instructions
+    const insertvalue_count = std.mem.count(u8, ir, "insertvalue");
+    try testing.expect(insertvalue_count >= 3);
+}
+
+test "integration: nested tuple literal" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (1, (2, 3)); return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check nested tuple type { i32, { i32, i32 } }
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, { i32, i32 } }") != null);
+    // Inner tuple should be built first
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32, i32 }") != null);
+    // Then inserted into outer tuple
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32, { i32, i32 } }") != null);
+}
+
+test "integration: deeply nested tuple" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (1, (2, (3, 4))); return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check deeply nested type
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32 }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, { i32, i32 } }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, { i32, { i32, i32 } } }") != null);
+}
+
+test "integration: tuple indexing simple" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (10, 20); return t.0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check tuple is loaded
+    try testing.expect(std.mem.indexOf(u8, ir, "load { i32, i32 }") != null);
+    // Check extractvalue at index 0
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32, i32 }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, ", 0") != null);
+    // Check value is returned
+    try testing.expect(std.mem.indexOf(u8, ir, "ret i32") != null);
+}
+
+test "integration: tuple indexing multiple elements" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (1, 2, 3); return t.0 + t.1 + t.2 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check tuple type
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32, i32 }") != null);
+    // Check all three extracts
+    try testing.expect(std.mem.indexOf(u8, ir, ", 0") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, ", 1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, ", 2") != null);
+    // Check additions
+    const add_count = std.mem.count(u8, ir, "add i32");
+    try testing.expectEqual(@as(usize, 2), add_count);
+}
+
+test "integration: nested tuple indexing" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (1, (2, 3)); return t.1.0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check nested tuple type
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, { i32, i32 } }") != null);
+    // Extract inner tuple at index 1
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32, { i32, i32 } }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, ", 1") != null);
+    // Then extract from inner tuple at index 0
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32, i32 }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, ", 0") != null);
+}
+
+test "integration: tuple with bool elements" {
+    const testing = std.testing;
+
+    const source = "fn main() Bool { let t = (true, false, true); return t.0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check tuple type with bools
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i1, i1, i1 }") != null);
+    // Check extractvalue returns i1
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i1, i1, i1 }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "ret i1") != null);
+}
+
+test "integration: simple tuple destructuring" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let (a, b) = (10, 20); return a + b }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check tuple is created
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32 }") != null);
+    // Check extractvalue for both elements
+    const extractvalue_count = std.mem.count(u8, ir, "extractvalue");
+    try testing.expect(extractvalue_count >= 2);
+    // Check both variables allocated
+    try testing.expect(std.mem.indexOf(u8, ir, "%a = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "%b = alloca i32") != null);
+    // Check variables are loaded and added
+    try testing.expect(std.mem.indexOf(u8, ir, "add i32") != null);
+}
+
+test "integration: nested tuple destructuring" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let (x, (y, z)) = (1, (2, 3)); return x + y + z }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check nested tuple type
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, { i32, i32 } }") != null);
+    // Check all three variables allocated
+    try testing.expect(std.mem.indexOf(u8, ir, "%x = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "%y = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "%z = alloca i32") != null);
+    // Check multiple extracts (for x, inner tuple, y, z)
+    const extractvalue_count = std.mem.count(u8, ir, "extractvalue");
+    try testing.expect(extractvalue_count >= 3);
+}
+
+test "integration: tuple destructuring with type annotation" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let (a, b): (I32, Bool) = (42, true); return a }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check mixed-type tuple
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i1 }") != null);
+    // Check a is i32 and b is i1
+    try testing.expect(std.mem.indexOf(u8, ir, "%a = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "%b = alloca i1") != null);
+}
+
+test "integration: tuple function return type" {
+    const testing = std.testing;
+
+    const source = "fn make_pair() (I32, I32) { return (10, 20) } fn main() I32 { return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function signature with tuple return
+    try testing.expect(std.mem.indexOf(u8, ir, "define { i32, i32 } @make_pair()") != null);
+    // Check tuple construction in return
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32, i32 }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "ret { i32, i32 }") != null);
+}
+
+test "integration: tuple as function parameter" {
+    const testing = std.testing;
+
+    const source = "fn use_pair(p: (I32, I32)) I32 { return p.0 } fn main() I32 { return use_pair((5, 10)) }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function signature with tuple parameter
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @use_pair({ i32, i32 } %p)") != null);
+    // Check parameter is allocated
+    try testing.expect(std.mem.indexOf(u8, ir, "%p.addr = alloca { i32, i32 }") != null);
+    // Check call with tuple argument
+    try testing.expect(std.mem.indexOf(u8, ir, "call i32 @use_pair({ i32, i32 }") != null);
+}
+
+test "integration: tuple in if expression" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = if true { (1, 2) } else { (3, 4) }; return t.0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check tuple type
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32 }") != null);
+    // Check phi node for tuple
+    try testing.expect(std.mem.indexOf(u8, ir, "phi { i32, i32 }") != null);
+    // Check extractvalue after phi
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32, i32 }") != null);
+}
+
+test "integration: tuple destructuring with different types" {
+    const testing = std.testing;
+
+    const source = "fn main() Bool { let (flag, num) = (true, 42); return flag }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check mixed-type tuple
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i1, i32 }") != null);
+    // Check flag is i1, num is i32
+    try testing.expect(std.mem.indexOf(u8, ir, "%flag = alloca i1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "%num = alloca i32") != null);
+}
+
+test "integration: large tuple" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (1, 2, 3, 4, 5, 6, 7, 8); return t.7 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check large tuple type
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32, i32, i32, i32, i32, i32, i32 }") != null);
+    // Check extract at index 7 (last element)
+    try testing.expect(std.mem.indexOf(u8, ir, ", 7") != null);
+}
+
+test "integration: tuple with expressions" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (5 + 3, 10 * 2); return t.0 + t.1 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check expressions are evaluated before tuple construction
+    try testing.expect(std.mem.indexOf(u8, ir, "add i32 5, 3") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "mul i32 10, 2") != null);
+    // Check results inserted into tuple
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32, i32 }") != null);
+}
+
+test "integration: tuple destructuring in mutable binding" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { var (x, y) = (10, 20); x = 30; return x }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check variables are allocated
+    try testing.expect(std.mem.indexOf(u8, ir, "%x = alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "%y = alloca i32") != null);
+    // Check x is reassigned
+    try testing.expect(std.mem.indexOf(u8, ir, "store i32 30, ptr %x") != null);
+}
+
+test "integration: triple nested tuple" {
+    const testing = std.testing;
+
+    const source = "fn main() I32 { let t = (1, (2, (3, 4))); return t.1.1.0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check triple nested type
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, { i32, { i32, i32 } } }") != null);
+    // Check multiple levels of extractvalue
+    const extractvalue_count = std.mem.count(u8, ir, "extractvalue");
+    try testing.expect(extractvalue_count >= 3);
+}
+
+test "integration: tuple with function call elements" {
+    const testing = std.testing;
+
+    const source =
+        \\fn get_num() I32 { return 42 }
+        \\fn main() I32 { let t = (get_num(), get_num()); return t.0 }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function is called twice
+    const call_count = std.mem.count(u8, ir, "call i32 @get_num()");
+    try testing.expectEqual(@as(usize, 2), call_count);
+    // Check results inserted into tuple
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32, i32 }") != null);
+}
+
+test "integration: empty tuple type" {
+    const testing = std.testing;
+
+    const source = "fn make_unit() () { return () } fn main() I32 { return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check empty tuple function signature (note: two spaces in {  })
+    try testing.expect(std.mem.indexOf(u8, ir, "define {  } @make_unit()") != null);
+    // Check empty tuple return
+    try testing.expect(std.mem.indexOf(u8, ir, "ret {  } undef") != null);
+}

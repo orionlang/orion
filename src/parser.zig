@@ -3,7 +3,7 @@ const lexer = @import("lexer.zig");
 const Token = lexer.Token;
 const TokenKind = lexer.TokenKind;
 
-pub const Type = enum {
+pub const PrimitiveType = enum {
     bool,
     i8,
     i16,
@@ -14,14 +14,14 @@ pub const Type = enum {
     u32,
     u64,
 
-    pub fn isSigned(self: Type) bool {
+    pub fn isSigned(self: PrimitiveType) bool {
         return switch (self) {
             .i8, .i16, .i32, .i64 => true,
             .bool, .u8, .u16, .u32, .u64 => false,
         };
     }
 
-    pub fn bitWidth(self: Type) u32 {
+    pub fn bitWidth(self: PrimitiveType) u32 {
         return switch (self) {
             .bool => 1,
             .i8, .u8 => 8,
@@ -31,14 +31,14 @@ pub const Type = enum {
         };
     }
 
-    pub fn isInteger(self: Type) bool {
+    pub fn isInteger(self: PrimitiveType) bool {
         return switch (self) {
             .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => true,
             .bool => false,
         };
     }
 
-    pub fn llvmTypeName(self: Type) []const u8 {
+    pub fn llvmTypeName(self: PrimitiveType) []const u8 {
         return switch (self) {
             .bool => "i1",
             .i8, .u8 => "i8",
@@ -48,7 +48,7 @@ pub const Type = enum {
         };
     }
 
-    pub fn minValue(self: Type) i64 {
+    pub fn minValue(self: PrimitiveType) i64 {
         if (!self.isInteger()) {
             if (self == .bool) return 0;
             return 0;
@@ -65,7 +65,7 @@ pub const Type = enum {
         };
     }
 
-    pub fn maxValue(self: Type) i64 {
+    pub fn maxValue(self: PrimitiveType) i64 {
         return switch (self) {
             .bool => 1,
             .i8 => 127,
@@ -76,6 +76,97 @@ pub const Type = enum {
             .u16 => 65535,
             .u32 => 4294967295,
             .u64 => std.math.maxInt(i64), // Limited by i64 storage
+        };
+    }
+};
+
+pub const Type = union(enum) {
+    primitive: PrimitiveType,
+    tuple: []*Type,
+
+    pub fn deinit(self: *Type, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .primitive => {},
+            .tuple => |elements| {
+                // Recursively free nested tuples
+                for (elements) |elem| {
+                    elem.deinit(allocator);
+                    allocator.destroy(elem);
+                }
+                allocator.free(elements);
+            },
+        }
+    }
+
+    pub fn deinitShallow(self: *Type, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .primitive => {},
+            .tuple => |elements| {
+                // Only free element pointers and array, not recursive deinit
+                // Used when nested tuples are tracked separately
+                for (elements) |elem| {
+                    allocator.destroy(elem);
+                }
+                allocator.free(elements);
+            },
+        }
+    }
+
+    pub fn isSigned(self: Type) bool {
+        return switch (self) {
+            .primitive => |p| p.isSigned(),
+            .tuple => false,
+        };
+    }
+
+    pub fn bitWidth(self: Type) u32 {
+        return switch (self) {
+            .primitive => |p| p.bitWidth(),
+            .tuple => 0,
+        };
+    }
+
+    pub fn isInteger(self: Type) bool {
+        return switch (self) {
+            .primitive => |p| p.isInteger(),
+            .tuple => false,
+        };
+    }
+
+    pub fn llvmTypeName(self: Type) []const u8 {
+        return switch (self) {
+            .primitive => |p| p.llvmTypeName(),
+            .tuple => unreachable,
+        };
+    }
+
+    pub fn minValue(self: Type) i64 {
+        return switch (self) {
+            .primitive => |p| p.minValue(),
+            .tuple => 0,
+        };
+    }
+
+    pub fn maxValue(self: Type) i64 {
+        return switch (self) {
+            .primitive => |p| p.maxValue(),
+            .tuple => 0,
+        };
+    }
+
+    pub fn eql(self: Type, other: Type) bool {
+        if (@as(@typeInfo(Type).@"union".tag_type.?, self) != @as(@typeInfo(Type).@"union".tag_type.?, other)) {
+            return false;
+        }
+        return switch (self) {
+            .primitive => |p| p == other.primitive,
+            .tuple => |elems| {
+                if (elems.len != other.tuple.len) return false;
+                for (elems, other.tuple) |a, b| {
+                    if (!a.eql(b.*)) return false;
+                }
+                return true;
+            },
         };
     }
 };
@@ -158,6 +249,11 @@ pub const Expr = union(enum) {
         statements: []Stmt,
         result: ?*Expr,
     },
+    tuple_literal: []*Expr,
+    tuple_index: struct {
+        tuple: *Expr,
+        index: usize,
+    },
 };
 
 pub const Param = struct {
@@ -165,9 +261,27 @@ pub const Param = struct {
     param_type: Type,
 };
 
+pub const Pattern = union(enum) {
+    identifier: []const u8,
+    tuple: []*Pattern,
+
+    pub fn deinit(self: *Pattern, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .identifier => {},
+            .tuple => |patterns| {
+                for (patterns) |pat| {
+                    pat.deinit(allocator);
+                    allocator.destroy(pat);
+                }
+                allocator.free(patterns);
+            },
+        }
+    }
+};
+
 pub const Stmt = union(enum) {
     let_binding: struct {
-        name: []const u8,
+        pattern: Pattern,
         type_annotation: ?Type,
         value: *Expr,
         mutable: bool,
@@ -190,7 +304,12 @@ pub const FunctionDecl = struct {
     body: std.ArrayList(Stmt),
 
     pub fn deinit(self: *FunctionDecl, allocator: std.mem.Allocator) void {
+        for (self.params) |param| {
+            var param_type_copy = param.param_type;
+            param_type_copy.deinit(allocator);
+        }
         allocator.free(self.params);
+        self.return_type.deinit(allocator);
         for (self.body.items) |*stmt| {
             deinitStmt(allocator, stmt);
         }
@@ -199,7 +318,11 @@ pub const FunctionDecl = struct {
 
     fn deinitStmt(allocator: std.mem.Allocator, stmt: *Stmt) void {
         switch (stmt.*) {
-            .let_binding => |binding| {
+            .let_binding => |*binding| {
+                binding.pattern.deinit(allocator);
+                if (binding.type_annotation) |*typ| {
+                    typ.deinit(allocator);
+                }
                 deinitExpr(allocator, binding.value);
                 allocator.destroy(binding.value);
             },
@@ -222,7 +345,9 @@ pub const FunctionDecl = struct {
 
     fn deinitExpr(allocator: std.mem.Allocator, expr: *Expr) void {
         switch (expr.*) {
-            .integer_literal => {},
+            .integer_literal => |*lit| {
+                lit.inferred_type.deinit(allocator);
+            },
             .bool_literal => {},
             .variable => {},
             .binary_op => |binop| {
@@ -261,6 +386,17 @@ pub const FunctionDecl = struct {
                     deinitExpr(allocator, result);
                     allocator.destroy(result);
                 }
+            },
+            .tuple_literal => |elements| {
+                for (elements) |elem| {
+                    deinitExpr(allocator, elem);
+                    allocator.destroy(elem);
+                }
+                allocator.free(elements);
+            },
+            .tuple_index => |idx| {
+                deinitExpr(allocator, idx.tuple);
+                allocator.destroy(idx.tuple);
             },
         }
     }
@@ -353,7 +489,7 @@ pub const Parser = struct {
         };
     }
 
-    const type_name_map = std.StaticStringMap(Type).initComptime(.{
+    const type_name_map = std.StaticStringMap(PrimitiveType).initComptime(.{
         .{ "Bool", .bool },
         .{ "I8", .i8 },
         .{ "I16", .i16 },
@@ -365,9 +501,42 @@ pub const Parser = struct {
         .{ "U64", .u64 },
     });
 
-    fn parseType(self: *Parser) !Type {
+    fn parseType(self: *Parser) ParseError!Type {
+        if (self.check(.left_paren)) {
+            _ = try self.expect(.left_paren);
+
+            var element_types: std.ArrayList(*Type) = .empty;
+            errdefer {
+                for (element_types.items) |elem| {
+                    elem.deinit(self.allocator);
+                    self.allocator.destroy(elem);
+                }
+                element_types.deinit(self.allocator);
+            }
+
+            if (self.check(.right_paren)) {
+                _ = try self.expect(.right_paren);
+                return Type{ .tuple = try element_types.toOwnedSlice(self.allocator) };
+            }
+
+            const first_elem = try self.allocator.create(Type);
+            first_elem.* = try self.parseType();
+            try element_types.append(self.allocator, first_elem);
+
+            while (self.check(.comma)) {
+                _ = try self.expect(.comma);
+                const elem = try self.allocator.create(Type);
+                elem.* = try self.parseType();
+                try element_types.append(self.allocator, elem);
+            }
+
+            _ = try self.expect(.right_paren);
+            return Type{ .tuple = try element_types.toOwnedSlice(self.allocator) };
+        }
+
         const type_token = try self.expect(.identifier);
-        return type_name_map.get(type_token.lexeme) orelse error.UnknownType;
+        const prim = type_name_map.get(type_token.lexeme) orelse return error.UnknownType;
+        return Type{ .primitive = prim };
     }
 
     fn skipOptionalSemicolon(self: *Parser) void {
@@ -426,7 +595,9 @@ pub const Parser = struct {
         } else {
             _ = try self.expect(.let_keyword);
         }
-        const name_token = try self.expect(.identifier);
+
+        var pattern = try self.parsePattern();
+        errdefer pattern.deinit(self.allocator);
 
         var type_annotation: ?Type = null;
         if (self.check(.colon)) {
@@ -443,11 +614,43 @@ pub const Parser = struct {
         self.skipOptionalSemicolon();
 
         return .{ .let_binding = .{
-            .name = name_token.lexeme,
+            .pattern = pattern,
             .type_annotation = type_annotation,
             .value = value_ptr,
             .mutable = mutable,
         } };
+    }
+
+    fn parsePattern(self: *Parser) !Pattern {
+        if (self.check(.left_paren)) {
+            _ = try self.expect(.left_paren);
+
+            var patterns: std.ArrayList(*Pattern) = .empty;
+            errdefer {
+                for (patterns.items) |pat| {
+                    pat.deinit(self.allocator);
+                    self.allocator.destroy(pat);
+                }
+                patterns.deinit(self.allocator);
+            }
+
+            const first_pat = try self.allocator.create(Pattern);
+            first_pat.* = try self.parsePattern();
+            try patterns.append(self.allocator, first_pat);
+
+            while (self.check(.comma)) {
+                _ = try self.expect(.comma);
+                const pat = try self.allocator.create(Pattern);
+                pat.* = try self.parsePattern();
+                try patterns.append(self.allocator, pat);
+            }
+
+            _ = try self.expect(.right_paren);
+            return Pattern{ .tuple = try patterns.toOwnedSlice(self.allocator) };
+        }
+
+        const name_token = try self.expect(.identifier);
+        return Pattern{ .identifier = name_token.lexeme };
     }
 
     fn parseReturnStatement(self: *Parser) !Stmt {
@@ -666,14 +869,14 @@ pub const Parser = struct {
             return .{ .unary_op = .{ .op = unary_op, .operand = operand_ptr } };
         }
 
-        return try self.parsePrimary();
+        return try self.parsePostfix();
     }
 
     fn parsePrimary(self: *Parser) ParseError!Expr {
         if (self.check(.integer)) {
             const token = try self.expect(.integer);
             const value = try std.fmt.parseInt(i64, token.lexeme, 10);
-            return .{ .integer_literal = .{ .value = value, .inferred_type = .i32 } };
+            return .{ .integer_literal = .{ .value = value, .inferred_type = .{ .primitive = .i32 } } };
         }
 
         if (self.check(.true_keyword)) {
@@ -739,12 +942,71 @@ pub const Parser = struct {
 
         if (self.check(.left_paren)) {
             _ = try self.expect(.left_paren);
-            const expr = try self.parseExpression();
+
+            if (self.check(.right_paren)) {
+                _ = try self.expect(.right_paren);
+                const empty: []*Expr = &[_]*Expr{};
+                return .{ .tuple_literal = try self.allocator.dupe(*Expr, empty) };
+            }
+
+            const first_expr = try self.parseExpression();
+
+            if (self.check(.comma)) {
+                var elements: std.ArrayList(*Expr) = .empty;
+                errdefer {
+                    for (elements.items) |elem| {
+                        FunctionDecl.deinitExpr(self.allocator, elem);
+                        self.allocator.destroy(elem);
+                    }
+                    elements.deinit(self.allocator);
+                }
+
+                const first_ptr = try self.allocator.create(Expr);
+                first_ptr.* = first_expr;
+                try elements.append(self.allocator, first_ptr);
+
+                while (self.check(.comma)) {
+                    _ = try self.expect(.comma);
+                    const elem_expr = try self.parseExpression();
+                    const elem_ptr = try self.allocator.create(Expr);
+                    elem_ptr.* = elem_expr;
+                    try elements.append(self.allocator, elem_ptr);
+                }
+
+                _ = try self.expect(.right_paren);
+                return .{ .tuple_literal = try elements.toOwnedSlice(self.allocator) };
+            }
+
             _ = try self.expect(.right_paren);
-            return expr;
+            return first_expr;
         }
 
         return error.ExpectedExpression;
+    }
+
+    fn parsePostfix(self: *Parser) ParseError!Expr {
+        var expr = try self.parsePrimary();
+
+        while (self.check(.dot)) {
+            _ = try self.expect(.dot);
+
+            if (self.check(.integer)) {
+                const index_token = try self.expect(.integer);
+                const index = try std.fmt.parseInt(usize, index_token.lexeme, 10);
+
+                const tuple_ptr = try self.allocator.create(Expr);
+                tuple_ptr.* = expr;
+
+                expr = .{ .tuple_index = .{
+                    .tuple = tuple_ptr,
+                    .index = index,
+                } };
+            } else {
+                return error.ExpectedExpression;
+            }
+        }
+
+        return expr;
     }
 
     fn parseExpressionPtr(self: *Parser, already_allocated: []const *Expr) !*Expr {
@@ -904,7 +1166,8 @@ test "parser: simple function" {
 
     const func = ast.functions.items[0];
     try testing.expectEqualStrings("main", func.name);
-    try testing.expectEqual(Type.i32, func.return_type);
+    try testing.expect(func.return_type == .primitive);
+    try testing.expectEqual(PrimitiveType.i32, func.return_type.primitive);
     try testing.expectEqual(@as(usize, 1), func.body.items.len);
 
     const stmt = func.body.items[0];
@@ -1422,5 +1685,292 @@ test "parser: nested while loops" {
     const inner_while = outer_body.statements[0].while_stmt;
     try testing.expect(inner_while.condition.* == .bool_literal);
     try testing.expectEqual(false, inner_while.condition.bool_literal);
+}
+
+test "parser: empty tuple literal" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { return () }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt == .return_stmt);
+    try testing.expect(stmt.return_stmt.* == .tuple_literal);
+    try testing.expectEqual(@as(usize, 0), stmt.return_stmt.tuple_literal.len);
+}
+
+test "parser: simple tuple literal" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { return (1, 2) }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt == .return_stmt);
+    try testing.expect(stmt.return_stmt.* == .tuple_literal);
+    try testing.expectEqual(@as(usize, 2), stmt.return_stmt.tuple_literal.len);
+    try testing.expect(stmt.return_stmt.tuple_literal[0].* == .integer_literal);
+    try testing.expectEqual(@as(i64, 1), stmt.return_stmt.tuple_literal[0].integer_literal.value);
+    try testing.expect(stmt.return_stmt.tuple_literal[1].* == .integer_literal);
+    try testing.expectEqual(@as(i64, 2), stmt.return_stmt.tuple_literal[1].integer_literal.value);
+}
+
+test "parser: nested tuple literal" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { return (1, (2, 3)) }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt == .return_stmt);
+    try testing.expect(stmt.return_stmt.* == .tuple_literal);
+    try testing.expectEqual(@as(usize, 2), stmt.return_stmt.tuple_literal.len);
+    try testing.expect(stmt.return_stmt.tuple_literal[0].* == .integer_literal);
+    try testing.expectEqual(@as(i64, 1), stmt.return_stmt.tuple_literal[0].integer_literal.value);
+
+    try testing.expect(stmt.return_stmt.tuple_literal[1].* == .tuple_literal);
+    const inner_tuple = stmt.return_stmt.tuple_literal[1].tuple_literal;
+    try testing.expectEqual(@as(usize, 2), inner_tuple.len);
+    try testing.expectEqual(@as(i64, 2), inner_tuple[0].integer_literal.value);
+    try testing.expectEqual(@as(i64, 3), inner_tuple[1].integer_literal.value);
+}
+
+test "parser: tuple with mixed types" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { return (42, true, 100) }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .tuple_literal);
+    try testing.expectEqual(@as(usize, 3), stmt.return_stmt.tuple_literal.len);
+    try testing.expect(stmt.return_stmt.tuple_literal[0].* == .integer_literal);
+    try testing.expectEqual(@as(i64, 42), stmt.return_stmt.tuple_literal[0].integer_literal.value);
+    try testing.expect(stmt.return_stmt.tuple_literal[1].* == .bool_literal);
+    try testing.expectEqual(true, stmt.return_stmt.tuple_literal[1].bool_literal);
+    try testing.expect(stmt.return_stmt.tuple_literal[2].* == .integer_literal);
+    try testing.expectEqual(@as(i64, 100), stmt.return_stmt.tuple_literal[2].integer_literal.value);
+}
+
+test "parser: tuple indexing" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { let x = (1, 2); return x.0 }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const func = ast.functions.items[0];
+    const ret_stmt = func.body.items[1];
+    try testing.expect(ret_stmt == .return_stmt);
+    try testing.expect(ret_stmt.return_stmt.* == .tuple_index);
+    try testing.expect(ret_stmt.return_stmt.tuple_index.tuple.* == .variable);
+    try testing.expectEqualStrings("x", ret_stmt.return_stmt.tuple_index.tuple.variable);
+    try testing.expectEqual(@as(usize, 0), ret_stmt.return_stmt.tuple_index.index);
+}
+
+test "parser: nested tuple indexing" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { let x = (1, (2, 3)); return x.1.0 }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const ret_stmt = ast.functions.items[0].body.items[1];
+    try testing.expect(ret_stmt.return_stmt.* == .tuple_index);
+    try testing.expectEqual(@as(usize, 0), ret_stmt.return_stmt.tuple_index.index);
+
+    const inner_index = ret_stmt.return_stmt.tuple_index.tuple;
+    try testing.expect(inner_index.* == .tuple_index);
+    try testing.expectEqual(@as(usize, 1), inner_index.tuple_index.index);
+    try testing.expect(inner_index.tuple_index.tuple.* == .variable);
+    try testing.expectEqualStrings("x", inner_index.tuple_index.tuple.variable);
+}
+
+test "parser: simple tuple type" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() (I32, Bool) { return (42, true) }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const func = ast.functions.items[0];
+    try testing.expect(func.return_type == .tuple);
+    try testing.expectEqual(@as(usize, 2), func.return_type.tuple.len);
+    try testing.expect(func.return_type.tuple[0].* == .primitive);
+    try testing.expectEqual(PrimitiveType.i32, func.return_type.tuple[0].primitive);
+    try testing.expect(func.return_type.tuple[1].* == .primitive);
+    try testing.expectEqual(PrimitiveType.bool, func.return_type.tuple[1].primitive);
+}
+
+test "parser: nested tuple type" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() (I32, (Bool, I64)) { return (1, (true, 2)) }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const func = ast.functions.items[0];
+    try testing.expect(func.return_type == .tuple);
+    try testing.expectEqual(@as(usize, 2), func.return_type.tuple.len);
+    try testing.expect(func.return_type.tuple[0].* == .primitive);
+    try testing.expectEqual(PrimitiveType.i32, func.return_type.tuple[0].primitive);
+
+    try testing.expect(func.return_type.tuple[1].* == .tuple);
+    const inner_type = func.return_type.tuple[1].tuple;
+    try testing.expectEqual(@as(usize, 2), inner_type.len);
+    try testing.expect(inner_type[0].* == .primitive);
+    try testing.expectEqual(PrimitiveType.bool, inner_type[0].primitive);
+    try testing.expect(inner_type[1].* == .primitive);
+    try testing.expectEqual(PrimitiveType.i64, inner_type[1].primitive);
+}
+
+test "parser: simple tuple destructuring" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { let (a, b) = (1, 2); return a }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt == .let_binding);
+    try testing.expect(stmt.let_binding.pattern == .tuple);
+    try testing.expectEqual(@as(usize, 2), stmt.let_binding.pattern.tuple.len);
+    try testing.expect(stmt.let_binding.pattern.tuple[0].* == .identifier);
+    try testing.expectEqualStrings("a", stmt.let_binding.pattern.tuple[0].identifier);
+    try testing.expect(stmt.let_binding.pattern.tuple[1].* == .identifier);
+    try testing.expectEqualStrings("b", stmt.let_binding.pattern.tuple[1].identifier);
+
+    try testing.expect(stmt.let_binding.value.* == .tuple_literal);
+    try testing.expectEqual(@as(usize, 2), stmt.let_binding.value.tuple_literal.len);
+}
+
+test "parser: nested tuple destructuring" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { let (x, (y, z)) = (1, (2, 3)); return x }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.let_binding.pattern == .tuple);
+    try testing.expectEqual(@as(usize, 2), stmt.let_binding.pattern.tuple.len);
+    try testing.expect(stmt.let_binding.pattern.tuple[0].* == .identifier);
+    try testing.expectEqualStrings("x", stmt.let_binding.pattern.tuple[0].identifier);
+
+    try testing.expect(stmt.let_binding.pattern.tuple[1].* == .tuple);
+    const inner_pattern = stmt.let_binding.pattern.tuple[1].tuple;
+    try testing.expectEqual(@as(usize, 2), inner_pattern.len);
+    try testing.expect(inner_pattern[0].* == .identifier);
+    try testing.expectEqualStrings("y", inner_pattern[0].identifier);
+    try testing.expect(inner_pattern[1].* == .identifier);
+    try testing.expectEqualStrings("z", inner_pattern[1].identifier);
+}
+
+test "parser: tuple with type annotation" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { let x: (I32, Bool) = (42, true); return 0 }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt == .let_binding);
+    try testing.expect(stmt.let_binding.type_annotation != null);
+    const type_ann = stmt.let_binding.type_annotation.?;
+    try testing.expect(type_ann == .tuple);
+    try testing.expectEqual(@as(usize, 2), type_ann.tuple.len);
+    try testing.expect(type_ann.tuple[0].* == .primitive);
+    try testing.expectEqual(PrimitiveType.i32, type_ann.tuple[0].primitive);
+    try testing.expect(type_ann.tuple[1].* == .primitive);
+    try testing.expectEqual(PrimitiveType.bool, type_ann.tuple[1].primitive);
+}
+
+test "parser: parenthesized expression vs tuple" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn main() I32 { return (42) }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt == .return_stmt);
+    try testing.expect(stmt.return_stmt.* == .integer_literal);
+    try testing.expectEqual(@as(i64, 42), stmt.return_stmt.integer_literal.value);
 }
 

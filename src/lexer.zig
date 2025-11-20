@@ -25,6 +25,7 @@ pub const TokenKind = enum {
     left_brace,
     right_brace,
     arrow, // ->
+    dot,
     colon,
     comma,
     semicolon,
@@ -120,6 +121,7 @@ pub const Lexer = struct {
             '%' => return self.makeToken(.percent, start_pos, start_line, start_column),
             '^' => return self.makeToken(.caret, start_pos, start_line, start_column),
             '~' => return self.makeToken(.tilde, start_pos, start_line, start_column),
+            '.' => return self.makeToken(.dot, start_pos, start_line, start_column),
             ':' => return self.makeToken(.colon, start_pos, start_line, start_column),
             ',' => return self.makeToken(.comma, start_pos, start_line, start_column),
             ';' => return self.makeToken(.semicolon, start_pos, start_line, start_column),
