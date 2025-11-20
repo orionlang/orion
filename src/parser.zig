@@ -3,6 +3,29 @@ const lexer = @import("lexer.zig");
 const Token = lexer.Token;
 const TokenKind = lexer.TokenKind;
 
+pub const UsageAnnotation = union(enum) {
+    once,
+    exactly: u32,
+    optional,
+    unlimited,
+
+    pub fn allowsZeroUses(self: UsageAnnotation) bool {
+        return switch (self) {
+            .optional, .unlimited => true,
+            .once, .exactly => false,
+        };
+    }
+
+    pub fn isValid(self: UsageAnnotation, use_count: u32) bool {
+        return switch (self) {
+            .once => use_count == 1,
+            .exactly => |n| use_count == n,
+            .optional => use_count == 0 or use_count == 1,
+            .unlimited => true,
+        };
+    }
+};
+
 pub const PrimitiveType = enum {
     bool,
     i8,
@@ -90,15 +113,20 @@ pub const SumTypeVariant = struct {
     payload_types: []*Type,
 };
 
-pub const Type = union(enum) {
-    primitive: PrimitiveType,
-    tuple: []*Type,
-    struct_type: []StructField,
-    sum_type: []SumTypeVariant,
-    named: []const u8,
+pub const Type = struct {
+    kind: TypeKind,
+    usage: UsageAnnotation,
+
+    pub const TypeKind = union(enum) {
+        primitive: PrimitiveType,
+        tuple: []*Type,
+        struct_type: []StructField,
+        sum_type: []SumTypeVariant,
+        named: []const u8,
+    };
 
     pub fn deinit(self: *Type, allocator: std.mem.Allocator) void {
-        switch (self.*) {
+        switch (self.kind) {
             .primitive => {},
             .tuple => |elements| {
                 // Recursively free nested tuples
@@ -130,7 +158,7 @@ pub const Type = union(enum) {
     }
 
     pub fn deinitShallow(self: *Type, allocator: std.mem.Allocator) void {
-        switch (self.*) {
+        switch (self.kind) {
             .primitive => {},
             .tuple => |elements| {
                 // Only free element pointers and array, not recursive deinit
@@ -160,71 +188,71 @@ pub const Type = union(enum) {
     }
 
     pub fn isSigned(self: Type) bool {
-        return switch (self) {
+        return switch (self.kind) {
             .primitive => |p| p.isSigned(),
             .tuple, .struct_type, .sum_type, .named => false,
         };
     }
 
     pub fn bitWidth(self: Type) u32 {
-        return switch (self) {
+        return switch (self.kind) {
             .primitive => |p| p.bitWidth(),
             .tuple, .struct_type, .sum_type, .named => 0,
         };
     }
 
     pub fn isInteger(self: Type) bool {
-        return switch (self) {
+        return switch (self.kind) {
             .primitive => |p| p.isInteger(),
             .tuple, .struct_type, .sum_type, .named => false,
         };
     }
 
     pub fn llvmTypeName(self: Type) []const u8 {
-        return switch (self) {
+        return switch (self.kind) {
             .primitive => |p| p.llvmTypeName(),
             .tuple, .struct_type, .sum_type, .named => unreachable,
         };
     }
 
     pub fn minValue(self: Type) i64 {
-        return switch (self) {
+        return switch (self.kind) {
             .primitive => |p| p.minValue(),
             .tuple, .struct_type, .sum_type, .named => 0,
         };
     }
 
     pub fn maxValue(self: Type) i64 {
-        return switch (self) {
+        return switch (self.kind) {
             .primitive => |p| p.maxValue(),
             .tuple, .struct_type, .sum_type, .named => 0,
         };
     }
 
     pub fn eql(self: Type, other: Type) bool {
-        if (@as(@typeInfo(Type).@"union".tag_type.?, self) != @as(@typeInfo(Type).@"union".tag_type.?, other)) {
+        if (@as(@typeInfo(TypeKind).@"union".tag_type.?, self.kind) != @as(@typeInfo(TypeKind).@"union".tag_type.?, other.kind)) {
             return false;
         }
-        return switch (self) {
-            .primitive => |p| p == other.primitive,
+        return switch (self.kind) {
+            .primitive => |p| p == other.kind.primitive,
             .tuple => |elems| {
-                if (elems.len != other.tuple.len) return false;
-                for (elems, other.tuple) |a, b| {
+                if (elems.len != other.kind.tuple.len) return false;
+                for (elems, other.kind.tuple) |a, b| {
                     if (!a.eql(b.*)) return false;
                 }
                 return true;
             },
             .struct_type => |fields| {
-                if (fields.len != other.struct_type.len) return false;
-                for (fields, other.struct_type) |a, b| {
+                if (fields.len != other.kind.struct_type.len) return false;
+                for (fields, other.kind.struct_type) |a, b| {
                     if (!std.mem.eql(u8, a.name, b.name)) return false;
                     if (!a.field_type.eql(b.field_type.*)) return false;
                 }
                 return true;
             },
             .sum_type => |variants| {
-                if (variants.len != other.sum_type.len) return false;
-                for (variants, other.sum_type) |a, b| {
+                if (variants.len != other.kind.sum_type.len) return false;
+                for (variants, other.kind.sum_type) |a, b| {
                     if (!std.mem.eql(u8, a.name, b.name)) return false;
                     if (a.payload_types.len != b.payload_types.len) return false;
                     for (a.payload_types, b.payload_types) |a_type, b_type| {
@@ -233,7 +261,7 @@ pub const Type = union(enum) {
                 }
                 return true;
             },
-            .named => |name| std.mem.eql(u8, name, other.named),
+            .named => |name| std.mem.eql(u8, name, other.kind.named),
         };
     }
 };
@@ -670,6 +698,31 @@ pub const Parser = struct {
         .{ "U64", .u64 },
     });
 
+    fn parseUsageAnnotation(self: *Parser) !UsageAnnotation {
+        if (!self.check(.at)) {
+            return .once; // Default
+        }
+        _ = try self.expect(.at);
+
+        if (self.check(.star)) {
+            _ = try self.expect(.star);
+            return .unlimited;
+        }
+
+        if (self.check(.question)) {
+            _ = try self.expect(.question);
+            return .optional;
+        }
+
+        if (self.check(.integer)) {
+            const num_token = try self.expect(.integer);
+            const n = try std.fmt.parseInt(u32, num_token.lexeme, 10);
+            return .{ .exactly = n };
+        }
+
+        return error.UnexpectedToken;
+    }
+
     fn parseType(self: *Parser) ParseError!Type {
         if (self.check(.pipe)) {
             var variants: std.ArrayList(SumTypeVariant) = .empty;
@@ -719,7 +772,8 @@ pub const Parser = struct {
                 });
             }
 
-            return Type{ .sum_type = try variants.toOwnedSlice(self.allocator) };
+            const usage = try self.parseUsageAnnotation();
+            return Type{ .kind = .{ .sum_type = try variants.toOwnedSlice(self.allocator) }, .usage = usage };
         }
 
         if (self.check(.left_paren)) {
@@ -736,7 +790,8 @@ pub const Parser = struct {
 
             if (self.check(.right_paren)) {
                 _ = try self.expect(.right_paren);
-                return Type{ .tuple = try element_types.toOwnedSlice(self.allocator) };
+                const usage = try self.parseUsageAnnotation();
+                return Type{ .kind = .{ .tuple = try element_types.toOwnedSlice(self.allocator) }, .usage = usage };
             }
 
             const first_elem = try self.allocator.create(Type);
@@ -751,7 +806,8 @@ pub const Parser = struct {
             }
 
             _ = try self.expect(.right_paren);
-            return Type{ .tuple = try element_types.toOwnedSlice(self.allocator) };
+            const usage = try self.parseUsageAnnotation();
+            return Type{ .kind = .{ .tuple = try element_types.toOwnedSlice(self.allocator)  }, .usage = usage };
         }
 
         if (self.check(.left_brace)) {
@@ -783,14 +839,16 @@ pub const Parser = struct {
             }
 
             _ = try self.expect(.right_brace);
-            return Type{ .struct_type = try fields.toOwnedSlice(self.allocator) };
+            const usage = try self.parseUsageAnnotation();
+            return Type{ .kind = .{ .struct_type = try fields.toOwnedSlice(self.allocator)  }, .usage = usage };
         }
 
         const type_token = try self.expect(.identifier);
+        const usage = try self.parseUsageAnnotation();
         if (type_name_map.get(type_token.lexeme)) |prim| {
-            return Type{ .primitive = prim };
+            return Type{ .kind = .{ .primitive = prim  }, .usage = usage };
         } else {
-            return Type{ .named = type_token.lexeme };
+            return Type{ .kind = .{ .named = type_token.lexeme  }, .usage = usage };
         }
     }
 
@@ -1131,7 +1189,7 @@ pub const Parser = struct {
         if (self.check(.integer)) {
             const token = try self.expect(.integer);
             const value = try std.fmt.parseInt(i64, token.lexeme, 10);
-            return .{ .integer_literal = .{ .value = value, .inferred_type = .{ .primitive = .i32 } } };
+            return .{ .integer_literal = .{ .value = value, .inferred_type = .{ .kind = .{ .primitive = .i32 }, .usage = .once } } };
         }
 
         if (self.check(.true_keyword)) {
@@ -1578,8 +1636,8 @@ test "parser: simple function" {
 
     const func = ast.functions.items[0];
     try testing.expectEqualStrings("main", func.name);
-    try testing.expect(func.return_type == .primitive);
-    try testing.expectEqual(PrimitiveType.i32, func.return_type.primitive);
+    try testing.expect(func.return_type.kind == .primitive);
+    try testing.expectEqual(PrimitiveType.i32, func.return_type.kind.primitive);
     try testing.expectEqual(@as(usize, 1), func.body.items.len);
 
     const stmt = func.body.items[0];
@@ -2252,12 +2310,12 @@ test "parser: simple tuple type" {
     defer ast.deinit(testing.allocator);
 
     const func = ast.functions.items[0];
-    try testing.expect(func.return_type == .tuple);
-    try testing.expectEqual(@as(usize, 2), func.return_type.tuple.len);
-    try testing.expect(func.return_type.tuple[0].* == .primitive);
-    try testing.expectEqual(PrimitiveType.i32, func.return_type.tuple[0].primitive);
-    try testing.expect(func.return_type.tuple[1].* == .primitive);
-    try testing.expectEqual(PrimitiveType.bool, func.return_type.tuple[1].primitive);
+    try testing.expect(func.return_type.kind == .tuple);
+    try testing.expectEqual(@as(usize, 2), func.return_type.kind.tuple.len);
+    try testing.expect(func.return_type.kind.tuple[0].kind == .primitive);
+    try testing.expectEqual(PrimitiveType.i32, func.return_type.kind.tuple[0].kind.primitive);
+    try testing.expect(func.return_type.kind.tuple[1].kind == .primitive);
+    try testing.expectEqual(PrimitiveType.bool, func.return_type.kind.tuple[1].kind.primitive);
 }
 
 test "parser: nested tuple type" {
@@ -2274,18 +2332,18 @@ test "parser: nested tuple type" {
     defer ast.deinit(testing.allocator);
 
     const func = ast.functions.items[0];
-    try testing.expect(func.return_type == .tuple);
-    try testing.expectEqual(@as(usize, 2), func.return_type.tuple.len);
-    try testing.expect(func.return_type.tuple[0].* == .primitive);
-    try testing.expectEqual(PrimitiveType.i32, func.return_type.tuple[0].primitive);
+    try testing.expect(func.return_type.kind == .tuple);
+    try testing.expectEqual(@as(usize, 2), func.return_type.kind.tuple.len);
+    try testing.expect(func.return_type.kind.tuple[0].kind == .primitive);
+    try testing.expectEqual(PrimitiveType.i32, func.return_type.kind.tuple[0].kind.primitive);
 
-    try testing.expect(func.return_type.tuple[1].* == .tuple);
-    const inner_type = func.return_type.tuple[1].tuple;
+    try testing.expect(func.return_type.kind.tuple[1].kind == .tuple);
+    const inner_type = func.return_type.kind.tuple[1].kind.tuple;
     try testing.expectEqual(@as(usize, 2), inner_type.len);
-    try testing.expect(inner_type[0].* == .primitive);
-    try testing.expectEqual(PrimitiveType.bool, inner_type[0].primitive);
-    try testing.expect(inner_type[1].* == .primitive);
-    try testing.expectEqual(PrimitiveType.i64, inner_type[1].primitive);
+    try testing.expect(inner_type[0].kind == .primitive);
+    try testing.expectEqual(PrimitiveType.bool, inner_type[0].kind.primitive);
+    try testing.expect(inner_type[1].kind == .primitive);
+    try testing.expectEqual(PrimitiveType.i64, inner_type[1].kind.primitive);
 }
 
 test "parser: simple tuple destructuring" {
@@ -2359,12 +2417,12 @@ test "parser: tuple with type annotation" {
     try testing.expect(stmt == .let_binding);
     try testing.expect(stmt.let_binding.type_annotation != null);
     const type_ann = stmt.let_binding.type_annotation.?;
-    try testing.expect(type_ann == .tuple);
-    try testing.expectEqual(@as(usize, 2), type_ann.tuple.len);
-    try testing.expect(type_ann.tuple[0].* == .primitive);
-    try testing.expectEqual(PrimitiveType.i32, type_ann.tuple[0].primitive);
-    try testing.expect(type_ann.tuple[1].* == .primitive);
-    try testing.expectEqual(PrimitiveType.bool, type_ann.tuple[1].primitive);
+    try testing.expect(type_ann.kind == .tuple);
+    try testing.expectEqual(@as(usize, 2), type_ann.kind.tuple.len);
+    try testing.expect(type_ann.kind.tuple[0].kind == .primitive);
+    try testing.expectEqual(PrimitiveType.i32, type_ann.kind.tuple[0].kind.primitive);
+    try testing.expect(type_ann.kind.tuple[1].kind == .primitive);
+    try testing.expectEqual(PrimitiveType.bool, type_ann.kind.tuple[1].kind.primitive);
 }
 
 test "parser: parenthesized expression vs tuple" {

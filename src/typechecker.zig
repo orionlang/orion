@@ -19,11 +19,13 @@ const TypeCheckError = error{
     EmptyFunctionBody,
     OutOfMemory,
     AssignmentToImmutable,
+    LinearityViolation,
 };
 
 const VariableInfo = struct {
     var_type: Type,
     mutable: bool,
+    use_count: u32,
 };
 
 pub const TypeChecker = struct {
@@ -86,8 +88,8 @@ pub const TypeChecker = struct {
         std.debug.print("Type mismatch in {s} '{s}': expected {s}, got {s}\n", .{
             context,
             name,
-            @tagName(expected),
-            @tagName(actual),
+            @tagName(expected.kind),
+            @tagName(actual.kind),
         });
     }
 
@@ -97,7 +99,7 @@ pub const TypeChecker = struct {
 
         // Add parameters to variable environment (immutable)
         for (func.params) |param| {
-            try self.variables.put(param.name, .{ .var_type = param.param_type, .mutable = false });
+            try self.variables.put(param.name, .{ .var_type = param.param_type, .mutable = false, .use_count = 0 });
         }
 
         // Check that function has a body
@@ -117,6 +119,36 @@ pub const TypeChecker = struct {
 
         // Validate that at least one return statement exists and has correct type
         // Type validation happens in checkStatement for .return_stmt case
+
+        // Check linearity constraints
+        try self.checkLinearity();
+    }
+
+    fn checkLinearity(self: *TypeChecker) !void {
+        var iter = self.variables.iterator();
+        while (iter.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const var_info = entry.value_ptr.*;
+
+            // Mutable variables are not subject to linearity constraints (for now)
+            if (var_info.mutable) {
+                continue;
+            }
+
+            const usage = var_info.var_type.usage;
+            const use_count = var_info.use_count;
+
+            if (!usage.isValid(use_count)) {
+                std.debug.print("Linearity violation for variable '{s}': ", .{name});
+                switch (usage) {
+                    .once => std.debug.print("expected exactly 1 use, got {d}\n", .{use_count}),
+                    .exactly => |n| std.debug.print("expected exactly {d} uses, got {d}\n", .{ n, use_count }),
+                    .optional => std.debug.print("expected 0 or 1 uses, got {d}\n", .{use_count}),
+                    .unlimited => unreachable, // unlimited is always valid
+                }
+                return error.LinearityViolation;
+            }
+        }
     }
 
     fn checkStatement(self: *TypeChecker, stmt: Stmt, func_return_type: ?Type) TypeCheckError!void {
@@ -158,7 +190,7 @@ pub const TypeChecker = struct {
             },
             .while_stmt => |while_stmt| {
                 const condition_type = try self.inferExprType(while_stmt.condition);
-                if (condition_type != .primitive or condition_type.primitive != .bool) {
+                if (condition_type.kind != .primitive or condition_type.kind.primitive != .bool) {
                     std.debug.print("While condition must be bool, got {any}\n", .{condition_type});
                     return error.TypeMismatch;
                 }
@@ -169,8 +201,8 @@ pub const TypeChecker = struct {
                 if (func_return_type) |expected_type| {
                     if (!self.canImplicitlyConvert(expr_type, expected_type)) {
                         std.debug.print("Type mismatch in return statement: expected {s}, got {s}\n", .{
-                            @tagName(expected_type),
-                            @tagName(expr_type),
+                            @tagName(expected_type.kind),
+                            @tagName(expr_type.kind),
                         });
                         return error.TypeMismatch;
                     }
@@ -182,18 +214,18 @@ pub const TypeChecker = struct {
     fn bindPattern(self: *TypeChecker, pattern: Pattern, value_type: Type, mutable: bool) !void {
         switch (pattern) {
             .identifier => |name| {
-                try self.variables.put(name, .{ .var_type = value_type, .mutable = mutable });
+                try self.variables.put(name, .{ .var_type = value_type, .mutable = mutable, .use_count = 0 });
             },
             .tuple => |sub_patterns| {
-                if (value_type != .tuple) {
+                if (value_type.kind != .tuple) {
                     std.debug.print("Cannot destructure non-tuple type\n", .{});
                     return error.TypeMismatch;
                 }
-                if (sub_patterns.len != value_type.tuple.len) {
-                    std.debug.print("Pattern has {d} elements but value has {d}\n", .{ sub_patterns.len, value_type.tuple.len });
+                if (sub_patterns.len != value_type.kind.tuple.len) {
+                    std.debug.print("Pattern has {d} elements but value has {d}\n", .{ sub_patterns.len, value_type.kind.tuple.len });
                     return error.TypeMismatch;
                 }
-                for (sub_patterns, value_type.tuple) |sub_pattern, elem_type| {
+                for (sub_patterns, value_type.kind.tuple) |sub_pattern, elem_type| {
                     try self.bindPattern(sub_pattern.*, elem_type.*, mutable);
                 }
             },
@@ -204,15 +236,15 @@ pub const TypeChecker = struct {
         // For integer literals, update the inferred type and validate range
         switch (expr.*) {
             .tuple_literal => |elements| {
-                if (expected_type != .tuple) {
+                if (expected_type.kind != .tuple) {
                     std.debug.print("Expected tuple type but got non-tuple\n", .{});
                     return error.TypeMismatch;
                 }
-                if (elements.len != expected_type.tuple.len) {
-                    std.debug.print("Tuple literal has {d} elements but expected {d}\n", .{ elements.len, expected_type.tuple.len });
+                if (elements.len != expected_type.kind.tuple.len) {
+                    std.debug.print("Tuple literal has {d} elements but expected {d}\n", .{ elements.len, expected_type.kind.tuple.len });
                     return error.TypeMismatch;
                 }
-                for (elements, expected_type.tuple) |elem, expected_elem_type| {
+                for (elements, expected_type.kind.tuple) |elem, expected_elem_type| {
                     try self.checkExprWithExpectedType(elem, expected_elem_type.*);
                 }
             },
@@ -230,12 +262,12 @@ pub const TypeChecker = struct {
                     if (!expected_type.isSigned() and value < 0) {
                         std.debug.print("Integer literal {d} is negative but type {s} is unsigned\n", .{
                             value,
-                            @tagName(expected_type),
+                            @tagName(expected_type.kind),
                         });
                     } else {
                         std.debug.print("Integer literal {d} does not fit in type {s} (range: {d} to {d})\n", .{
                             value,
-                            @tagName(expected_type),
+                            @tagName(expected_type.kind),
                             min,
                             max,
                         });
@@ -286,7 +318,7 @@ pub const TypeChecker = struct {
     fn inferExprType(self: *TypeChecker, expr: *const Expr) !Type {
         switch (expr.*) {
             .integer_literal => |lit| return lit.inferred_type,
-            .bool_literal => return .{ .primitive = .bool },
+            .bool_literal => return .{ .kind = .{ .primitive = .bool  }, .usage = .once },
             .tuple_literal => |elements| {
                 const elem_types = try self.allocator.alloc(*Type, elements.len);
                 for (elements, 0..) |elem, i| {
@@ -294,25 +326,26 @@ pub const TypeChecker = struct {
                     elem_type_ptr.* = try self.inferExprType(elem);
                     elem_types[i] = elem_type_ptr;
                 }
-                const tuple_type = Type{ .tuple = elem_types };
+                const tuple_type = Type{ .kind = .{ .tuple = elem_types  }, .usage = .once };
                 // Track ALL tuple types (including nested) for cleanup
                 try self.allocated_tuple_types.append(self.allocator, tuple_type);
                 return tuple_type;
             },
             .tuple_index => |index| {
                 const tuple_type = try self.inferExprType(index.tuple);
-                if (tuple_type != .tuple) {
+                if (tuple_type.kind != .tuple) {
                     std.debug.print("Cannot index non-tuple type\n", .{});
                     return error.TypeMismatch;
                 }
-                if (index.index >= tuple_type.tuple.len) {
-                    std.debug.print("Tuple index {d} out of bounds (tuple has {d} elements)\n", .{ index.index, tuple_type.tuple.len });
+                if (index.index >= tuple_type.kind.tuple.len) {
+                    std.debug.print("Tuple index {d} out of bounds (tuple has {d} elements)\n", .{ index.index, tuple_type.kind.tuple.len });
                     return error.TypeMismatch;
                 }
-                return tuple_type.tuple[index.index].*;
+                return tuple_type.kind.tuple[index.index].*;
             },
             .variable => |name| {
-                if (self.variables.get(name)) |var_info| {
+                if (self.variables.getPtr(name)) |var_info| {
+                    var_info.use_count += 1;
                     return var_info.var_type;
                 }
                 std.debug.print("Undefined variable: {s}\n", .{name});
@@ -325,10 +358,10 @@ pub const TypeChecker = struct {
                 // Logical operators work on both bool and integers
                 if (binop.op == .logical_and or binop.op == .logical_or) {
                     // If both are bool, result is bool
-                    if (left_type == .primitive and left_type.primitive == .bool and
-                        right_type == .primitive and right_type.primitive == .bool)
+                    if (left_type.kind == .primitive and left_type.kind.primitive == .bool and
+                        right_type.kind == .primitive and right_type.kind.primitive == .bool)
                     {
-                        return .{ .primitive = .bool };
+                        return .{ .kind = .{ .primitive = .bool  }, .usage = .once };
                     }
                     // If both are integers, result is integer (old behavior for compatibility)
                     if (self.isIntegerType(left_type) and self.isIntegerType(right_type)) {
@@ -347,7 +380,7 @@ pub const TypeChecker = struct {
                 }
 
                 // Comparison operators return bool
-                if (binop.op.returns_bool()) return .{ .primitive = .bool };
+                if (binop.op.returns_bool()) return .{ .kind = .{ .primitive = .bool  }, .usage = .once };
 
                 // For arithmetic operators, both operands must be the same type
                 if (!self.typesMatch(left_type, right_type)) {
@@ -365,7 +398,7 @@ pub const TypeChecker = struct {
                 }
 
                 // Comparison operators return bool, arithmetic operators preserve type
-                return if (unop.op.returns_bool()) .{ .primitive = .bool } else operand_type;
+                return if (unop.op.returns_bool()) .{ .kind = .{ .primitive = .bool }, .usage = .once } else operand_type;
             },
             .function_call => |call| {
                 // Look up function signature
@@ -393,8 +426,8 @@ pub const TypeChecker = struct {
                         std.debug.print("Function {s} argument {d}: expected {s}, got {s}\n", .{
                             call.name,
                             i,
-                            @tagName(expected_type),
-                            @tagName(arg_type),
+                            @tagName(expected_type.kind),
+                            @tagName(arg_type.kind),
                         });
                         return error.TypeMismatch;
                     }
@@ -405,7 +438,7 @@ pub const TypeChecker = struct {
             .if_expr => |if_expr| {
                 // Condition must be bool
                 const condition_type = try self.inferExprType(if_expr.condition);
-                if (condition_type != .primitive or condition_type.primitive != .bool) {
+                if (condition_type.kind != .primitive or condition_type.kind.primitive != .bool) {
                     std.debug.print("If condition must be bool, got {any}\n", .{condition_type});
                     return error.TypeMismatch;
                 }
@@ -418,8 +451,8 @@ pub const TypeChecker = struct {
                     const else_type = try self.inferExprType(else_branch);
                     if (!self.typesMatch(then_type, else_type)) {
                         std.debug.print("If branches have different types: then={s}, else={s}\n", .{
-                            @tagName(then_type),
-                            @tagName(else_type),
+                            @tagName(then_type.kind),
+                            @tagName(else_type.kind),
                         });
                         return error.TypeMismatch;
                     }
@@ -438,7 +471,7 @@ pub const TypeChecker = struct {
                 if (block.result) |result| {
                     return try self.inferExprType(result);
                 } else {
-                    return .{ .primitive = .i32 };
+                    return .{ .kind = .{ .primitive = .i32  }, .usage = .once };
                 }
             },
             .struct_literal => |lit| {
@@ -447,23 +480,23 @@ pub const TypeChecker = struct {
                     return error.UndefinedVariable;
                 };
 
-                if (typedef != .struct_type) {
+                if (typedef.kind != .struct_type) {
                     std.debug.print("Type {s} is not a struct\n", .{lit.type_name});
                     return error.TypeMismatch;
                 }
 
-                if (lit.fields.len != typedef.struct_type.len) {
+                if (lit.fields.len != typedef.kind.struct_type.len) {
                     std.debug.print("Struct literal for {s} has {d} fields but type has {d}\n", .{
                         lit.type_name,
                         lit.fields.len,
-                        typedef.struct_type.len,
+                        typedef.kind.struct_type.len,
                     });
                     return error.TypeMismatch;
                 }
 
                 for (lit.fields) |field| {
                     var found = false;
-                    for (typedef.struct_type) |type_field| {
+                    for (typedef.kind.struct_type) |type_field| {
                         if (std.mem.eql(u8, field.name, type_field.name)) {
                             const field_value_type = try self.inferExprType(field.value);
                             if (!self.typesMatch(field_value_type, type_field.field_type.*)) {
@@ -480,33 +513,33 @@ pub const TypeChecker = struct {
                     }
                 }
 
-                return .{ .named = lit.type_name };
+                return .{ .kind = .{ .named = lit.type_name  }, .usage = .once };
             },
             .field_access => |access| {
                 const object_type = try self.inferExprType(access.object);
 
-                if (object_type != .named) {
+                if (object_type.kind != .named) {
                     std.debug.print("Cannot access field of non-struct type\n", .{});
                     return error.TypeMismatch;
                 }
 
-                const typedef = self.type_defs.get(object_type.named) orelse {
-                    std.debug.print("Undefined type: {s}\n", .{object_type.named});
+                const typedef = self.type_defs.get(object_type.kind.named) orelse {
+                    std.debug.print("Undefined type: {s}\n", .{object_type.kind.named});
                     return error.UndefinedVariable;
                 };
 
-                if (typedef != .struct_type) {
-                    std.debug.print("Type {s} is not a struct\n", .{object_type.named});
+                if (typedef.kind != .struct_type) {
+                    std.debug.print("Type {s} is not a struct\n", .{object_type.kind.named});
                     return error.TypeMismatch;
                 }
 
-                for (typedef.struct_type) |field| {
+                for (typedef.kind.struct_type) |field| {
                     if (std.mem.eql(u8, field.name, access.field_name)) {
                         return field.field_type.*;
                     }
                 }
 
-                std.debug.print("Struct {s} has no field named {s}\n", .{ object_type.named, access.field_name });
+                std.debug.print("Struct {s} has no field named {s}\n", .{ object_type.kind.named, access.field_name });
                 return error.TypeMismatch;
             },
             .constructor_call => |call| {
@@ -516,8 +549,8 @@ pub const TypeChecker = struct {
 
                 var iter = self.type_defs.iterator();
                 while (iter.next()) |entry| {
-                    if (entry.value_ptr.* == .sum_type) {
-                        for (entry.value_ptr.*.sum_type) |variant| {
+                    if (entry.value_ptr.*.kind == .sum_type) {
+                        for (entry.value_ptr.*.kind.sum_type) |variant| {
                             if (std.mem.eql(u8, variant.name, call.name)) {
                                 found_type = entry.key_ptr.*;
                                 found_variant = variant;
@@ -551,22 +584,22 @@ pub const TypeChecker = struct {
                     }
                 }
 
-                return .{ .named = found_type.? };
+                return .{ .kind = .{ .named = found_type.?  }, .usage = .once };
             },
             .match_expr => |match_expr| {
                 const scrutinee_type = try self.inferExprType(match_expr.scrutinee);
 
-                if (scrutinee_type != .named) {
+                if (scrutinee_type.kind != .named) {
                     std.debug.print("Match expression requires a named type\n", .{});
                     return error.TypeMismatch;
                 }
 
-                const typedef = self.type_defs.get(scrutinee_type.named) orelse {
-                    std.debug.print("Undefined type: {s}\n", .{scrutinee_type.named});
+                const typedef = self.type_defs.get(scrutinee_type.kind.named) orelse {
+                    std.debug.print("Undefined type: {s}\n", .{scrutinee_type.kind.named});
                     return error.UndefinedVariable;
                 };
 
-                if (typedef != .sum_type) {
+                if (typedef.kind != .sum_type) {
                     std.debug.print("Match expression requires a sum type\n", .{});
                     return error.TypeMismatch;
                 }
@@ -588,7 +621,7 @@ pub const TypeChecker = struct {
                         .constructor => |constructor| {
                             var found = false;
                             var found_variant: ?parser.SumTypeVariant = null;
-                            for (typedef.sum_type) |variant| {
+                            for (typedef.kind.sum_type) |variant| {
                                 if (std.mem.eql(u8, variant.name, constructor.name)) {
                                     if (constructor.bindings.len != variant.payload_types.len) {
                                         std.debug.print("Constructor pattern {s} has {d} bindings but variant has {d} payloads\n", .{
@@ -611,7 +644,7 @@ pub const TypeChecker = struct {
                             // Add bindings to variable scope
                             if (found_variant) |variant| {
                                 for (constructor.bindings, variant.payload_types) |binding, payload_type| {
-                                    try self.variables.put(binding, .{ .var_type = payload_type.*, .mutable = false });
+                                    try self.variables.put(binding, .{ .var_type = payload_type.*, .mutable = false, .use_count = 0 });
                                 }
                             }
                         },
@@ -654,7 +687,7 @@ pub const TypeChecker = struct {
         if (from.eql(to)) return true;
 
         // Bool can convert to any integer type (safe: 0 or 1)
-        if (from == .primitive and from.primitive == .bool and to.isInteger()) return true;
+        if (from.kind == .primitive and from.kind.primitive == .bool and to.isInteger()) return true;
 
         // Allow widening conversions between integer types (no data loss)
         // Signed can widen to larger signed, unsigned can widen to larger unsigned

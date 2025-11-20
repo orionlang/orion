@@ -32,6 +32,7 @@ Currently implemented:
 - Function calls with parameters
 - Tuples: literals, indexing, destructuring
 - Structs: type definitions, literals, field access
+- Sum types (ADTs): type definitions with variants, pattern matching with `match`
 
 ## Building
 
@@ -62,7 +63,9 @@ zig build run
 ./zig-out/bin/orion source.or -c
 ```
 
-## Example
+## Examples
+
+### Factorial
 
 ```orion
 fn factorial(n: I32) I32 {
@@ -77,6 +80,28 @@ fn factorial(n: I32) I32 {
 
 fn main() I32 {
     return factorial(5)
+}
+```
+
+### Sum Types (ADTs)
+
+```orion
+type Option = | None | Some(I32)
+
+fn divide(a: I32, b: I32) Option {
+    if b == 0 {
+        return None
+    } else {
+        return Some(a / b)
+    }
+}
+
+fn main() I32 {
+    let result = divide(10, 2)
+    return match result {
+        None => 0,
+        Some(x) => x,
+    }
 }
 ```
 

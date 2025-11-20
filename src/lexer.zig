@@ -59,6 +59,8 @@ pub const TokenKind = enum {
     tilde,
 
     // Special
+    at,
+    question,
     eof,
 };
 
@@ -176,6 +178,8 @@ pub const Lexer = struct {
                 }
                 return self.makeToken(.pipe, start_pos, start_line, start_column);
             },
+            '@' => return self.makeToken(.at, start_pos, start_line, start_column),
+            '?' => return self.makeToken(.question, start_pos, start_line, start_column),
             '0'...'9' => {
                 while (!self.isAtEnd() and std.ascii.isDigit(self.peek())) {
                     _ = self.advance();

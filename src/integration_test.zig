@@ -85,13 +85,13 @@ test "integration: integer type inference from context" {
 
     const source =
         \\fn test_types() I32 {
-        \\    let a: I8 = 127;
-        \\    let b: I16 = 32000;
-        \\    let c: I64 = 9000;
-        \\    let d: U8 = 255;
-        \\    let e: U16 = 65000;
-        \\    let f: U32 = 4000000;
-        \\    let g: U64 = 9000000;
+        \\    let a: I8@? = 127;
+        \\    let b: I16@? = 32000;
+        \\    let c: I64@? = 9000;
+        \\    let d: U8@? = 255;
+        \\    let e: U16@? = 65000;
+        \\    let f: U32@? = 4000000;
+        \\    let g: U64@? = 9000000;
         \\    return 42
         \\}
         \\fn main() I32 { return test_types() }
@@ -117,7 +117,7 @@ test "integration: integer literal out of range error" {
 test "integration: unsigned type with valid value" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let x: U8 = 255; return 0 }";
+    const source = "fn main() I32 { let x: U8@? = 255; return 0 }";
     const llvm_ir = try compile(source, testing.allocator);
     defer testing.allocator.free(llvm_ir);
 
@@ -660,7 +660,7 @@ test "integration: function parameters" {
 test "integration: function with multiple parameter types" {
     const testing = std.testing;
 
-    const source = "fn mix(a: I64, b: U32, c: I8) I64 { return a }";
+    const source = "fn mix(a: I64, b: U32@?, c: I8@?) I64 { return a }";
     const llvm_ir = try compile(source, testing.allocator);
     defer testing.allocator.free(llvm_ir);
 
@@ -687,7 +687,7 @@ test "integration: function with no parameters" {
 test "integration: parameter usage in expressions" {
     const testing = std.testing;
 
-    const source = "fn compute(x: I32, y: I32) I32 { let z: I32 = x * y; return z + x }";
+    const source = "fn compute(x: I32@2, y: I32) I32 { let z: I32 = x * y; return z + x }";
     const llvm_ir = try compile(source, testing.allocator);
     defer testing.allocator.free(llvm_ir);
 
@@ -704,7 +704,7 @@ test "integration: small integer type parameters" {
     const testing = std.testing;
 
     // Test I8 parameters
-    const i8_source = "fn use_i8(x: I8, y: I8) I8 { return x }";
+    const i8_source = "fn use_i8(x: I8, y: I8@?) I8 { return x }";
     const i8_ir = try compile(i8_source, testing.allocator);
     defer testing.allocator.free(i8_ir);
     try testing.expect(std.mem.indexOf(u8, i8_ir, "define i8 @use_i8(i8 %x, i8 %y)") != null);
@@ -830,7 +830,7 @@ test "integration: function call with different types" {
     const source =
         \\fn use_i64(x: I64) I64 { return x }
         \\fn use_i32(x: I32) I32 { return x }
-        \\fn main() I32 { let a: I64 = 100; return 0 }
+        \\fn main() I32 { let a: I64@? = 100; return 0 }
     ;
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
@@ -844,7 +844,7 @@ test "integration: recursive function call" {
     const testing = std.testing;
 
     const source =
-        \\fn factorial(n: I32) I32 { return n * factorial(n - 1) }
+        \\fn factorial(n: I32@2) I32 { return n * factorial(n - 1) }
     ;
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
@@ -907,7 +907,7 @@ test "integration: function call with mixed arguments" {
 
     const source =
         \\fn calc(a: I32, b: I32, c: I32) I32 { return a + b + c }
-        \\fn main() I32 { let x: I32 = 10; return calc(x, 20, x) }
+        \\fn main() I32 { let x: I32@2 = 10; return calc(x, 20, x) }
     ;
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
@@ -1036,7 +1036,7 @@ test "integration: multiple elseif chain" {
 test "integration: if expression with variables" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let x: I32 = 10; let y: I32 = 20; return if x > y { x } else { y } }";
+    const source = "fn main() I32 { let x: I32@2 = 10; let y: I32@2 = 20; return if x > y { x } else { y } }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1369,7 +1369,7 @@ test "integration: var keyword for mutable variables" {
 test "integration: empty tuple literal" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let t = (); return 0 }";
+    const source = "fn main() I32 { let t: ()@? = (); return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1381,7 +1381,7 @@ test "integration: empty tuple literal" {
 test "integration: simple tuple literal" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let t = (1, 2); return 0 }";
+    const source = "fn main() I32 { let t: (I32, I32)@? = (1, 2); return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1396,7 +1396,7 @@ test "integration: simple tuple literal" {
 test "integration: tuple with mixed types" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let t = (42, true, 100); return 0 }";
+    const source = "fn main() I32 { let t: (I32, Bool, I32)@? = (42, true, 100); return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1410,7 +1410,7 @@ test "integration: tuple with mixed types" {
 test "integration: nested tuple literal" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let t = (1, (2, 3)); return 0 }";
+    const source = "fn main() I32 { let t: (I32, (I32, I32))@? = (1, (2, 3)); return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1425,7 +1425,7 @@ test "integration: nested tuple literal" {
 test "integration: deeply nested tuple" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let t = (1, (2, (3, 4))); return 0 }";
+    const source = "fn main() I32 { let t: (I32, (I32, (I32, I32)))@? = (1, (2, (3, 4))); return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1454,7 +1454,7 @@ test "integration: tuple indexing simple" {
 test "integration: tuple indexing multiple elements" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let t = (1, 2, 3); return t.0 + t.1 + t.2 }";
+    const source = "fn main() I32 { let t: (I32, I32, I32)@3 = (1, 2, 3); return t.0 + t.1 + t.2 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1540,7 +1540,7 @@ test "integration: nested tuple destructuring" {
 test "integration: tuple destructuring with type annotation" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let (a, b): (I32, Bool) = (42, true); return a }";
+    const source = "fn main() I32 { let (a, b): (I32, Bool@?) = (42, true); return a }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1598,7 +1598,7 @@ test "integration: tuple in if expression" {
 test "integration: tuple destructuring with different types" {
     const testing = std.testing;
 
-    const source = "fn main() Bool { let (flag, num) = (true, 42); return flag }";
+    const source = "fn main() Bool { let (flag, num): (Bool, I32@?) = (true, 42); return flag }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1625,7 +1625,7 @@ test "integration: large tuple" {
 test "integration: tuple with expressions" {
     const testing = std.testing;
 
-    const source = "fn main() I32 { let t = (5 + 3, 10 * 2); return t.0 + t.1 }";
+    const source = "fn main() I32 { let t: (I32, I32)@2 = (5 + 3, 10 * 2); return t.0 + t.1 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1708,7 +1708,7 @@ test "integration: simple struct type definition" {
 test "integration: struct literal creation" {
     const testing = std.testing;
 
-    const source = "type Point = { x: I32, y: I32 } fn main() I32 { let p = Point { x: 10, y: 20 }; return 0 }";
+    const source = "type Point = { x: I32, y: I32 } fn main() I32 { let p: Point@? = Point { x: 10, y: 20 }; return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1795,7 +1795,7 @@ test "integration: struct field access chain" {
 test "integration: empty struct" {
     const testing = std.testing;
 
-    const source = "type Empty = {} fn main() I32 { let e = Empty {}; return 42 }";
+    const source = "type Empty = {} fn main() I32 { let e: Empty@? = Empty {}; return 42 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1817,7 +1817,7 @@ test "integration: struct with different types" {
 test "integration: multiple struct types" {
     const testing = std.testing;
 
-    const source = "type Point = { x: I32, y: I32 } type Color = { r: I32, g: I32, b: I32 } fn main() I32 { let p = Point { x: 1, y: 2 }; let c = Color { r: 255, g: 0, b: 0 }; return p.x }";
+    const source = "type Point = { x: I32, y: I32 } type Color = { r: I32, g: I32, b: I32 } fn main() I32 { let p = Point { x: 1, y: 2 }; let c: Color@? = Color { r: 255, g: 0, b: 0 }; return p.x }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1840,7 +1840,7 @@ test "integration: sum type definition" {
 test "integration: nullary constructor" {
     const testing = std.testing;
 
-    const source = "type Option = | None | Some(I32) fn main() I32 { let opt = None; return 42 }";
+    const source = "type Option = | None | Some(I32) fn main() I32 { let opt: Option@? = None; return 42 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1851,7 +1851,7 @@ test "integration: nullary constructor" {
 test "integration: constructor with payload" {
     const testing = std.testing;
 
-    const source = "type Option = | None | Some(I32) fn main() I32 { let opt = Some(42); return 0 }";
+    const source = "type Option = | None | Some(I32) fn main() I32 { let opt: Option@? = Some(42); return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1903,7 +1903,7 @@ test "integration: sum type with tuple payload" {
 test "integration: sum type with struct payload" {
     const testing = std.testing;
 
-    const source = "type Point = { x: I32, y: I32 } type Shape = | Circle(I32) | Rectangle(Point) fn main() I32 { let p = Point { x: 1, y: 2 }; let s = Rectangle(p); return 0 }";
+    const source = "type Point = { x: I32, y: I32 } type Shape = | Circle(I32) | Rectangle(Point) fn main() I32 { let p = Point { x: 1, y: 2 }; let s: Shape@? = Rectangle(p); return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1914,7 +1914,7 @@ test "integration: sum type with struct payload" {
 test "integration: nested sum types" {
     const testing = std.testing;
 
-    const source = "type Inner = | A | B type Outer = | X(Inner) | Y fn main() I32 { let inner = A; let outer = X(inner); return 0 }";
+    const source = "type Inner = | A | B type Outer = | X(Inner) | Y fn main() I32 { let inner = A; let outer: Outer@? = X(inner); return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1925,7 +1925,7 @@ test "integration: nested sum types" {
 test "integration: match on sum type with struct payload" {
     const testing = std.testing;
 
-    const source = "type Point = { x: I32, y: I32 } type MaybePoint = | NoPoint | SomePoint(Point) fn main() I32 { let mp = NoPoint; return match mp { NoPoint => 0, SomePoint(p) => 1 } }";
+    const source = "type Point = { x: I32, y: I32 } type MaybePoint = | NoPoint | SomePoint(Point) fn main() I32 { let mp = NoPoint; return match mp { NoPoint => 0, SomePoint(_) => 1 } }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
@@ -1961,10 +1961,185 @@ test "integration: match extracts both values from tuple payload" {
 test "integration: recursive ADT definition" {
     const testing = std.testing;
 
-    const source = "type List = | Nil | Cons(I32, List) fn main() I32 { let list = Nil; return 0 }";
+    const source = "type List = | Nil | Cons(I32, List) fn main() I32 { let list: List@? = Nil; return 0 }";
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
     // Check recursive ADT compiles
+    try testing.expect(ir.len > 0);
+}
+
+// Linearity checking tests
+
+test "integration: linearity - variable used exactly once (default)" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_once(x: I32) I32 {
+        \\    return x
+        \\}
+        \\fn main() I32 { return use_once(5) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "integration: linearity - variable used exactly twice with @2" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_twice(x: I32@2) I32 {
+        \\    return x + x
+        \\}
+        \\fn main() I32 { return use_twice(10) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @use_twice(i32 %x)") != null);
+}
+
+test "integration: linearity - variable used exactly three times with @3" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_three(x: I32@3) I32 {
+        \\    return x + x + x
+        \\}
+        \\fn main() I32 { return use_three(10) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "integration: linearity - optional usage with zero uses" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_zero(x: I32@?) I32 {
+        \\    return 42
+        \\}
+        \\fn main() I32 { return use_zero(10) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "integration: linearity - optional usage with one use" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_one(x: I32@?) I32 {
+        \\    return x
+        \\}
+        \\fn main() I32 { return use_one(5) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "integration: linearity - mixed usage annotations" {
+    const testing = std.testing;
+
+    const source =
+        \\fn mixed(a: I32, b: I32@2, c: I32@?) I32 {
+        \\    return a + b + b
+        \\}
+        \\fn main() I32 { return mixed(1, 2, 3) }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "integration: linearity - violation using twice without annotation" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_twice_bad(x: I32) I32 {
+        \\    return x + x
+        \\}
+        \\fn main() I32 { return use_twice_bad(10) }
+    ;
+    const result = compile(source, testing.allocator);
+    try testing.expectError(error.LinearityViolation, result);
+}
+
+test "integration: linearity - violation using zero times without annotation" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_zero_bad(x: I32) I32 {
+        \\    return 42
+        \\}
+        \\fn main() I32 { return use_zero_bad(10) }
+    ;
+    const result = compile(source, testing.allocator);
+    try testing.expectError(error.LinearityViolation, result);
+}
+
+test "integration: linearity - violation optional used twice" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_twice_optional(x: I32@?) I32 {
+        \\    return x + x
+        \\}
+        \\fn main() I32 { return use_twice_optional(10) }
+    ;
+    const result = compile(source, testing.allocator);
+    try testing.expectError(error.LinearityViolation, result);
+}
+
+test "integration: linearity - violation @2 used once" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_once_bad(x: I32@2) I32 {
+        \\    return x
+        \\}
+        \\fn main() I32 { return use_once_bad(10) }
+    ;
+    const result = compile(source, testing.allocator);
+    try testing.expectError(error.LinearityViolation, result);
+}
+
+test "integration: linearity - violation @3 used twice" {
+    const testing = std.testing;
+
+    const source =
+        \\fn use_twice_bad(x: I32@3) I32 {
+        \\    return x + x
+        \\}
+        \\fn main() I32 { return use_twice_bad(10) }
+    ;
+    const result = compile(source, testing.allocator);
+    try testing.expectError(error.LinearityViolation, result);
+}
+
+test "integration: linearity - mutable variables exempt from checking" {
+    const testing = std.testing;
+
+    const source =
+        \\fn test_var() I32 {
+        \\    var x: I32 = 10
+        \\    x = x + 1
+        \\    x = x + 1
+        \\    return x
+        \\}
+        \\fn main() I32 { return test_var() }
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
     try testing.expect(ir.len > 0);
 }

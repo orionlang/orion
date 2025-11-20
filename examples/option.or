@@ -1,0 +1,17 @@
+type Option = | None | Some(I32)
+
+fn divide(a: I32, b: I32) Option {
+    if b == 0 {
+        return None
+    } else {
+        return Some(a / b)
+    }
+}
+
+fn main() I32 {
+    let result = divide(10, 2)
+    return match result {
+        None => 0,
+        Some(x) => x,
+    }
+}

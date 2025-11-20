@@ -86,7 +86,7 @@ pub const Codegen = struct {
     }
 
     fn convertConditionToBool(self: *Codegen, condition_val: []const u8, condition_type: Type) ![]const u8 {
-        if (condition_type == .primitive and condition_type.primitive == .bool) {
+        if (condition_type.kind == .primitive and condition_type.kind.primitive == .bool) {
             return try self.allocator.dupe(u8, condition_val);
         }
         const temp = try self.allocTempName();
@@ -450,7 +450,7 @@ pub const Codegen = struct {
                 defer self.allocator.free(tuple_type_str);
 
                 for (sub_patterns, 0..) |sub_pattern, i| {
-                    const elem_type = value_type.tuple[i].*;
+                    const elem_type = value_type.kind.tuple[i].*;
                     const elem_temp = try self.allocTempName();
 
                     // Extract element from tuple
@@ -481,7 +481,7 @@ pub const Codegen = struct {
         const to_llvm = self.llvmType(to_type);
 
         // Bool uses zero extension (unsigned)
-        if (from_type == .primitive and from_type.primitive == .bool) {
+        if (from_type.kind == .primitive and from_type.kind.primitive == .bool) {
             const temp = try self.allocTempName();
             try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to {s}\n", .{ temp, value, to_llvm });
             return temp;
@@ -729,7 +729,7 @@ pub const Codegen = struct {
             .block_expr => |block| {
                 // Generate all statements
                 for (block.statements) |*stmt| {
-                    try self.generateStatement(stmt, .{ .primitive = .i32 }); // Dummy return type for blocks
+                    try self.generateStatement(stmt, .{ .kind = .{ .primitive = .i32  }, .usage = .once }); // Dummy return type for blocks
                 }
 
                 // Generate result expression or unit value
@@ -748,7 +748,7 @@ pub const Codegen = struct {
 
                 var current_val: []const u8 = try std.fmt.allocPrint(self.allocator, "undef", .{});
 
-                for (typedef.struct_type, 0..) |type_field, field_idx| {
+                for (typedef.kind.struct_type, 0..) |type_field, field_idx| {
                     var field_value: ?[]const u8 = null;
                     for (lit.fields) |lit_field| {
                         if (std.mem.eql(u8, lit_field.name, type_field.name)) {
@@ -773,7 +773,7 @@ pub const Codegen = struct {
                         field_idx,
                     });
 
-                    if (field_idx < typedef.struct_type.len - 1) {
+                    if (field_idx < typedef.kind.struct_type.len - 1) {
                         self.allocator.free(current_val);
                         current_val = try self.allocator.dupe(u8, temp);
                         self.allocator.free(temp);
@@ -794,10 +794,10 @@ pub const Codegen = struct {
                 const object_type_str = try self.llvmTypeString(object_type);
                 defer self.allocator.free(object_type_str);
 
-                const typedef = self.type_defs.get(object_type.named) orelse unreachable;
+                const typedef = self.type_defs.get(object_type.kind.named) orelse unreachable;
 
                 var field_idx: usize = 0;
-                for (typedef.struct_type, 0..) |field, idx| {
+                for (typedef.kind.struct_type, 0..) |field, idx| {
                     if (std.mem.eql(u8, field.name, access.field_name)) {
                         field_idx = idx;
                         break;
@@ -822,8 +822,8 @@ pub const Codegen = struct {
 
                 var iter = self.type_defs.iterator();
                 while (iter.next()) |entry| {
-                    if (entry.value_ptr.* == .sum_type) {
-                        for (entry.value_ptr.*.sum_type, 0..) |variant, idx| {
+                    if (entry.value_ptr.*.kind == .sum_type) {
+                        for (entry.value_ptr.*.kind.sum_type, 0..) |variant, idx| {
                             if (std.mem.eql(u8, variant.name, call.name)) {
                                 found_type_name = entry.key_ptr.*;
                                 found_typedef = entry.value_ptr.*;
@@ -873,7 +873,7 @@ pub const Codegen = struct {
                 const scrutinee_type_str = try self.llvmTypeString(scrutinee_type);
                 defer self.allocator.free(scrutinee_type_str);
 
-                const typedef = self.type_defs.get(scrutinee_type.named) orelse unreachable;
+                const typedef = self.type_defs.get(scrutinee_type.kind.named) orelse unreachable;
 
                 // Extract tag
                 const tag_temp = try self.allocTempName();
@@ -913,7 +913,7 @@ pub const Codegen = struct {
                         .identifier => {},
                         .constructor => |constructor| {
                             // Find the variant index
-                            for (typedef.sum_type, 0..) |variant, variant_idx| {
+                            for (typedef.kind.sum_type, 0..) |variant, variant_idx| {
                                 if (std.mem.eql(u8, variant.name, constructor.name)) {
                                     if (i > 0) try self.output.appendSlice(self.allocator, ", ");
                                     try self.output.writer(self.allocator).print("\n    i64 {d}, label %{s}", .{
@@ -955,7 +955,7 @@ pub const Codegen = struct {
                         .constructor => |constructor| {
                             // Find the variant to get payload types
                             var found_variant: ?parser.SumTypeVariant = null;
-                            for (typedef.sum_type) |variant| {
+                            for (typedef.kind.sum_type) |variant| {
                                 if (std.mem.eql(u8, variant.name, constructor.name)) {
                                     found_variant = variant;
                                     break;
@@ -1031,7 +1031,7 @@ pub const Codegen = struct {
         // Determine the type from the left operand
         const operand_type = self.inferExprType(left_expr);
 
-        if (operand_type == .primitive and operand_type.primitive == .bool) {
+        if (operand_type.kind == .primitive and operand_type.kind.primitive == .bool) {
             // Boolean operation on i1 values
             const bool_op = if (op == .logical_and) "and" else "or";
             try self.output.writer(self.allocator).print("  {s} = {s} i1 {s}, {s}\n", .{ result_name, bool_op, left_val, right_val });
@@ -1063,7 +1063,7 @@ pub const Codegen = struct {
     }
 
     fn llvmTypeString(self: *Codegen, typ: Type) ![]const u8 {
-        switch (typ) {
+        switch (typ.kind) {
             .primitive => return try self.allocator.dupe(u8, typ.llvmTypeName()),
             .tuple => |elements| {
                 var type_parts: std.ArrayList(u8) = .empty;
@@ -1103,7 +1103,7 @@ pub const Codegen = struct {
                     var variant_size: usize = 0;
                     for (variant.payload_types) |payload_type| {
                         // Simplified size calculation (assumes all i32/i64)
-                        if (payload_type.* == .primitive) {
+                        if (payload_type.*.kind == .primitive) {
                             variant_size += payload_type.*.bitWidth() / 8;
                         } else {
                             variant_size += 8; // Pointer or struct size estimate
@@ -1127,7 +1127,7 @@ pub const Codegen = struct {
     fn inferExprType(self: *Codegen, expr: *const Expr) Type {
         switch (expr.*) {
             .integer_literal => |lit| return lit.inferred_type,
-            .bool_literal => return .{ .primitive = .bool },
+            .bool_literal => return .{ .kind = .{ .primitive = .bool  }, .usage = .once },
             .tuple_literal => |elements| {
                 const elem_types = self.allocator.alloc(*Type, elements.len) catch unreachable;
                 for (elements, 0..) |elem, i| {
@@ -1135,32 +1135,32 @@ pub const Codegen = struct {
                     elem_type_ptr.* = self.inferExprType(elem);
                     elem_types[i] = elem_type_ptr;
                 }
-                const tuple_type = Type{ .tuple = elem_types };
+                const tuple_type = Type{ .kind = .{ .tuple = elem_types }, .usage = .once };
                 // Track ALL tuple types (including nested) for cleanup
                 self.inferred_types.append(self.allocator, tuple_type) catch unreachable;
                 return tuple_type;
             },
             .tuple_index => |index| {
                 const tuple_type = self.inferExprType(index.tuple);
-                return tuple_type.tuple[index.index].*;
+                return tuple_type.kind.tuple[index.index].*;
             },
             .variable => |name| {
                 if (self.variables.get(name)) |var_info| {
                     return var_info.var_type;
                 }
-                return .{ .primitive = .i32 };
+                return .{ .kind = .{ .primitive = .i32  }, .usage = .once };
             },
             .binary_op => |binop| {
-                return if (binop.op.returns_bool()) .{ .primitive = .bool } else self.inferExprType(binop.left);
+                return if (binop.op.returns_bool()) .{ .kind = .{ .primitive = .bool  }, .usage = .once } else self.inferExprType(binop.left);
             },
             .unary_op => |unop| {
-                return if (unop.op.returns_bool()) .{ .primitive = .bool } else self.inferExprType(unop.operand);
+                return if (unop.op.returns_bool()) .{ .kind = .{ .primitive = .bool  }, .usage = .once } else self.inferExprType(unop.operand);
             },
             .function_call => |call| {
                 if (self.functions.get(call.name)) |func_info| {
                     return func_info.return_type;
                 }
-                return .{ .primitive = .i32 };
+                return .{ .kind = .{ .primitive = .i32  }, .usage = .once };
             },
             .if_expr => |if_expr| {
                 return self.inferExprType(if_expr.then_branch);
@@ -1169,16 +1169,16 @@ pub const Codegen = struct {
                 if (block.result) |result| {
                     return self.inferExprType(result);
                 } else {
-                    return .{ .primitive = .i32 }; // Unit value
+                    return .{ .kind = .{ .primitive = .i32  }, .usage = .once }; // Unit value
                 }
             },
             .struct_literal => |lit| {
-                return .{ .named = lit.type_name };
+                return .{ .kind = .{ .named = lit.type_name  }, .usage = .once };
             },
             .field_access => |access| {
                 const object_type = self.inferExprType(access.object);
-                const typedef = self.type_defs.get(object_type.named) orelse unreachable;
-                for (typedef.struct_type) |field| {
+                const typedef = self.type_defs.get(object_type.kind.named) orelse unreachable;
+                for (typedef.kind.struct_type) |field| {
                     if (std.mem.eql(u8, field.name, access.field_name)) {
                         return field.field_type.*;
                     }
@@ -1189,10 +1189,10 @@ pub const Codegen = struct {
                 // Find which sum type this constructor belongs to
                 var iter = self.type_defs.iterator();
                 while (iter.next()) |entry| {
-                    if (entry.value_ptr.* == .sum_type) {
-                        for (entry.value_ptr.*.sum_type) |variant| {
+                    if (entry.value_ptr.*.kind == .sum_type) {
+                        for (entry.value_ptr.*.kind.sum_type) |variant| {
                             if (std.mem.eql(u8, variant.name, call.name)) {
-                                return .{ .named = entry.key_ptr.* };
+                                return .{ .kind = .{ .named = entry.key_ptr.*  }, .usage = .once };
                             }
                         }
                     }
