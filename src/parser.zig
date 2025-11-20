@@ -120,6 +120,10 @@ pub const Expr = union(enum) {
         then_branch: *Expr,
         else_branch: ?*Expr,
     },
+    while_expr: struct {
+        condition: *Expr,
+        body: *Expr,
+    },
 };
 
 pub const Param = struct {
@@ -190,6 +194,12 @@ pub const FunctionDecl = struct {
                     deinitExpr(allocator, else_branch);
                     allocator.destroy(else_branch);
                 }
+            },
+            .while_expr => |while_expr| {
+                deinitExpr(allocator, while_expr.condition);
+                allocator.destroy(while_expr.condition);
+                deinitExpr(allocator, while_expr.body);
+                allocator.destroy(while_expr.body);
             },
         }
     }
@@ -554,6 +564,10 @@ pub const Parser = struct {
             return try self.parseIfExpression();
         }
 
+        if (self.check(.while_keyword)) {
+            return try self.parseWhileExpression();
+        }
+
         if (self.check(.identifier)) {
             const token = try self.expect(.identifier);
 
@@ -607,6 +621,20 @@ pub const Parser = struct {
         return error.ExpectedExpression;
     }
 
+    fn parseExpressionPtr(self: *Parser, already_allocated: []const *Expr) !*Expr {
+        const expr = try self.parseExpression();
+        const ptr = try self.allocator.create(Expr);
+        errdefer {
+            for (already_allocated) |allocated| {
+                FunctionDecl.deinitExpr(self.allocator, allocated);
+                self.allocator.destroy(allocated);
+            }
+            self.allocator.destroy(ptr);
+        }
+        ptr.* = expr;
+        return ptr;
+    }
+
     fn parseIfExpression(self: *Parser) ParseError!Expr {
         _ = try self.expect(.if_keyword);
         return try self.parseIfExpressionContinuation();
@@ -614,21 +642,11 @@ pub const Parser = struct {
 
     fn parseIfExpressionContinuation(self: *Parser) ParseError!Expr {
         // Parse condition
-        const condition_expr = try self.parseExpression();
-        const condition = try self.allocator.create(Expr);
-        errdefer self.allocator.destroy(condition);
-        condition.* = condition_expr;
+        const condition = try self.parseExpressionPtr(&.{});
 
         // Parse then branch
         _ = try self.expect(.left_brace);
-        const then_expr = try self.parseExpression();
-        const then_branch = try self.allocator.create(Expr);
-        errdefer {
-            FunctionDecl.deinitExpr(self.allocator, condition);
-            self.allocator.destroy(condition);
-            self.allocator.destroy(then_branch);
-        }
-        then_branch.* = then_expr;
+        const then_branch = try self.parseExpressionPtr(&.{condition});
         _ = try self.expect(.right_brace);
 
         // Parse optional elseif/else branch
@@ -643,9 +661,7 @@ pub const Parser = struct {
             } else if (self.check(.else_keyword)) {
                 _ = try self.expect(.else_keyword);
                 _ = try self.expect(.left_brace);
-                const else_expr = try self.parseExpression();
-                const else_ptr = try self.allocator.create(Expr);
-                else_ptr.* = else_expr;
+                const else_ptr = try self.parseExpressionPtr(&.{ condition, then_branch });
                 _ = try self.expect(.right_brace);
                 break :blk else_ptr;
             } else {
@@ -664,6 +680,25 @@ pub const Parser = struct {
                 .condition = condition,
                 .then_branch = then_branch,
                 .else_branch = else_branch,
+            },
+        };
+    }
+
+    fn parseWhileExpression(self: *Parser) ParseError!Expr {
+        _ = try self.expect(.while_keyword);
+
+        // Parse condition
+        const condition = try self.parseExpressionPtr(&.{});
+
+        // Parse body
+        _ = try self.expect(.left_brace);
+        const body = try self.parseExpressionPtr(&.{condition});
+        _ = try self.expect(.right_brace);
+
+        return .{
+            .while_expr = .{
+                .condition = condition,
+                .body = body,
             },
         };
     }
@@ -1162,5 +1197,73 @@ test "parser: nested if expressions" {
 
     // Outer else
     try testing.expectEqual(@as(i32, 3), outer_if.else_branch.?.integer_literal);
+}
+
+test "parser: simple while loop" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return while true { 42 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .while_expr);
+
+    const while_loop = stmt.return_stmt.while_expr;
+    try testing.expect(while_loop.condition.* == .bool_literal);
+    try testing.expectEqual(true, while_loop.condition.bool_literal);
+    try testing.expect(while_loop.body.* == .integer_literal);
+    try testing.expectEqual(@as(i32, 42), while_loop.body.integer_literal);
+}
+
+test "parser: while loop with comparison condition" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return while 5 > 3 { 1 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .while_expr);
+
+    const while_loop = stmt.return_stmt.while_expr;
+    try testing.expect(while_loop.condition.* == .binary_op);
+    try testing.expectEqual(BinaryOp.greater_than, while_loop.condition.binary_op.op);
+}
+
+test "parser: nested while loops" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+
+    const source = "fn f() -> I32 { return while true { while false { 1 } } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    const stmt = ast.functions.items[0].body.items[0];
+    try testing.expect(stmt.return_stmt.* == .while_expr);
+
+    const outer_while = stmt.return_stmt.while_expr;
+    try testing.expect(outer_while.body.* == .while_expr);
+
+    const inner_while = outer_while.body.while_expr;
+    try testing.expect(inner_while.condition.* == .bool_literal);
+    try testing.expectEqual(false, inner_while.condition.bool_literal);
 }
 

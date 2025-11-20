@@ -223,6 +223,20 @@ pub const TypeChecker = struct {
                     return error.TypeMismatch;
                 }
             },
+            .while_expr => |while_expr| {
+                // Condition must be bool
+                const condition_type = try self.inferExprType(while_expr.condition);
+                if (condition_type != .bool) {
+                    std.debug.print("While condition must be bool, got {s}\n", .{@tagName(condition_type)});
+                    return error.TypeMismatch;
+                }
+
+                // Type check the body (but ignore its type)
+                _ = try self.inferExprType(while_expr.body);
+
+                // While loops always return i32 as unit value (body type is ignored)
+                return .i32;
+            },
         }
     }
 

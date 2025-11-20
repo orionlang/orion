@@ -1060,3 +1060,103 @@ test "integration: if in let binding with elseif" {
     try testing.expect(std.mem.indexOf(u8, ir, "store i32") != null);
     try testing.expect(std.mem.indexOf(u8, ir, "load i32") != null);
 }
+
+test "integration: simple while loop" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return while true { 42 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should have while blocks
+    try testing.expect(std.mem.indexOf(u8, ir, "while_header0:") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "while_body0:") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "while_exit0:") != null);
+
+    // Should return 0 (unit value)
+    try testing.expect(std.mem.indexOf(u8, ir, "ret i32 0") != null);
+}
+
+test "integration: while loop with comparison condition" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return while 5 > 3 { 1 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should have comparison in condition
+    try testing.expect(std.mem.indexOf(u8, ir, "icmp") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "while_header0:") != null);
+}
+
+test "integration: while loop with variable condition" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let x: Bool = true; return while x { 1 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should load variable in condition
+    try testing.expect(std.mem.indexOf(u8, ir, "load i1") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "while_header0:") != null);
+}
+
+test "integration: nested while loops" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return while true { while false { 1 } } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should have two sets of while blocks
+    try testing.expect(std.mem.indexOf(u8, ir, "while_header0:") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "while_header1:") != null);
+}
+
+test "integration: while loop in let binding" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { let x: I32 = while false { 1 }; return x }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should store result in variable
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca i32") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "store i32 0") != null); // Store unit value
+}
+
+test "integration: while with integer condition should fail" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return while 5 { 1 } }";
+    const result = compile(source, testing.allocator);
+
+    // Should fail type checking
+    try testing.expectError(error.TypeMismatch, result);
+}
+
+test "integration: while loop with if in body" {
+    const testing = std.testing;
+
+    const source = "fn main() -> I32 { return while true { if false { 1 } else { 2 } } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should have both while and if blocks
+    try testing.expect(std.mem.indexOf(u8, ir, "while_header") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "then") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "else") != null);
+}
+
+test "integration: while loop as function argument" {
+    const testing = std.testing;
+
+    const source = "fn identity(x: I32) -> I32 { return x } fn main() -> I32 { return identity(while false { 1 }) }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Should compile successfully with while loop
+    try testing.expect(std.mem.indexOf(u8, ir, "while_header") != null);
+    // Function definitions should be present
+    try testing.expect(std.mem.indexOf(u8, ir, "define") != null);
+}

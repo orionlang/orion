@@ -5,6 +5,10 @@ const Type = parser.Type;
 const Expr = parser.Expr;
 const Stmt = parser.Stmt;
 
+pub const CodegenError = error{
+    OutOfMemory,
+};
+
 const VarInfo = struct {
     llvm_ptr: []const u8,
     var_type: Type,
@@ -68,6 +72,10 @@ pub const Codegen = struct {
         const cond_type_str = self.llvmType(condition_type);
         try self.output.writer(self.allocator).print("  {s} = icmp ne {s} {s}, 0\n", .{ temp, cond_type_str, condition_val });
         return temp;
+    }
+
+    fn unitValue(self: *Codegen) ![]const u8 {
+        return try self.allocator.dupe(u8, "0");
     }
 
     pub fn generate(self: *Codegen, ast: *const AST) ![]const u8 {
@@ -329,13 +337,8 @@ pub const Codegen = struct {
                 return try self.allocator.dupe(u8, temp_name);
             },
             .if_expr => |if_expr| {
-                // Generate condition
-                const condition_val = try self.generateExpression(if_expr.condition);
-                defer self.allocator.free(condition_val);
-
-                // Convert condition to i1 if needed
-                const condition_type = self.inferExprType(if_expr.condition);
-                const cond_bool = try self.convertConditionToBool(condition_val, condition_type);
+                // Generate condition as bool
+                const cond_bool = try self.generateConditionAsBool(if_expr.condition);
                 defer self.allocator.free(cond_bool);
 
                 // Create labels for then, else, and merge blocks
@@ -395,7 +398,56 @@ pub const Codegen = struct {
 
                 return result_temp;
             },
+            .while_expr => |while_expr| {
+                // Create labels for header, body, and exit blocks
+                const header_label = try std.fmt.allocPrint(self.allocator, "while_header{d}", .{self.next_temp});
+                const body_label = try std.fmt.allocPrint(self.allocator, "while_body{d}", .{self.next_temp});
+                const exit_label = try std.fmt.allocPrint(self.allocator, "while_exit{d}", .{self.next_temp});
+                self.next_temp += 1;
+
+                // Branch to header
+                try self.output.writer(self.allocator).print("  br label %{s}\n", .{header_label});
+
+                // Header block: evaluate condition
+                try self.output.writer(self.allocator).print("{s}:\n", .{header_label});
+                try self.setCurrentBlock(header_label);
+
+                const cond_bool = try self.generateConditionAsBool(while_expr.condition);
+                defer self.allocator.free(cond_bool);
+
+                // Branch on condition: true -> body, false -> exit
+                try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n", .{ cond_bool, body_label, exit_label });
+
+                // Body block
+                try self.output.writer(self.allocator).print("{s}:\n", .{body_label});
+                try self.setCurrentBlock(body_label);
+
+                const body_val = try self.generateExpression(while_expr.body);
+                defer self.allocator.free(body_val); // Discard - while returns unit
+
+                // Branch back to header
+                try self.output.writer(self.allocator).print("  br label %{s}\n", .{header_label});
+
+                // Exit block
+                try self.output.writer(self.allocator).print("{s}:\n", .{exit_label});
+                try self.setCurrentBlock(exit_label);
+
+                // Clean up labels
+                self.allocator.free(header_label);
+                self.allocator.free(body_label);
+                self.allocator.free(exit_label);
+
+                // While loops return unit value
+                return try self.unitValue();
+            },
         }
+    }
+
+    fn generateConditionAsBool(self: *Codegen, condition: *const Expr) CodegenError![]const u8 {
+        const condition_val = try self.generateExpression(condition);
+        defer self.allocator.free(condition_val);
+        const condition_type = self.inferExprType(condition);
+        return try self.convertConditionToBool(condition_val, condition_type);
     }
 
     fn generateLogicalBinOp(self: *Codegen, op: parser.BinaryOp, left_expr: *const parser.Expr, left_val: []const u8, right_val: []const u8, result_name: []const u8) ![]const u8 {
@@ -458,6 +510,9 @@ pub const Codegen = struct {
             },
             .if_expr => |if_expr| {
                 return self.inferExprType(if_expr.then_branch);
+            },
+            .while_expr => {
+                return .i32; // While loops return i32 (unit value)
             },
         }
     }
@@ -895,5 +950,91 @@ test "codegen: basic block tracking in elseif" {
     // The outer phi node should reference merge1 (not else0) as predecessor
     // because after evaluating the nested if in else0, we're in merge1
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "%merge1 ]") != null);
+}
+
+test "codegen: simple while loop" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return while true { 42 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // Should have header, body, and exit labels
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_header0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_body0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_exit0:") != null);
+
+    // Should have conditional branch in header
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "br i1") != null);
+
+    // Body should branch back to header
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "br label %while_header0") != null);
+
+    // Should return 0 (unit value)
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "ret i32 0") != null);
+}
+
+test "codegen: while loop with comparison condition" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return while 5 > 3 { 1 } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // Should have comparison in condition
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "icmp sgt i32 5, 3") != null);
+}
+
+test "codegen: nested while loops" {
+    const testing = std.testing;
+    const Lexer = @import("lexer.zig").Lexer;
+    const Parser = @import("parser.zig").Parser;
+
+    const source = "fn f() -> I32 { return while true { while false { 1 } } }";
+    var lex = Lexer.init(source);
+    var tokens = try lex.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    var p = Parser.init(tokens.items, testing.allocator);
+    var ast = try p.parse();
+    defer ast.deinit(testing.allocator);
+
+    var codegen = Codegen.init(testing.allocator);
+    defer codegen.deinit();
+
+    const llvm_ir = try codegen.generate(&ast);
+    defer testing.allocator.free(llvm_ir);
+
+    // Should have two sets of while blocks (outer and inner)
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_header0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_header1:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_body0:") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "while_body1:") != null);
 }
 
