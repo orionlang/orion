@@ -2252,3 +2252,70 @@ test "multiple instance methods" {
     try testing.expect(std.mem.indexOf(u8, ir, "Point__display") != null);
     try testing.expect(std.mem.indexOf(u8, ir, "Point__debug") != null);
 }
+
+test "unsafe block bypasses linearity checks" {
+    const testing = std.testing;
+
+    const source =
+        \\fn test_unsafe() I32 {
+        \\  let x: I32 = 42
+        \\  let result: I32 = unsafe {
+        \\    let y: I32 = x
+        \\    let z: I32 = x
+        \\    return y + z
+        \\  }
+        \\  return result
+        \\}
+        \\fn main() I32 {
+        \\  return test_unsafe()
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "unsafe block with result expression" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32 = 10
+        \\  let result: I32 = unsafe {
+        \\    let a: I32 = x
+        \\    let b: I32 = x
+        \\    a + b
+        \\  }
+        \\  return result
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "nested unsafe blocks" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32 = 5
+        \\  let result: I32 = unsafe {
+        \\    let y: I32 = x
+        \\    let inner: I32 = unsafe {
+        \\      let z: I32 = y
+        \\      let w: I32 = y
+        \\      z + w
+        \\    }
+        \\    inner + x
+        \\  }
+        \\  return result
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}

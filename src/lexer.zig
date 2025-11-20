@@ -16,6 +16,7 @@ pub const TokenKind = enum {
     match_keyword,
     class_keyword,
     instance_keyword,
+    unsafe_keyword,
 
     // Literals
     integer,
@@ -229,6 +230,7 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, lexeme, "match")) return .match_keyword;
         if (std.mem.eql(u8, lexeme, "class")) return .class_keyword;
         if (std.mem.eql(u8, lexeme, "instance")) return .instance_keyword;
+        if (std.mem.eql(u8, lexeme, "unsafe")) return .unsafe_keyword;
         return .identifier;
     }
 

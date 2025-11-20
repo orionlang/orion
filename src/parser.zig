@@ -362,6 +362,10 @@ pub const Expr = union(enum) {
         statements: []Stmt,
         result: ?*Expr,
     },
+    unsafe_block: struct {
+        statements: []Stmt,
+        result: ?*Expr,
+    },
     tuple_literal: []*Expr,
     tuple_index: struct {
         tuple: *Expr,
@@ -576,6 +580,16 @@ pub const FunctionDecl = struct {
                 }
             },
             .block_expr => |block| {
+                for (block.statements) |*stmt| {
+                    deinitStmt(allocator, stmt);
+                }
+                allocator.free(block.statements);
+                if (block.result) |result| {
+                    deinitExpr(allocator, result);
+                    allocator.destroy(result);
+                }
+            },
+            .unsafe_block => |block| {
                 for (block.statements) |*stmt| {
                     deinitStmt(allocator, stmt);
                 }
@@ -1309,6 +1323,10 @@ pub const Parser = struct {
             return try self.parseMatchExpression();
         }
 
+        if (self.check(.unsafe_keyword)) {
+            return try self.parseUnsafeBlock();
+        }
+
         if (self.check(.left_brace)) {
             return try self.parseBlockExpression();
         }
@@ -1703,6 +1721,47 @@ pub const Parser = struct {
         _ = try self.expect(.right_brace);
         return .{
             .block_expr = .{
+                .statements = try stmts.toOwnedSlice(self.allocator),
+                .result = null,
+            },
+        };
+    }
+
+    fn parseUnsafeBlock(self: *Parser) ParseError!Expr {
+        _ = try self.expect(.unsafe_keyword);
+        _ = try self.expect(.left_brace);
+
+        var stmts: std.ArrayList(Stmt) = .empty;
+        errdefer {
+            for (stmts.items) |*stmt| {
+                FunctionDecl.deinitStmt(self.allocator, stmt);
+            }
+            stmts.deinit(self.allocator);
+        }
+
+        // Parse statements until we hit right_brace or final expression
+        while (!self.check(.right_brace)) {
+            if (self.isStatementStart()) {
+                const stmt = try self.parseStatement();
+                try stmts.append(self.allocator, stmt);
+            } else {
+                // It's a final expression (no semicolon)
+                const result_ptr = try self.allocator.create(Expr);
+                errdefer self.allocator.destroy(result_ptr);
+                result_ptr.* = try self.parseExpression();
+                _ = try self.expect(.right_brace);
+                return .{
+                    .unsafe_block = .{
+                        .statements = try stmts.toOwnedSlice(self.allocator),
+                        .result = result_ptr,
+                    },
+                };
+            }
+        }
+
+        _ = try self.expect(.right_brace);
+        return .{
+            .unsafe_block = .{
                 .statements = try stmts.toOwnedSlice(self.allocator),
                 .result = null,
             },

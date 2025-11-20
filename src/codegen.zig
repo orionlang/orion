@@ -809,6 +809,19 @@ pub const Codegen = struct {
                     return try self.unitValue();
                 }
             },
+            .unsafe_block => |block| {
+                // Generate all statements (same as regular block)
+                for (block.statements) |*stmt| {
+                    try self.generateStatement(stmt, .{ .kind = .{ .primitive = .i32  }, .usage = .once });
+                }
+
+                // Generate result expression or unit value
+                if (block.result) |result| {
+                    return try self.generateExpression(result);
+                } else {
+                    return try self.unitValue();
+                }
+            },
             .struct_literal => |lit| {
                 const struct_type = self.inferExprType(expr);
                 const struct_type_str = try self.llvmTypeString(struct_type);
@@ -1295,6 +1308,13 @@ pub const Codegen = struct {
                 return self.inferExprType(if_expr.then_branch);
             },
             .block_expr => |block| {
+                if (block.result) |result| {
+                    return self.inferExprType(result);
+                } else {
+                    return .{ .kind = .{ .primitive = .i32  }, .usage = .once }; // Unit value
+                }
+            },
+            .unsafe_block => |block| {
                 if (block.result) |result| {
                     return self.inferExprType(result);
                 } else {

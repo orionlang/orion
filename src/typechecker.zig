@@ -35,6 +35,7 @@ pub const TypeChecker = struct {
     type_defs: std.StringHashMap(Type),
     instance_methods: std.StringHashMap(Type),
     allocated_tuple_types: std.ArrayList(Type),
+    in_unsafe_block: bool,
 
     pub fn init(allocator: std.mem.Allocator) TypeChecker {
         return .{
@@ -44,6 +45,7 @@ pub const TypeChecker = struct {
             .type_defs = std.StringHashMap(Type).init(allocator),
             .instance_methods = std.StringHashMap(Type).init(allocator),
             .allocated_tuple_types = .empty,
+            .in_unsafe_block = false,
         };
     }
 
@@ -149,6 +151,11 @@ pub const TypeChecker = struct {
     }
 
     fn checkLinearity(self: *TypeChecker) !void {
+        // Skip linearity checks in unsafe blocks
+        if (self.in_unsafe_block) {
+            return;
+        }
+
         var iter = self.variables.iterator();
         while (iter.next()) |entry| {
             const name = entry.key_ptr.*;
@@ -326,6 +333,10 @@ pub const TypeChecker = struct {
                 // Example: `let x: I64 = { stmt; stmt; 42 }` should type 42 as I64
                 _ = block;
             },
+            .unsafe_block => |*block| {
+                // TODO: Propagate expected type to result expression
+                _ = block;
+            },
             .bool_literal, .variable, .function_call, .struct_literal, .field_access, .constructor_call, .match_expr, .method_call => {
                 // These expressions have fixed types that can't be influenced by context:
                 // - bool_literal: always Bool
@@ -490,6 +501,38 @@ pub const TypeChecker = struct {
             .block_expr => |block| {
                 for (block.statements) |stmt| {
                     try self.checkStatement(stmt, null);
+                }
+
+                if (block.result) |result| {
+                    return try self.inferExprType(result);
+                } else {
+                    return .{ .kind = .{ .primitive = .i32  }, .usage = .once };
+                }
+            },
+            .unsafe_block => |block| {
+                // Save current unsafe state
+                const previous_unsafe = self.in_unsafe_block;
+                self.in_unsafe_block = true;
+                defer self.in_unsafe_block = previous_unsafe;
+
+                // Track which variables existed before entering the unsafe block
+                var existing_vars = std.StringHashMap(void).init(self.allocator);
+                defer existing_vars.deinit();
+                var iter = self.variables.keyIterator();
+                while (iter.next()) |key| {
+                    try existing_vars.put(key.*, {});
+                }
+
+                for (block.statements) |stmt| {
+                    try self.checkStatement(stmt, null);
+                }
+
+                // Mark all variables used or declared in unsafe block as unlimited
+                // This exempts them from linearity checking
+                var var_iter = self.variables.iterator();
+                while (var_iter.next()) |entry| {
+                    // If variable was declared inside unsafe block, or existed before and might have been used inside
+                    entry.value_ptr.var_type.usage = .unlimited;
                 }
 
                 if (block.result) |result| {
