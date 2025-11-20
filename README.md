@@ -26,9 +26,12 @@ Currently implemented:
 - Integer types: `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`
 - Contextual integer typing (literals infer type from context)
 - Integer literal range validation
+- Implicit integer widening conversions
 - Boolean type: `Bool`
 - Binary and unary operators
 - Function calls with parameters
+- Tuples: literals, indexing, destructuring
+- Structs: type definitions, literals, field access
 
 ## Building
 
@@ -63,12 +66,12 @@ zig build run
 
 ```orion
 fn factorial(n: I32) I32 {
-    var result: I32 = 1;
-    var counter: I32 = n;
+    var result: I32 = 1
+    var counter: I32 = n
     while counter > 1 {
-        result = result * counter;
-        counter = counter - 1;
-    };
+        result = result * counter
+        counter = counter - 1
+    }
     return result
 }
 
