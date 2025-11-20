@@ -557,7 +557,7 @@ test "codegen: simple function" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn main() -> I32 { return 42 }";
+    const source = "fn main() I32 { return 42 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -582,7 +582,7 @@ test "codegen: binary addition" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn main() -> I32 { return 1 + 2 }";
+    const source = "fn main() I32 { return 1 + 2 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -606,10 +606,10 @@ test "codegen: all arithmetic operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected: []const u8 }{
-        .{ .src = "fn f() -> I32 { return 10 - 5 }", .expected = "sub i32 10, 5" },
-        .{ .src = "fn f() -> I32 { return 10 * 5 }", .expected = "mul i32 10, 5" },
-        .{ .src = "fn f() -> I32 { return 10 / 5 }", .expected = "sdiv i32 10, 5" },
-        .{ .src = "fn f() -> I32 { return 10 % 5 }", .expected = "srem i32 10, 5" },
+        .{ .src = "fn f() I32 { return 10 - 5 }", .expected = "sub i32 10, 5" },
+        .{ .src = "fn f() I32 { return 10 * 5 }", .expected = "mul i32 10, 5" },
+        .{ .src = "fn f() I32 { return 10 / 5 }", .expected = "sdiv i32 10, 5" },
+        .{ .src = "fn f() I32 { return 10 % 5 }", .expected = "srem i32 10, 5" },
     };
 
     for (cases) |case| {
@@ -637,12 +637,12 @@ test "codegen: comparison operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected: []const u8 }{
-        .{ .src = "fn f() -> I32 { return 5 == 3 }", .expected = "icmp eq i32 5, 3" },
-        .{ .src = "fn f() -> I32 { return 5 != 3 }", .expected = "icmp ne i32 5, 3" },
-        .{ .src = "fn f() -> I32 { return 5 < 3 }", .expected = "icmp slt i32 5, 3" },
-        .{ .src = "fn f() -> I32 { return 5 > 3 }", .expected = "icmp sgt i32 5, 3" },
-        .{ .src = "fn f() -> I32 { return 5 <= 3 }", .expected = "icmp sle i32 5, 3" },
-        .{ .src = "fn f() -> I32 { return 5 >= 3 }", .expected = "icmp sge i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 == 3 }", .expected = "icmp eq i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 != 3 }", .expected = "icmp ne i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 < 3 }", .expected = "icmp slt i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 > 3 }", .expected = "icmp sgt i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 <= 3 }", .expected = "icmp sle i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 >= 3 }", .expected = "icmp sge i32 5, 3" },
     };
 
     for (cases) |case| {
@@ -670,11 +670,11 @@ test "codegen: bitwise and shift operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected: []const u8 }{
-        .{ .src = "fn f() -> I32 { return 5 & 3 }", .expected = "and i32 5, 3" },
-        .{ .src = "fn f() -> I32 { return 5 | 3 }", .expected = "or i32 5, 3" },
-        .{ .src = "fn f() -> I32 { return 5 ^ 3 }", .expected = "xor i32 5, 3" },
-        .{ .src = "fn f() -> I32 { return 5 << 3 }", .expected = "shl i32 5, 3" },
-        .{ .src = "fn f() -> I32 { return 5 >> 3 }", .expected = "ashr i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 & 3 }", .expected = "and i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 | 3 }", .expected = "or i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 ^ 3 }", .expected = "xor i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 << 3 }", .expected = "shl i32 5, 3" },
+        .{ .src = "fn f() I32 { return 5 >> 3 }", .expected = "ashr i32 5, 3" },
     };
 
     for (cases) |case| {
@@ -702,9 +702,9 @@ test "codegen: unary operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected: []const u8 }{
-        .{ .src = "fn f() -> I32 { return -5 }", .expected = "= sub i32 0, 5" },
-        .{ .src = "fn f() -> I32 { return !5 }", .expected = "= icmp eq i32 0, 5" },
-        .{ .src = "fn f() -> I32 { return ~5 }", .expected = "= xor i32 -1, 5" },
+        .{ .src = "fn f() I32 { return -5 }", .expected = "= sub i32 0, 5" },
+        .{ .src = "fn f() I32 { return !5 }", .expected = "= icmp eq i32 0, 5" },
+        .{ .src = "fn f() I32 { return ~5 }", .expected = "= xor i32 -1, 5" },
     };
 
     for (cases) |case| {
@@ -732,8 +732,8 @@ test "codegen: logical operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected_conversions: []const u8, expected_op: []const u8 }{
-        .{ .src = "fn f() -> I32 { return 5 && 3 }", .expected_conversions = "icmp ne i32", .expected_op = "and i1" },
-        .{ .src = "fn f() -> I32 { return 5 || 3 }", .expected_conversions = "icmp ne i32", .expected_op = "or i1" },
+        .{ .src = "fn f() I32 { return 5 && 3 }", .expected_conversions = "icmp ne i32", .expected_op = "and i1" },
+        .{ .src = "fn f() I32 { return 5 || 3 }", .expected_conversions = "icmp ne i32", .expected_op = "or i1" },
     };
 
     for (cases) |case| {
@@ -765,7 +765,7 @@ test "codegen: bool literals" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return if true { 1 } else { 0 } }";
+    const source = "fn f() I32 { return if true { 1 } else { 0 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -789,7 +789,7 @@ test "codegen: simple if expression" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return if true { 42 } else { 0 } }";
+    const source = "fn f() I32 { return if true { 42 } else { 0 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -820,7 +820,7 @@ test "codegen: if with integer condition" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return if 5 { 1 } else { 0 } }";
+    const source = "fn f() I32 { return if 5 { 1 } else { 0 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -844,7 +844,7 @@ test "codegen: if with comparison condition" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return if 10 > 5 { 1 } else { 0 } }";
+    const source = "fn f() I32 { return if 10 > 5 { 1 } else { 0 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -869,7 +869,7 @@ test "codegen: nested if expressions" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return if true { if false { 1 } else { 2 } } else { 3 } }";
+    const source = "fn f() I32 { return if true { if false { 1 } else { 2 } } else { 3 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -900,7 +900,7 @@ test "codegen: elseif creates nested if" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
+    const source = "fn f() I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -932,7 +932,7 @@ test "codegen: basic block tracking in elseif" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
+    const source = "fn f() I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -957,7 +957,7 @@ test "codegen: simple while loop" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return while true { 42 } }";
+    const source = "fn f() I32 { return while true { 42 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -992,7 +992,7 @@ test "codegen: while loop with comparison condition" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return while 5 > 3 { 1 } }";
+    const source = "fn f() I32 { return while 5 > 3 { 1 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -1016,7 +1016,7 @@ test "codegen: nested while loops" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() -> I32 { return while true { while false { 1 } } }";
+    const source = "fn f() I32 { return while true { while false { 1 } } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);

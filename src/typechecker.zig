@@ -272,7 +272,7 @@ test "typechecker: valid function" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn main() -> I32 { return 42 }";
+    const source = "fn main() I32 { return 42 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -300,7 +300,7 @@ test "typechecker: bool return type" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn main() -> Bool { return 5 > 3 }";
+    const source = "fn main() Bool { return 5 > 3 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -321,12 +321,12 @@ test "typechecker: comparison operators return bool" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_][]const u8{
-        "fn f() -> Bool { return 5 == 3 }",
-        "fn f() -> Bool { return 5 != 3 }",
-        "fn f() -> Bool { return 5 < 3 }",
-        "fn f() -> Bool { return 5 > 3 }",
-        "fn f() -> Bool { return 5 <= 3 }",
-        "fn f() -> Bool { return 5 >= 3 }",
+        "fn f() Bool { return 5 == 3 }",
+        "fn f() Bool { return 5 != 3 }",
+        "fn f() Bool { return 5 < 3 }",
+        "fn f() Bool { return 5 > 3 }",
+        "fn f() Bool { return 5 <= 3 }",
+        "fn f() Bool { return 5 >= 3 }",
     };
 
     for (cases) |case| {
@@ -351,9 +351,9 @@ test "typechecker: logical operators on integers return integers" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_][]const u8{
-        "fn f() -> I32 { return 5 && 3 }",
-        "fn f() -> I32 { return 5 || 3 }",
-        "fn f() -> I32 { return !5 }",
+        "fn f() I32 { return 5 && 3 }",
+        "fn f() I32 { return 5 || 3 }",
+        "fn f() I32 { return !5 }",
     };
 
     for (cases) |case| {
@@ -378,10 +378,10 @@ test "typechecker: logical operators on bools return bool" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_][]const u8{
-        "fn f() -> Bool { return (5 > 3) && (2 < 4) }",
-        "fn f() -> Bool { return (5 > 3) || (2 < 4) }",
-        "fn f() -> Bool { return true && false }",
-        "fn f() -> Bool { return true || false }",
+        "fn f() Bool { return (5 > 3) && (2 < 4) }",
+        "fn f() Bool { return (5 > 3) || (2 < 4) }",
+        "fn f() Bool { return true && false }",
+        "fn f() Bool { return true || false }",
     };
 
     for (cases) |case| {
@@ -406,9 +406,9 @@ test "typechecker: bool to i32 implicit conversion" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_][]const u8{
-        "fn f() -> I32 { return 5 > 3 }",
-        "fn f() -> I32 { return 5 && 3 }",
-        "fn f() -> I32 { return !5 }",
+        "fn f() I32 { return 5 > 3 }",
+        "fn f() I32 { return 5 && 3 }",
+        "fn f() I32 { return !5 }",
     };
 
     for (cases) |case| {

@@ -265,27 +265,26 @@ pub const Lexer = struct {
 
 test "lexer: simple function" {
     const testing = std.testing;
-    const source = "fn main() -> I32 { return 42 }";
+    const source = "fn main() I32 { return 42 }";
     var lexer = Lexer.init(source);
 
     var tokens = try lexer.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
 
-    // fn main ( ) -> I32 { return 42 } EOF
-    try testing.expectEqual(@as(usize, 11), tokens.items.len);
+    // fn main ( ) I32 { return 42 } EOF
+    try testing.expectEqual(@as(usize, 10), tokens.items.len);
     try testing.expectEqual(TokenKind.fn_keyword, tokens.items[0].kind);
     try testing.expectEqual(TokenKind.identifier, tokens.items[1].kind);
     try testing.expectEqualStrings("main", tokens.items[1].lexeme);
     try testing.expectEqual(TokenKind.left_paren, tokens.items[2].kind);
     try testing.expectEqual(TokenKind.right_paren, tokens.items[3].kind);
-    try testing.expectEqual(TokenKind.arrow, tokens.items[4].kind);
-    try testing.expectEqual(TokenKind.identifier, tokens.items[5].kind);
-    try testing.expectEqualStrings("I32", tokens.items[5].lexeme);
-    try testing.expectEqual(TokenKind.left_brace, tokens.items[6].kind);
-    try testing.expectEqual(TokenKind.return_keyword, tokens.items[7].kind);
-    try testing.expectEqual(TokenKind.integer, tokens.items[8].kind);
-    try testing.expectEqualStrings("42", tokens.items[8].lexeme);
-    try testing.expectEqual(TokenKind.right_brace, tokens.items[9].kind);
+    try testing.expectEqual(TokenKind.identifier, tokens.items[4].kind);
+    try testing.expectEqualStrings("I32", tokens.items[4].lexeme);
+    try testing.expectEqual(TokenKind.left_brace, tokens.items[5].kind);
+    try testing.expectEqual(TokenKind.return_keyword, tokens.items[6].kind);
+    try testing.expectEqual(TokenKind.integer, tokens.items[7].kind);
+    try testing.expectEqualStrings("42", tokens.items[7].lexeme);
+    try testing.expectEqual(TokenKind.right_brace, tokens.items[8].kind);
 }
 
 test "lexer: integers" {
