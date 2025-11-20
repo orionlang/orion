@@ -13,6 +13,7 @@ pub const TokenKind = enum {
     true_keyword,
     false_keyword,
     type_keyword,
+    match_keyword,
 
     // Literals
     integer,
@@ -26,6 +27,7 @@ pub const TokenKind = enum {
     left_brace,
     right_brace,
     arrow, // ->
+    fat_arrow, // =>
     dot,
     colon,
     comma,
@@ -135,6 +137,8 @@ pub const Lexer = struct {
             '=' => {
                 if (self.match('=')) {
                     return self.makeToken(.equal_equal, start_pos, start_line, start_column);
+                } else if (self.match('>')) {
+                    return self.makeToken(.fat_arrow, start_pos, start_line, start_column);
                 }
                 return self.makeToken(.equal, start_pos, start_line, start_column);
             },
@@ -212,6 +216,7 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, lexeme, "true")) return .true_keyword;
         if (std.mem.eql(u8, lexeme, "false")) return .false_keyword;
         if (std.mem.eql(u8, lexeme, "type")) return .type_keyword;
+        if (std.mem.eql(u8, lexeme, "match")) return .match_keyword;
         return .identifier;
     }
 

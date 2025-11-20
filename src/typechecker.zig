@@ -270,13 +270,15 @@ pub const TypeChecker = struct {
                 // Example: `let x: I64 = { stmt; stmt; 42 }` should type 42 as I64
                 _ = block;
             },
-            .bool_literal, .variable, .function_call, .struct_literal, .field_access => {
+            .bool_literal, .variable, .function_call, .struct_literal, .field_access, .constructor_call, .match_expr => {
                 // These expressions have fixed types that can't be influenced by context:
                 // - bool_literal: always Bool
                 // - variable: type determined at declaration
                 // - function_call: return type is fixed by function signature
                 // - struct_literal: type determined by struct definition
                 // - field_access: type determined by field type
+                // - constructor_call: type determined by sum type definition
+                // - match_expr: type is the unified type of all arms
             },
         }
     }
@@ -506,6 +508,142 @@ pub const TypeChecker = struct {
 
                 std.debug.print("Struct {s} has no field named {s}\n", .{ object_type.named, access.field_name });
                 return error.TypeMismatch;
+            },
+            .constructor_call => |call| {
+                // Find which type this constructor belongs to
+                var found_type: ?[]const u8 = null;
+                var found_variant: ?parser.SumTypeVariant = null;
+
+                var iter = self.type_defs.iterator();
+                while (iter.next()) |entry| {
+                    if (entry.value_ptr.* == .sum_type) {
+                        for (entry.value_ptr.*.sum_type) |variant| {
+                            if (std.mem.eql(u8, variant.name, call.name)) {
+                                found_type = entry.key_ptr.*;
+                                found_variant = variant;
+                                break;
+                            }
+                        }
+                        if (found_type != null) break;
+                    }
+                }
+
+                if (found_type == null) {
+                    std.debug.print("Undefined constructor: {s}\n", .{call.name});
+                    return error.UndefinedVariable;
+                }
+
+                const variant = found_variant.?;
+                if (call.args.len != variant.payload_types.len) {
+                    std.debug.print("Constructor {s} expects {d} arguments but got {d}\n", .{
+                        call.name,
+                        variant.payload_types.len,
+                        call.args.len,
+                    });
+                    return error.ArgumentCountMismatch;
+                }
+
+                for (call.args, variant.payload_types) |arg, expected_type| {
+                    const arg_type = try self.inferExprType(arg);
+                    if (!self.typesMatch(arg_type, expected_type.*)) {
+                        std.debug.print("Constructor {s} argument has wrong type\n", .{call.name});
+                        return error.TypeMismatch;
+                    }
+                }
+
+                return .{ .named = found_type.? };
+            },
+            .match_expr => |match_expr| {
+                const scrutinee_type = try self.inferExprType(match_expr.scrutinee);
+
+                if (scrutinee_type != .named) {
+                    std.debug.print("Match expression requires a named type\n", .{});
+                    return error.TypeMismatch;
+                }
+
+                const typedef = self.type_defs.get(scrutinee_type.named) orelse {
+                    std.debug.print("Undefined type: {s}\n", .{scrutinee_type.named});
+                    return error.UndefinedVariable;
+                };
+
+                if (typedef != .sum_type) {
+                    std.debug.print("Match expression requires a sum type\n", .{});
+                    return error.TypeMismatch;
+                }
+
+                if (match_expr.arms.len == 0) {
+                    std.debug.print("Match expression must have at least one arm\n", .{});
+                    return error.TypeMismatch;
+                }
+
+                // Check each arm and ensure all arms return the same type
+                var result_type: ?Type = null;
+                for (match_expr.arms) |arm| {
+                    // Save current variables before adding bindings
+                    const saved_vars_count = self.variables.count();
+
+                    // Add pattern bindings to scope
+                    switch (arm.pattern) {
+                        .identifier => {},
+                        .constructor => |constructor| {
+                            var found = false;
+                            var found_variant: ?parser.SumTypeVariant = null;
+                            for (typedef.sum_type) |variant| {
+                                if (std.mem.eql(u8, variant.name, constructor.name)) {
+                                    if (constructor.bindings.len != variant.payload_types.len) {
+                                        std.debug.print("Constructor pattern {s} has {d} bindings but variant has {d} payloads\n", .{
+                                            constructor.name,
+                                            constructor.bindings.len,
+                                            variant.payload_types.len,
+                                        });
+                                        return error.TypeMismatch;
+                                    }
+                                    found = true;
+                                    found_variant = variant;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                std.debug.print("Unknown constructor in pattern: {s}\n", .{constructor.name});
+                                return error.UndefinedVariable;
+                            }
+
+                            // Add bindings to variable scope
+                            if (found_variant) |variant| {
+                                for (constructor.bindings, variant.payload_types) |binding, payload_type| {
+                                    try self.variables.put(binding, .{ .var_type = payload_type.*, .mutable = false });
+                                }
+                            }
+                        },
+                    }
+
+                    // Infer arm body type
+                    const arm_type = try self.inferExprType(arm.body);
+                    if (result_type) |rt| {
+                        if (!self.typesMatch(rt, arm_type)) {
+                            std.debug.print("Match arms must all return the same type\n", .{});
+                            return error.TypeMismatch;
+                        }
+                    } else {
+                        result_type = arm_type;
+                    }
+
+                    // Restore variables after arm (remove bindings)
+                    // Simple approach: remove all variables added after saved count
+                    while (self.variables.count() > saved_vars_count) {
+                        // Remove last added variable
+                        var iter = self.variables.iterator();
+                        var last_key: ?[]const u8 = null;
+                        while (iter.next()) |entry| {
+                            last_key = entry.key_ptr.*;
+                        }
+                        if (last_key) |key| {
+                            _ = self.variables.remove(key);
+                        }
+                    }
+                }
+
+                return result_type.?;
             },
         }
     }

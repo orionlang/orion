@@ -1825,3 +1825,146 @@ test "integration: multiple struct types" {
     try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32 }") != null);
     try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i32, i32 }") != null);
 }
+
+test "integration: sum type definition" {
+    const testing = std.testing;
+
+    const source = "type Option = | None | Some(I32) fn main() I32 { return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check sum type compiled
+    try testing.expect(ir.len > 0);
+}
+
+test "integration: nullary constructor" {
+    const testing = std.testing;
+
+    const source = "type Option = | None | Some(I32) fn main() I32 { let opt = None; return 42 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check insertvalue for tag
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue") != null);
+}
+
+test "integration: constructor with payload" {
+    const testing = std.testing;
+
+    const source = "type Option = | None | Some(I32) fn main() I32 { let opt = Some(42); return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check insertvalue for constructor
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue") != null);
+}
+
+test "integration: simple match expression" {
+    const testing = std.testing;
+
+    const source = "type Option = | None | Some(I32) fn main() I32 { let opt = Some(42); return match opt { None => 0, Some(x) => x } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check switch instruction for match
+    try testing.expect(std.mem.indexOf(u8, ir, "switch") != null);
+    // Check phi for merge
+    try testing.expect(std.mem.indexOf(u8, ir, "phi") != null);
+    // Check getelementptr for payload extraction
+    try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+}
+
+test "integration: match with multiple arms" {
+    const testing = std.testing;
+
+    const source = "type Result = | Ok(I32) | Err(I32) fn main() I32 { let res = Ok(100); return match res { Ok(val) => val, Err(code) => code } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check switch and phi
+    try testing.expect(std.mem.indexOf(u8, ir, "switch") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "phi") != null);
+    // Check getelementptr for payload extraction
+    try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+}
+
+test "integration: sum type with tuple payload" {
+    const testing = std.testing;
+
+    const source = "type Pair = | Empty | Value(I32, I32) fn main() I32 { let p = Value(10, 20); return match p { Empty => 0, Value(x, y) => x } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check sum type with tuple compiles and extracts payload
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+}
+
+test "integration: sum type with struct payload" {
+    const testing = std.testing;
+
+    const source = "type Point = { x: I32, y: I32 } type Shape = | Circle(I32) | Rectangle(Point) fn main() I32 { let p = Point { x: 1, y: 2 }; let s = Rectangle(p); return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check struct in sum type compiles
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue") != null);
+}
+
+test "integration: nested sum types" {
+    const testing = std.testing;
+
+    const source = "type Inner = | A | B type Outer = | X(Inner) | Y fn main() I32 { let inner = A; let outer = X(inner); return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check nested sum types compile
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue") != null);
+}
+
+test "integration: match on sum type with struct payload" {
+    const testing = std.testing;
+
+    const source = "type Point = { x: I32, y: I32 } type MaybePoint = | NoPoint | SomePoint(Point) fn main() I32 { let mp = NoPoint; return match mp { NoPoint => 0, SomePoint(p) => 1 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check match with struct payload
+    try testing.expect(std.mem.indexOf(u8, ir, "switch") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "phi") != null);
+}
+
+test "integration: sum type with multiple payload types" {
+    const testing = std.testing;
+
+    const source = "type Mixed = | IntVal(I32) | BoolVal(Bool) | Pair(I32, Bool) fn main() I32 { let m = Pair(42, true); return match m { IntVal(x) => x, BoolVal(b) => 1, Pair(a, b) => a } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check mixed payload types compile and extract
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+}
+
+test "integration: match extracts both values from tuple payload" {
+    const testing = std.testing;
+
+    const source = "type Result = | Ok(I32, I32) | Err fn main() I32 { let r = Ok(100, 200); return match r { Ok(a, b) => b, Err => 0 } }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check that second value is extracted (should return 200)
+    try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "switch") != null);
+}
+
+test "integration: recursive ADT definition" {
+    const testing = std.testing;
+
+    const source = "type List = | Nil | Cons(I32, List) fn main() I32 { let list = Nil; return 0 }";
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check recursive ADT compiles
+    try testing.expect(ir.len > 0);
+}

@@ -672,6 +672,325 @@ pub const Codegen = struct {
 
                 return temp;
             },
+            .constructor_call => |call| {
+                // Find which sum type and variant this constructor belongs to
+                var found_type_name: ?[]const u8 = null;
+                var found_typedef: ?Type = null;
+                var variant_index: usize = 0;
+
+                var iter = self.type_defs.iterator();
+                while (iter.next()) |entry| {
+                    if (entry.value_ptr.* == .sum_type) {
+                        for (entry.value_ptr.*.sum_type, 0..) |variant, idx| {
+                            if (std.mem.eql(u8, variant.name, call.name)) {
+                                found_type_name = entry.key_ptr.*;
+                                found_typedef = entry.value_ptr.*;
+                                variant_index = idx;
+                                break;
+                            }
+                        }
+                        if (found_type_name != null) break;
+                    }
+                }
+
+                const sum_type = found_typedef.?;
+                const sum_type_str = try self.llvmTypeString(sum_type);
+                defer self.allocator.free(sum_type_str);
+
+                // Start with undef
+                var current_val: []const u8 = try std.fmt.allocPrint(self.allocator, "undef", .{});
+
+                // Insert tag (i64)
+                const temp1 = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = insertvalue {s} {s}, i64 {d}, 0\n", .{
+                    temp1,
+                    sum_type_str,
+                    current_val,
+                    variant_index,
+                });
+                self.allocator.free(current_val);
+                current_val = temp1;
+
+                // Insert payload if constructor has arguments
+                // We store payloads sequentially in the data array
+                // Since we use [N x i8] representation, we need to bitcast
+
+                if (call.args.len > 0) {
+                    // Allocate stack space to build the sum type value
+                    const data_ptr_temp = try self.allocTempName();
+                    defer self.allocator.free(data_ptr_temp);
+                    try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ data_ptr_temp, sum_type_str });
+                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ sum_type_str, current_val, data_ptr_temp });
+
+                    // Get pointer to data field
+                    const data_field_ptr = try self.allocTempName();
+                    defer self.allocator.free(data_field_ptr);
+                    try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds {s}, ptr {s}, i32 0, i32 1\n", .{
+                        data_field_ptr,
+                        sum_type_str,
+                        data_ptr_temp,
+                    });
+
+                    // Store each argument sequentially in the data field
+                    var byte_offset: usize = 0;
+                    for (call.args) |arg| {
+                        const arg_val = try self.generateExpression(arg);
+                        defer self.allocator.free(arg_val);
+
+                        const arg_type = self.inferExprType(arg);
+                        const arg_type_str = try self.llvmTypeString(arg_type);
+                        defer self.allocator.free(arg_type_str);
+
+                        // Get pointer at byte offset
+                        const offset_ptr = try self.allocTempName();
+                        defer self.allocator.free(offset_ptr);
+                        try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds i8, ptr {s}, i32 {d}\n", .{
+                            offset_ptr,
+                            data_field_ptr,
+                            byte_offset,
+                        });
+
+                        // Store the argument value at this offset
+                        try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{
+                            arg_type_str,
+                            arg_val,
+                            offset_ptr,
+                        });
+
+                        // Update byte offset for next argument
+                        byte_offset += arg_type.bitWidth() / 8;
+                    }
+
+                    // Load back the complete sum type value
+                    const final_temp = try self.allocTempName();
+                    try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{
+                        final_temp,
+                        sum_type_str,
+                        data_ptr_temp,
+                    });
+
+                    self.allocator.free(current_val);
+                    return final_temp;
+                }
+
+                return current_val;
+            },
+            .match_expr => |match_expr| {
+                const scrutinee_val = try self.generateExpression(match_expr.scrutinee);
+                defer self.allocator.free(scrutinee_val);
+
+                const scrutinee_type = self.inferExprType(match_expr.scrutinee);
+                const scrutinee_type_str = try self.llvmTypeString(scrutinee_type);
+                defer self.allocator.free(scrutinee_type_str);
+
+                const typedef = self.type_defs.get(scrutinee_type.named) orelse unreachable;
+
+                // Extract tag
+                const tag_temp = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = extractvalue {s} {s}, 0\n", .{
+                    tag_temp,
+                    scrutinee_type_str,
+                    scrutinee_val,
+                });
+                defer self.allocator.free(tag_temp);
+
+                // Create switch on tag
+                const merge_label = try self.allocLabel("match_merge");
+                defer self.allocator.free(merge_label);
+
+                // Create arm labels
+                var arm_labels = try self.allocator.alloc([]const u8, match_expr.arms.len);
+                defer {
+                    for (arm_labels) |label| {
+                        self.allocator.free(label);
+                    }
+                    self.allocator.free(arm_labels);
+                }
+
+                for (0..match_expr.arms.len) |i| {
+                    arm_labels[i] = try self.allocLabel("match_arm");
+                }
+
+                // Generate switch instruction
+                try self.output.writer(self.allocator).print("  switch i64 {s}, label %{s} [", .{
+                    tag_temp,
+                    arm_labels[0],
+                });
+
+                // Add cases for each constructor pattern
+                for (match_expr.arms, 0..) |arm, i| {
+                    switch (arm.pattern) {
+                        .identifier => {},
+                        .constructor => |constructor| {
+                            // Find the variant index
+                            for (typedef.sum_type, 0..) |variant, variant_idx| {
+                                if (std.mem.eql(u8, variant.name, constructor.name)) {
+                                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                                    try self.output.writer(self.allocator).print("\n    i64 {d}, label %{s}", .{
+                                        variant_idx,
+                                        arm_labels[i],
+                                    });
+                                    break;
+                                }
+                            }
+                        },
+                    }
+                }
+                try self.output.appendSlice(self.allocator, "\n  ]\n");
+
+                // Generate code for each arm
+                var arm_vals = try self.allocator.alloc([]const u8, match_expr.arms.len);
+                defer {
+                    for (arm_vals) |val| {
+                        self.allocator.free(val);
+                    }
+                    self.allocator.free(arm_vals);
+                }
+
+                var arm_end_blocks = try self.allocator.alloc([]const u8, match_expr.arms.len);
+                defer {
+                    for (arm_end_blocks) |block| {
+                        self.allocator.free(block);
+                    }
+                    self.allocator.free(arm_end_blocks);
+                }
+
+                for (match_expr.arms, 0..) |arm, i| {
+                    try self.output.writer(self.allocator).print("{s}:\n", .{arm_labels[i]});
+                    try self.setCurrentBlock(arm_labels[i]);
+
+                    // Extract payload and add pattern bindings to variable scope
+                    switch (arm.pattern) {
+                        .identifier => {},
+                        .constructor => |constructor| {
+                            // Find the variant to get payload types
+                            var found_variant: ?parser.SumTypeVariant = null;
+                            for (typedef.sum_type) |variant| {
+                                if (std.mem.eql(u8, variant.name, constructor.name)) {
+                                    found_variant = variant;
+                                    break;
+                                }
+                            }
+
+                            if (found_variant) |variant| {
+                                // Extract payload from sum type data field
+                                // Sum type is { i64 tag, [N x i8] data }
+                                // We need to extract the data field and access payloads at byte offsets
+
+                                if (constructor.bindings.len > 0) {
+                                    // Allocate stack space to store the scrutinee
+                                    const scrutinee_ptr = try self.allocTempName();
+                                    defer self.allocator.free(scrutinee_ptr);
+                                    try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{
+                                        scrutinee_ptr,
+                                        scrutinee_type_str,
+                                    });
+                                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{
+                                        scrutinee_type_str,
+                                        scrutinee_val,
+                                        scrutinee_ptr,
+                                    });
+
+                                    // Get pointer to data field (index 1)
+                                    const data_field_ptr = try self.allocTempName();
+                                    defer self.allocator.free(data_field_ptr);
+                                    try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds {s}, ptr {s}, i32 0, i32 1\n", .{
+                                        data_field_ptr,
+                                        scrutinee_type_str,
+                                        scrutinee_ptr,
+                                    });
+
+                                    // Extract each binding from the data field at its byte offset
+                                    var byte_offset: usize = 0;
+                                    for (constructor.bindings, variant.payload_types) |binding, payload_type| {
+                                        // Get pointer at byte offset
+                                        const offset_ptr = try self.allocTempName();
+                                        defer self.allocator.free(offset_ptr);
+                                        try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds i8, ptr {s}, i32 {d}\n", .{
+                                            offset_ptr,
+                                            data_field_ptr,
+                                            byte_offset,
+                                        });
+
+                                        // Allocate stack space for this binding
+                                        const binding_ptr = try self.allocTempName();
+                                        // Note: binding_ptr is NOT freed here because it's stored in variables map
+                                        // and will be freed when the variable is removed from scope
+                                        const payload_type_str = try self.llvmTypeString(payload_type.*);
+                                        defer self.allocator.free(payload_type_str);
+
+                                        try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{
+                                            binding_ptr,
+                                            payload_type_str,
+                                        });
+
+                                        // Load the value from the data field
+                                        const loaded_val = try self.allocTempName();
+                                        defer self.allocator.free(loaded_val);
+                                        try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{
+                                            loaded_val,
+                                            payload_type_str,
+                                            offset_ptr,
+                                        });
+
+                                        // Store it in the binding's stack location
+                                        try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{
+                                            payload_type_str,
+                                            loaded_val,
+                                            binding_ptr,
+                                        });
+
+                                        // Add to variables map
+                                        try self.variables.put(binding, .{
+                                            .var_type = payload_type.*,
+                                            .llvm_ptr = binding_ptr,
+                                        });
+
+                                        // Update byte offset for next payload
+                                        byte_offset += payload_type.*.bitWidth() / 8;
+                                    }
+                                }
+                            }
+                        },
+                    }
+
+                    arm_vals[i] = try self.generateExpression(arm.body);
+                    arm_end_blocks[i] = try self.allocator.dupe(u8, self.current_block.?);
+                    try self.output.writer(self.allocator).print("  br label %{s}\n", .{merge_label});
+
+                    // Remove pattern bindings from variable scope
+                    switch (arm.pattern) {
+                        .identifier => {},
+                        .constructor => |constructor| {
+                            for (constructor.bindings) |binding| {
+                                if (self.variables.get(binding)) |var_info| {
+                                    self.allocator.free(var_info.llvm_ptr);
+                                }
+                                _ = self.variables.remove(binding);
+                            }
+                        },
+                    }
+                }
+
+                // Merge block with phi
+                try self.output.writer(self.allocator).print("{s}:\n", .{merge_label});
+                try self.setCurrentBlock(merge_label);
+
+                const result_type = self.inferExprType(expr);
+                const result_type_str = try self.llvmTypeString(result_type);
+                defer self.allocator.free(result_type_str);
+
+                const result_temp = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = phi {s}", .{ result_temp, result_type_str });
+
+                for (arm_vals, arm_end_blocks, 0..) |val, block, i| {
+                    if (i > 0) try self.output.appendSlice(self.allocator, ",");
+                    try self.output.writer(self.allocator).print(" [ {s}, %{s} ]", .{ val, block });
+                }
+                try self.output.appendSlice(self.allocator, "\n");
+
+                return result_temp;
+            },
         }
     }
 
@@ -751,6 +1070,28 @@ pub const Codegen = struct {
                 try type_parts.appendSlice(self.allocator, " }");
                 return try type_parts.toOwnedSlice(self.allocator);
             },
+            .sum_type => |variants| {
+                // Sum type is represented as: { i64 tag, [N x i8] data }
+                // where N is max size of all variants
+                var max_size: usize = 0;
+                for (variants) |variant| {
+                    var variant_size: usize = 0;
+                    for (variant.payload_types) |payload_type| {
+                        // Simplified size calculation (assumes all i32/i64)
+                        if (payload_type.* == .primitive) {
+                            variant_size += payload_type.*.bitWidth() / 8;
+                        } else {
+                            variant_size += 8; // Pointer or struct size estimate
+                        }
+                    }
+                    if (variant_size > max_size) {
+                        max_size = variant_size;
+                    }
+                }
+
+                // Allocate a string for "{ i64, [N x i8] }"
+                return try std.fmt.allocPrint(self.allocator, "{{ i64, [{d} x i8] }}", .{max_size});
+            },
             .named => |name| {
                 const typedef = self.type_defs.get(name) orelse unreachable;
                 return try self.llvmTypeString(typedef);
@@ -818,6 +1159,24 @@ pub const Codegen = struct {
                     }
                 }
                 unreachable;
+            },
+            .constructor_call => |call| {
+                // Find which sum type this constructor belongs to
+                var iter = self.type_defs.iterator();
+                while (iter.next()) |entry| {
+                    if (entry.value_ptr.* == .sum_type) {
+                        for (entry.value_ptr.*.sum_type) |variant| {
+                            if (std.mem.eql(u8, variant.name, call.name)) {
+                                return .{ .named = entry.key_ptr.* };
+                            }
+                        }
+                    }
+                }
+                unreachable;
+            },
+            .match_expr => |match_expr| {
+                // Match result type is the type of the first arm
+                return self.inferExprType(match_expr.arms[0].body);
             },
         }
     }

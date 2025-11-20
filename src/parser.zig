@@ -85,10 +85,16 @@ pub const StructField = struct {
     field_type: *Type,
 };
 
+pub const SumTypeVariant = struct {
+    name: []const u8,
+    payload_types: []*Type,
+};
+
 pub const Type = union(enum) {
     primitive: PrimitiveType,
     tuple: []*Type,
     struct_type: []StructField,
+    sum_type: []SumTypeVariant,
     named: []const u8,
 
     pub fn deinit(self: *Type, allocator: std.mem.Allocator) void {
@@ -108,6 +114,16 @@ pub const Type = union(enum) {
                     allocator.destroy(field.field_type);
                 }
                 allocator.free(fields);
+            },
+            .sum_type => |variants| {
+                for (variants) |variant| {
+                    for (variant.payload_types) |payload_type| {
+                        payload_type.deinit(allocator);
+                        allocator.destroy(payload_type);
+                    }
+                    allocator.free(variant.payload_types);
+                }
+                allocator.free(variants);
             },
             .named => {},
         }
@@ -130,6 +146,15 @@ pub const Type = union(enum) {
                 }
                 allocator.free(fields);
             },
+            .sum_type => |variants| {
+                for (variants) |variant| {
+                    for (variant.payload_types) |payload_type| {
+                        allocator.destroy(payload_type);
+                    }
+                    allocator.free(variant.payload_types);
+                }
+                allocator.free(variants);
+            },
             .named => {},
         }
     }
@@ -137,42 +162,42 @@ pub const Type = union(enum) {
     pub fn isSigned(self: Type) bool {
         return switch (self) {
             .primitive => |p| p.isSigned(),
-            .tuple, .struct_type, .named => false,
+            .tuple, .struct_type, .sum_type, .named => false,
         };
     }
 
     pub fn bitWidth(self: Type) u32 {
         return switch (self) {
             .primitive => |p| p.bitWidth(),
-            .tuple, .struct_type, .named => 0,
+            .tuple, .struct_type, .sum_type, .named => 0,
         };
     }
 
     pub fn isInteger(self: Type) bool {
         return switch (self) {
             .primitive => |p| p.isInteger(),
-            .tuple, .struct_type, .named => false,
+            .tuple, .struct_type, .sum_type, .named => false,
         };
     }
 
     pub fn llvmTypeName(self: Type) []const u8 {
         return switch (self) {
             .primitive => |p| p.llvmTypeName(),
-            .tuple, .struct_type, .named => unreachable,
+            .tuple, .struct_type, .sum_type, .named => unreachable,
         };
     }
 
     pub fn minValue(self: Type) i64 {
         return switch (self) {
             .primitive => |p| p.minValue(),
-            .tuple, .struct_type, .named => 0,
+            .tuple, .struct_type, .sum_type, .named => 0,
         };
     }
 
     pub fn maxValue(self: Type) i64 {
         return switch (self) {
             .primitive => |p| p.maxValue(),
-            .tuple, .struct_type, .named => 0,
+            .tuple, .struct_type, .sum_type, .named => 0,
         };
     }
 
@@ -194,6 +219,17 @@ pub const Type = union(enum) {
                 for (fields, other.struct_type) |a, b| {
                     if (!std.mem.eql(u8, a.name, b.name)) return false;
                     if (!a.field_type.eql(b.field_type.*)) return false;
+                }
+                return true;
+            },
+            .sum_type => |variants| {
+                if (variants.len != other.sum_type.len) return false;
+                for (variants, other.sum_type) |a, b| {
+                    if (!std.mem.eql(u8, a.name, b.name)) return false;
+                    if (a.payload_types.len != b.payload_types.len) return false;
+                    for (a.payload_types, b.payload_types) |a_type, b_type| {
+                        if (!a_type.eql(b_type.*)) return false;
+                    }
                 }
                 return true;
             },
@@ -256,6 +292,19 @@ pub const StructLiteralField = struct {
     value: *Expr,
 };
 
+pub const MatchArm = struct {
+    pattern: MatchPattern,
+    body: *Expr,
+};
+
+pub const MatchPattern = union(enum) {
+    identifier: []const u8,
+    constructor: struct {
+        name: []const u8,
+        bindings: [][]const u8,
+    },
+};
+
 pub const Expr = union(enum) {
     integer_literal: struct {
         value: i64,
@@ -297,6 +346,14 @@ pub const Expr = union(enum) {
     field_access: struct {
         object: *Expr,
         field_name: []const u8,
+    },
+    constructor_call: struct {
+        name: []const u8,
+        args: []*Expr,
+    },
+    match_expr: struct {
+        scrutinee: *Expr,
+        arms: []MatchArm,
     },
 };
 
@@ -462,6 +519,28 @@ pub const FunctionDecl = struct {
                 deinitExpr(allocator, access.object);
                 allocator.destroy(access.object);
             },
+            .constructor_call => |call| {
+                for (call.args) |arg| {
+                    deinitExpr(allocator, arg);
+                    allocator.destroy(arg);
+                }
+                allocator.free(call.args);
+            },
+            .match_expr => |match_expr| {
+                deinitExpr(allocator, match_expr.scrutinee);
+                allocator.destroy(match_expr.scrutinee);
+                for (match_expr.arms) |arm| {
+                    switch (arm.pattern) {
+                        .identifier => {},
+                        .constructor => |constructor| {
+                            allocator.free(constructor.bindings);
+                        },
+                    }
+                    deinitExpr(allocator, arm.body);
+                    allocator.destroy(arm.body);
+                }
+                allocator.free(match_expr.arms);
+            },
         }
     }
 };
@@ -592,6 +671,57 @@ pub const Parser = struct {
     });
 
     fn parseType(self: *Parser) ParseError!Type {
+        if (self.check(.pipe)) {
+            var variants: std.ArrayList(SumTypeVariant) = .empty;
+            errdefer {
+                for (variants.items) |variant| {
+                    for (variant.payload_types) |payload_type| {
+                        payload_type.deinit(self.allocator);
+                        self.allocator.destroy(payload_type);
+                    }
+                    self.allocator.free(variant.payload_types);
+                }
+                variants.deinit(self.allocator);
+            }
+
+            while (self.check(.pipe)) {
+                _ = try self.expect(.pipe);
+                const variant_name = try self.expect(.identifier);
+
+                var payload_types: std.ArrayList(*Type) = .empty;
+                errdefer {
+                    for (payload_types.items) |payload_type| {
+                        payload_type.deinit(self.allocator);
+                        self.allocator.destroy(payload_type);
+                    }
+                    payload_types.deinit(self.allocator);
+                }
+
+                if (self.check(.left_paren)) {
+                    _ = try self.expect(.left_paren);
+                    const first_type = try self.allocator.create(Type);
+                    first_type.* = try self.parseType();
+                    try payload_types.append(self.allocator, first_type);
+
+                    while (self.check(.comma)) {
+                        _ = try self.expect(.comma);
+                        const payload_type = try self.allocator.create(Type);
+                        payload_type.* = try self.parseType();
+                        try payload_types.append(self.allocator, payload_type);
+                    }
+
+                    _ = try self.expect(.right_paren);
+                }
+
+                try variants.append(self.allocator, SumTypeVariant{
+                    .name = variant_name.lexeme,
+                    .payload_types = try payload_types.toOwnedSlice(self.allocator),
+                });
+            }
+
+            return Type{ .sum_type = try variants.toOwnedSlice(self.allocator) };
+        }
+
         if (self.check(.left_paren)) {
             _ = try self.expect(.left_paren);
 
@@ -1018,6 +1148,10 @@ pub const Parser = struct {
             return try self.parseIfExpression();
         }
 
+        if (self.check(.match_keyword)) {
+            return try self.parseMatchExpression();
+        }
+
         if (self.check(.left_brace)) {
             return try self.parseBlockExpression();
         }
@@ -1025,7 +1159,7 @@ pub const Parser = struct {
         if (self.check(.identifier)) {
             const token = try self.expect(.identifier);
 
-            // Check if this is a function call
+            // Check if this is a function call or constructor call
             if (self.check(.left_paren)) {
                 _ = try self.expect(.left_paren);
 
@@ -1052,6 +1186,16 @@ pub const Parser = struct {
                 }
 
                 _ = try self.expect(.right_paren);
+
+                // Constructor call if starts with uppercase
+                if (token.lexeme.len > 0 and std.ascii.isUpper(token.lexeme[0])) {
+                    return .{
+                        .constructor_call = .{
+                            .name = token.lexeme,
+                            .args = try args.toOwnedSlice(self.allocator),
+                        },
+                    };
+                }
 
                 return .{
                     .function_call = .{
@@ -1098,6 +1242,17 @@ pub const Parser = struct {
                     .struct_literal = .{
                         .type_name = token.lexeme,
                         .fields = try fields.toOwnedSlice(self.allocator),
+                    },
+                };
+            }
+
+            // Nullary constructor if starts with uppercase (no args, no parens)
+            if (token.lexeme.len > 0 and std.ascii.isUpper(token.lexeme[0])) {
+                const empty_args: []*Expr = &[_]*Expr{};
+                return .{
+                    .constructor_call = .{
+                        .name = token.lexeme,
+                        .args = try self.allocator.dupe(*Expr, empty_args),
                     },
                 };
             }
@@ -1248,6 +1403,85 @@ pub const Parser = struct {
                 .else_branch = else_branch,
             },
         };
+    }
+
+    fn parseMatchExpression(self: *Parser) ParseError!Expr {
+        _ = try self.expect(.match_keyword);
+        const scrutinee = try self.parseExpressionPtr(&.{});
+        _ = try self.expect(.left_brace);
+
+        var arms: std.ArrayList(MatchArm) = .empty;
+        errdefer {
+            for (arms.items) |arm| {
+                switch (arm.pattern) {
+                    .identifier => {},
+                    .constructor => |constructor| {
+                        self.allocator.free(constructor.bindings);
+                    },
+                }
+                FunctionDecl.deinitExpr(self.allocator, arm.body);
+                self.allocator.destroy(arm.body);
+            }
+            arms.deinit(self.allocator);
+        }
+
+        while (!self.check(.right_brace)) {
+            const pattern = try self.parseMatchPattern();
+            _ = try self.expect(.fat_arrow);
+            const body_expr = try self.parseExpression();
+            const body_ptr = try self.allocator.create(Expr);
+            body_ptr.* = body_expr;
+
+            try arms.append(self.allocator, MatchArm{
+                .pattern = pattern,
+                .body = body_ptr,
+            });
+
+            if (self.check(.comma)) {
+                _ = try self.expect(.comma);
+            }
+        }
+
+        _ = try self.expect(.right_brace);
+
+        return .{
+            .match_expr = .{
+                .scrutinee = scrutinee,
+                .arms = try arms.toOwnedSlice(self.allocator),
+            },
+        };
+    }
+
+    fn parseMatchPattern(self: *Parser) ParseError!MatchPattern {
+        const name_token = try self.expect(.identifier);
+
+        if (self.check(.left_paren)) {
+            _ = try self.expect(.left_paren);
+
+            var bindings: std.ArrayList([]const u8) = .empty;
+            errdefer bindings.deinit(self.allocator);
+
+            if (!self.check(.right_paren)) {
+                while (true) {
+                    const binding_token = try self.expect(.identifier);
+                    try bindings.append(self.allocator, binding_token.lexeme);
+
+                    if (!self.check(.comma)) break;
+                    _ = try self.expect(.comma);
+                }
+            }
+
+            _ = try self.expect(.right_paren);
+
+            return .{
+                .constructor = .{
+                    .name = name_token.lexeme,
+                    .bindings = try bindings.toOwnedSlice(self.allocator),
+                },
+            };
+        }
+
+        return .{ .identifier = name_token.lexeme };
     }
 
     fn parseBlockExpression(self: *Parser) ParseError!Expr {
