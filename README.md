@@ -18,8 +18,10 @@ Currently implemented:
 - Lexer and parser for basic syntax
 - Type checker with function signatures and type inference
 - LLVM IR code generation
+- Comments: line (`//`) and nested block (`/* */`)
 - Control flow: `if`/`else`/`elseif`, `while` loops
-- Let bindings and mutable assignment
+- Let bindings (immutable) and var bindings (mutable)
+- Assignment statements
 - Block expressions
 - Basic types: `I32`, `Bool`
 - Binary and unary operators

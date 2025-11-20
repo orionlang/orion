@@ -34,6 +34,52 @@ test "integration: compile simple function end-to-end" {
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "entry:") != null);
 }
 
+test "integration: line comments" {
+    const testing = std.testing;
+
+    const source =
+        \\// This is a line comment
+        \\fn main() I32 {
+        \\    // Comment before return
+        \\    return 42 // trailing comment
+        \\}
+    ;
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @main()") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "ret i32 42") != null);
+}
+
+test "integration: block comments" {
+    const testing = std.testing;
+
+    const source = "fn /* comment */ main() I32 { return /* inline */ 42 }";
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @main()") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "ret i32 42") != null);
+}
+
+test "integration: nested block comments" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\    /* outer comment
+        \\       /* nested comment */
+        \\       still in outer */
+        \\    return 42
+        \\}
+    ;
+    const llvm_ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(llvm_ir);
+
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @main()") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "ret i32 42") != null);
+}
+
 test "integration: compile binary operations end-to-end" {
     const testing = std.testing;
 

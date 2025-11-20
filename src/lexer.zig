@@ -227,16 +227,54 @@ pub const Lexer = struct {
                     self.column = 1;
                 },
                 '/' => {
-                    if (self.pos + 1 < self.source.len and self.source[self.pos + 1] == '/') {
-                        // Line comment
-                        while (!self.isAtEnd() and self.peek() != '\n') {
-                            _ = self.advance();
+                    if (self.peekNext()) |next_char| {
+                        if (next_char == '/') {
+                            self.skipLineComment();
+                        } else if (next_char == '*') {
+                            self.skipBlockComment();
+                        } else {
+                            break;
                         }
                     } else {
                         break;
                     }
                 },
                 else => break,
+            }
+        }
+    }
+
+    fn skipLineComment(self: *Lexer) void {
+        // Skip //
+        _ = self.advance();
+        _ = self.advance();
+        while (!self.isAtEnd() and self.peek() != '\n') {
+            _ = self.advance();
+        }
+    }
+
+    fn skipBlockComment(self: *Lexer) void {
+        // Skip /*
+        _ = self.advance();
+        _ = self.advance();
+
+        var depth: usize = 1;
+        while (!self.isAtEnd() and depth > 0) {
+            const c = self.peek();
+            if (c == '\n') {
+                _ = self.advance();
+                self.line += 1;
+                self.column = 1;
+            } else if (c == '/' and self.peekNext() == '*') {
+                _ = self.advance();
+                _ = self.advance();
+                depth += 1;
+            } else if (c == '*' and self.peekNext() == '/') {
+                _ = self.advance();
+                _ = self.advance();
+                depth -= 1;
+            } else {
+                _ = self.advance();
             }
         }
     }
@@ -251,6 +289,11 @@ pub const Lexer = struct {
     fn peek(self: *Lexer) u8 {
         if (self.isAtEnd()) return 0;
         return self.source[self.pos];
+    }
+
+    fn peekNext(self: *Lexer) ?u8 {
+        if (self.pos + 1 >= self.source.len) return null;
+        return self.source[self.pos + 1];
     }
 
     fn match(self: *Lexer, expected: u8) bool {
@@ -356,5 +399,90 @@ test "lexer: if else elseif keywords" {
     try testing.expectEqual(TokenKind.if_keyword, tokens.items[0].kind);
     try testing.expectEqual(TokenKind.else_keyword, tokens.items[1].kind);
     try testing.expectEqual(TokenKind.elseif_keyword, tokens.items[2].kind);
+}
+
+test "lexer: block comments" {
+    const testing = std.testing;
+    const source = "fn /* comment */ main() I32 { return 42 }";
+    var lexer = Lexer.init(source);
+
+    var tokens = try lexer.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    // fn main ( ) I32 { return 42 } EOF
+    try testing.expectEqual(@as(usize, 10), tokens.items.len);
+    try testing.expectEqual(TokenKind.fn_keyword, tokens.items[0].kind);
+    try testing.expectEqual(TokenKind.identifier, tokens.items[1].kind);
+    try testing.expectEqualStrings("main", tokens.items[1].lexeme);
+}
+
+test "lexer: multiline block comments" {
+    const testing = std.testing;
+    const source =
+        \\fn main() I32 {
+        \\    /* This is a
+        \\       multiline comment
+        \\       spanning multiple lines */
+        \\    return 42
+        \\}
+    ;
+    var lexer = Lexer.init(source);
+
+    var tokens = try lexer.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    // fn main ( ) I32 { return 42 } EOF
+    try testing.expectEqual(@as(usize, 10), tokens.items.len);
+    try testing.expectEqual(TokenKind.fn_keyword, tokens.items[0].kind);
+    try testing.expectEqual(TokenKind.return_keyword, tokens.items[6].kind);
+}
+
+test "lexer: nested block comments" {
+    const testing = std.testing;
+    const source = "fn /* outer /* nested */ still in comment */ main() I32 { return 42 }";
+    var lexer = Lexer.init(source);
+
+    var tokens = try lexer.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    // fn main ( ) I32 { return 42 } EOF
+    try testing.expectEqual(@as(usize, 10), tokens.items.len);
+    try testing.expectEqual(TokenKind.fn_keyword, tokens.items[0].kind);
+    try testing.expectEqual(TokenKind.identifier, tokens.items[1].kind);
+    try testing.expectEqualStrings("main", tokens.items[1].lexeme);
+}
+
+test "lexer: deeply nested block comments" {
+    const testing = std.testing;
+    const source = "fn /* a /* b /* c */ b */ a */ main() I32 { return 42 }";
+    var lexer = Lexer.init(source);
+
+    var tokens = try lexer.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    // fn main ( ) I32 { return 42 } EOF
+    try testing.expectEqual(@as(usize, 10), tokens.items.len);
+    try testing.expectEqual(TokenKind.fn_keyword, tokens.items[0].kind);
+}
+
+test "lexer: mixed comments" {
+    const testing = std.testing;
+    const source =
+        \\// Line comment before
+        \\fn main() I32 /* block comment */ {
+        \\    // Another line comment
+        \\    return /* inline block */ 42
+        \\} // trailing comment
+    ;
+    var lexer = Lexer.init(source);
+
+    var tokens = try lexer.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    // fn main ( ) I32 { return 42 } EOF
+    try testing.expectEqual(@as(usize, 10), tokens.items.len);
+    try testing.expectEqual(TokenKind.fn_keyword, tokens.items[0].kind);
+    try testing.expectEqual(TokenKind.identifier, tokens.items[1].kind);
+    try testing.expectEqualStrings("main", tokens.items[1].lexeme);
 }
 
