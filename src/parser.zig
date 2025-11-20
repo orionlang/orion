@@ -504,6 +504,7 @@ pub const FunctionDecl = struct {
     params: []Param,
     return_type: Type,
     body: std.ArrayList(Stmt),
+    is_unsafe: bool,
 
     pub fn deinit(self: *FunctionDecl, allocator: std.mem.Allocator) void {
         for (self.params) |param| {
@@ -715,7 +716,7 @@ pub const Parser = struct {
             } else if (self.check(.instance_keyword)) {
                 const instance = try self.parseInstanceDecl();
                 try instances.append(self.allocator, instance);
-            } else if (self.check(.fn_keyword)) {
+            } else if (self.check(.unsafe_keyword) or self.check(.fn_keyword)) {
                 const func = try self.parseFunction();
                 try functions.append(self.allocator, func);
             } else {
@@ -732,6 +733,12 @@ pub const Parser = struct {
     }
 
     fn parseFunction(self: *Parser) !FunctionDecl {
+        // Check for optional unsafe keyword
+        const is_unsafe = if (self.check(.unsafe_keyword)) blk: {
+            _ = try self.expect(.unsafe_keyword);
+            break :blk true;
+        } else false;
+
         _ = try self.expect(.fn_keyword);
 
         const name_token = try self.expect(.identifier);
@@ -770,6 +777,7 @@ pub const Parser = struct {
             .params = try params.toOwnedSlice(self.allocator),
             .return_type = return_type,
             .body = body,
+            .is_unsafe = is_unsafe,
         };
     }
 

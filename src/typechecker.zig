@@ -9,6 +9,7 @@ const Pattern = parser.Pattern;
 const FunctionSignature = struct {
     params: []const Type,
     return_type: Type,
+    is_unsafe: bool,
 };
 
 const TypeCheckError = error{
@@ -20,6 +21,7 @@ const TypeCheckError = error{
     OutOfMemory,
     AssignmentToImmutable,
     LinearityViolation,
+    UnsafeCallOutsideUnsafeContext,
 };
 
 const VariableInfo = struct {
@@ -101,6 +103,7 @@ pub const TypeChecker = struct {
             try self.functions.put(func.name, .{
                 .params = param_types,
                 .return_type = func.return_type,
+                .is_unsafe = func.is_unsafe,
             });
         }
 
@@ -122,6 +125,13 @@ pub const TypeChecker = struct {
     fn checkFunction(self: *TypeChecker, func: *const parser.FunctionDecl) !void {
         // Clear variables from previous function
         self.variables.clearRetainingCapacity();
+
+        // Set unsafe context if function is unsafe
+        const previous_unsafe = self.in_unsafe_block;
+        if (func.is_unsafe) {
+            self.in_unsafe_block = true;
+        }
+        defer self.in_unsafe_block = previous_unsafe;
 
         // Add parameters to variable environment (immutable)
         for (func.params) |param| {
@@ -441,6 +451,12 @@ pub const TypeChecker = struct {
                     std.debug.print("Undefined function: {s}\n", .{call.name});
                     return error.UndefinedFunction;
                 };
+
+                // Check that unsafe functions are only called from unsafe contexts
+                if (sig.is_unsafe and !self.in_unsafe_block) {
+                    std.debug.print("Unsafe function '{s}' can only be called from unsafe blocks or unsafe functions\n", .{call.name});
+                    return error.UnsafeCallOutsideUnsafeContext;
+                }
 
                 // Check argument count
                 if (call.args.len != sig.params.len) {

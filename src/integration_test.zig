@@ -2319,3 +2319,76 @@ test "nested unsafe blocks" {
 
     try testing.expect(ir.len > 0);
 }
+
+test "unsafe function bypasses linearity" {
+    const testing = std.testing;
+
+    const source =
+        \\unsafe fn double_use(x: I32) I32 {
+        \\  let a: I32 = x
+        \\  let b: I32 = x
+        \\  return a + b
+        \\}
+        \\fn main() I32 {
+        \\  return unsafe { double_use(5) }
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "unsafe function called from unsafe block" {
+    const testing = std.testing;
+
+    const source =
+        \\unsafe fn get_value() I32 {
+        \\  return 42
+        \\}
+        \\fn main() I32 {
+        \\  return unsafe {
+        \\    get_value()
+        \\  }
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "unsafe function called from another unsafe function" {
+    const testing = std.testing;
+
+    const source =
+        \\unsafe fn helper() I32 {
+        \\  return 10
+        \\}
+        \\unsafe fn caller() I32 {
+        \\  return helper()
+        \\}
+        \\fn main() I32 {
+        \\  return unsafe { caller() }
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "unsafe function cannot be called from safe context" {
+    const testing = std.testing;
+
+    const source =
+        \\unsafe fn dangerous() I32 {
+        \\  return 99
+        \\}
+        \\fn main() I32 {
+        \\  return dangerous()
+        \\}
+    ;
+    const result = compile(source, testing.allocator);
+    try testing.expectError(error.UnsafeCallOutsideUnsafeContext, result);
+}
