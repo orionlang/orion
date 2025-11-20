@@ -266,6 +266,11 @@ pub const Codegen = struct {
             try self.generateFunction(&func);
         }
 
+        // Generate instance methods
+        for (ast.instances.items) |instance| {
+            try self.generateInstanceMethods(&instance);
+        }
+
         // Generate _start entry point that calls main and exits
         try self.generateStartFunction();
 
@@ -283,6 +288,66 @@ pub const Codegen = struct {
             \\}}
             \\
         , .{});
+    }
+
+    fn generateInstanceMethods(self: *Codegen, instance: *const parser.InstanceDecl) !void {
+        // Extract type name from instance.type_name
+        const type_name = switch (instance.type_name.kind) {
+            .named => |name| name,
+            .primitive => |prim| @tagName(prim),
+            else => "unknown",
+        };
+
+        // Generate each method as a function with mangled name: TypeName__methodName
+        for (instance.methods) |method| {
+            // Clear variables from previous function
+            var iter = self.variables.valueIterator();
+            while (iter.next()) |var_info| {
+                self.allocator.free(var_info.llvm_ptr);
+            }
+            self.variables.clearRetainingCapacity();
+
+            // Generate mangled function name
+            const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method.name });
+            defer self.allocator.free(mangled_name);
+
+            // Function signature
+            const return_type_str = try self.llvmTypeString(method.return_type);
+            defer self.allocator.free(return_type_str);
+            try self.output.writer(self.allocator).print("define {s} @{s}(", .{ return_type_str, mangled_name });
+
+            // Generate parameter list
+            for (method.params, 0..) |param, i| {
+                if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                const param_type_str = try self.llvmTypeString(param.param_type);
+                defer self.allocator.free(param_type_str);
+                try self.output.writer(self.allocator).print("{s} %{s}", .{ param_type_str, param.name });
+            }
+
+            try self.output.appendSlice(self.allocator, ") {\nentry:\n");
+
+            // Allocate and store parameters
+            for (method.params) |param| {
+                const param_type_str = try self.llvmTypeString(param.param_type);
+                defer self.allocator.free(param_type_str);
+                const var_name = try std.fmt.allocPrint(self.allocator, "%{s}.addr", .{param.name});
+
+                try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ var_name, param_type_str });
+                try self.output.writer(self.allocator).print("  store {s} %{s}, ptr {s}\n", .{ param_type_str, param.name, var_name });
+
+                try self.variables.put(param.name, .{
+                    .llvm_ptr = var_name,
+                    .var_type = param.param_type,
+                });
+            }
+
+            // Generate body
+            for (method.body.items) |stmt| {
+                try self.generateStatement(&stmt, method.return_type);
+            }
+
+            try self.output.appendSlice(self.allocator, "}\n\n");
+        }
     }
 
     fn generateFunction(self: *Codegen, func: *const parser.FunctionDecl) !void {
@@ -473,7 +538,12 @@ pub const Codegen = struct {
         if (from_type.eql(to_type)) {
             return try self.allocator.dupe(u8, value);
         }
-        return try self.convertType(value, from_type, to_type);
+        // Only convert primitive types
+        if (from_type.kind == .primitive and to_type.kind == .primitive) {
+            return try self.convertType(value, from_type, to_type);
+        }
+        // For non-primitives, just return the value if kind matches
+        return try self.allocator.dupe(u8, value);
     }
 
     fn convertType(self: *Codegen, value: []const u8, from_type: Type, to_type: Type) ![]const u8 {
@@ -1016,6 +1086,65 @@ pub const Codegen = struct {
 
                 return result_temp;
             },
+            .method_call => |method_call| {
+                // Generate method call as: Type__method_name(object, args...)
+                const object_type = self.inferExprType(method_call.object);
+                const type_name = switch (object_type.kind) {
+                    .named => |name| name,
+                    .primitive => |prim| @tagName(prim),
+                    else => "unknown",
+                };
+
+                // Generate mangled method name: TypeName__methodName
+                const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method_call.method_name });
+                defer self.allocator.free(mangled_name);
+
+                // Generate arguments: object is the first arg
+                const object_val = try self.generateExpression(method_call.object);
+                defer self.allocator.free(object_val);
+
+                var arg_vals: std.ArrayList([]const u8) = .empty;
+                defer {
+                    for (arg_vals.items) |val| {
+                        self.allocator.free(val);
+                    }
+                    arg_vals.deinit(self.allocator);
+                }
+
+                // First argument is the object (self parameter)
+                try arg_vals.append(self.allocator, try self.allocator.dupe(u8, object_val));
+
+                // Then the rest of the arguments
+                for (method_call.args) |arg| {
+                    const val = try self.generateExpression(arg);
+                    try arg_vals.append(self.allocator, val);
+                }
+
+                // Determine return type
+                const return_type = self.inferExprType(expr);
+                const return_type_str = try self.llvmTypeString(return_type);
+                defer self.allocator.free(return_type_str);
+
+                const result_temp = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = call {s} @{s}(", .{
+                    result_temp,
+                    return_type_str,
+                    mangled_name,
+                });
+
+                // Write arguments with types
+                for (arg_vals.items, 0..) |val, i| {
+                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                    const arg_expr = if (i == 0) method_call.object else method_call.args[i - 1];
+                    const arg_type = self.inferExprType(arg_expr);
+                    const arg_type_str = try self.llvmTypeString(arg_type);
+                    defer self.allocator.free(arg_type_str);
+                    try self.output.writer(self.allocator).print("{s} {s}", .{ arg_type_str, val });
+                }
+
+                try self.output.appendSlice(self.allocator, ")\n");
+                return result_temp;
+            },
         }
     }
 
@@ -1202,6 +1331,10 @@ pub const Codegen = struct {
             .match_expr => |match_expr| {
                 // Match result type is the type of the first arm
                 return self.inferExprType(match_expr.arms[0].body);
+            },
+            .method_call => {
+                // Stub: method calls not yet implemented
+                return Type{ .kind = .{ .primitive = .i32 }, .usage = .once };
             },
         }
     }

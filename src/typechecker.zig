@@ -33,6 +33,7 @@ pub const TypeChecker = struct {
     variables: std.StringHashMap(VariableInfo),
     functions: std.StringHashMap(FunctionSignature),
     type_defs: std.StringHashMap(Type),
+    instance_methods: std.StringHashMap(Type),
     allocated_tuple_types: std.ArrayList(Type),
 
     pub fn init(allocator: std.mem.Allocator) TypeChecker {
@@ -41,6 +42,7 @@ pub const TypeChecker = struct {
             .variables = std.StringHashMap(VariableInfo).init(allocator),
             .functions = std.StringHashMap(FunctionSignature).init(allocator),
             .type_defs = std.StringHashMap(Type).init(allocator),
+            .instance_methods = std.StringHashMap(Type).init(allocator),
             .allocated_tuple_types = .empty,
         };
     }
@@ -55,9 +57,17 @@ pub const TypeChecker = struct {
             tuple_type.deinitShallow(self.allocator);
         }
         self.allocated_tuple_types.deinit(self.allocator);
+
+        // Free instance method keys
+        var method_iter = self.instance_methods.keyIterator();
+        while (method_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+
         self.variables.deinit();
         self.functions.deinit();
         self.type_defs.deinit();
+        self.instance_methods.deinit();
     }
 
     pub fn check(self: *TypeChecker, ast: *const AST) !void {
@@ -66,7 +76,21 @@ pub const TypeChecker = struct {
             try self.type_defs.put(typedef.name, typedef.type_value);
         }
 
-        // Second pass: collect function signatures
+        // Second pass: collect instance methods
+        for (ast.instances.items) |instance| {
+            const type_name = switch (instance.type_name.kind) {
+                .named => |name| name,
+                .primitive => |prim| @tagName(prim),
+                else => "unknown",
+            };
+
+            for (instance.methods) |method| {
+                const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{type_name, method.name});
+                try self.instance_methods.put(mangled_name, method.return_type);
+            }
+        }
+
+        // Third pass: collect function signatures
         for (ast.functions.items) |func| {
             const param_types = try self.allocator.alloc(Type, func.params.len);
             for (func.params, 0..) |param, i| {
@@ -78,7 +102,7 @@ pub const TypeChecker = struct {
             });
         }
 
-        // Third pass: check function bodies
+        // Fourth pass: check function bodies
         for (ast.functions.items) |func| {
             try self.checkFunction(&func);
         }
@@ -302,7 +326,7 @@ pub const TypeChecker = struct {
                 // Example: `let x: I64 = { stmt; stmt; 42 }` should type 42 as I64
                 _ = block;
             },
-            .bool_literal, .variable, .function_call, .struct_literal, .field_access, .constructor_call, .match_expr => {
+            .bool_literal, .variable, .function_call, .struct_literal, .field_access, .constructor_call, .match_expr, .method_call => {
                 // These expressions have fixed types that can't be influenced by context:
                 // - bool_literal: always Bool
                 // - variable: type determined at declaration
@@ -677,6 +701,28 @@ pub const TypeChecker = struct {
                 }
 
                 return result_type.?;
+            },
+            .method_call => |method_call| {
+                // Infer the type of the object
+                const object_type = try self.inferExprType(method_call.object);
+
+                // Extract type name
+                const type_name = switch (object_type.kind) {
+                    .named => |name| name,
+                    .primitive => |prim| @tagName(prim),
+                    else => "unknown",
+                };
+
+                // Look up the method in instance_methods
+                const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{type_name, method_call.method_name});
+                defer self.allocator.free(mangled_name);
+
+                if (self.instance_methods.get(mangled_name)) |return_type| {
+                    return return_type;
+                } else {
+                    // Method not found, return object type as fallback
+                    return object_type;
+                }
             },
         }
     }

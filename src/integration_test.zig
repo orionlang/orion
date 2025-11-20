@@ -2143,3 +2143,112 @@ test "integration: linearity - mutable variables exempt from checking" {
 
     try testing.expect(ir.len > 0);
 }
+
+test "type class definition parses" {
+    const testing = std.testing;
+
+    const source =
+        \\class Copy {
+        \\  copy: fn(Self) Self
+        \\}
+        \\fn main() I32 {
+        \\  return 0
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+}
+
+test "instance declaration parses" {
+    const testing = std.testing;
+
+    const source =
+        \\type Point = { x: I32, y: I32 }
+        \\
+        \\class Copy {
+        \\  copy: fn(Self) Self
+        \\}
+        \\
+        \\instance Copy[Point] {
+        \\  copy = fn(self: Point) Point {
+        \\    return Point { x: self.x, y: self.y }
+        \\  }
+        \\}
+        \\
+        \\fn main() I32 {
+        \\  return 0
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "Point__copy") != null);
+}
+
+test "method call compiles" {
+    const testing = std.testing;
+
+    const source =
+        \\type Point = { x: I32, y: I32 }
+        \\
+        \\class Copy {
+        \\  copy: fn(Self) Self
+        \\}
+        \\
+        \\instance Copy[Point] {
+        \\  copy = fn(self: Point) Point {
+        \\    return Point { x: self.x, y: self.y }
+        \\  }
+        \\}
+        \\
+        \\fn main() I32 {
+        \\  let p: Point = Point { x: 10, y: 20 }
+        \\  let p2: Point = p.copy()
+        \\  return p2.x
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "Point__copy") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "call") != null);
+}
+
+test "multiple instance methods" {
+    const testing = std.testing;
+
+    const source =
+        \\type Point = { x: I32, y: I32 }
+        \\
+        \\class Display {
+        \\  display: fn(Self) I32
+        \\  debug: fn(Self) I32
+        \\}
+        \\
+        \\instance Display[Point] {
+        \\  display = fn(self: Point) I32 {
+        \\    return self.x
+        \\  }
+        \\  debug = fn(self: Point) I32 {
+        \\    return self.y
+        \\  }
+        \\}
+        \\
+        \\fn main() I32 {
+        \\  let p: Point@2 = Point { x: 42, y: 99 }
+        \\  let x: I32@? = p.display()
+        \\  let y: I32 = p.debug()
+        \\  return y
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "Point__display") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "Point__debug") != null);
+}

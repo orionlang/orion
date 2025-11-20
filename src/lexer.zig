@@ -14,6 +14,8 @@ pub const TokenKind = enum {
     false_keyword,
     type_keyword,
     match_keyword,
+    class_keyword,
+    instance_keyword,
 
     // Literals
     integer,
@@ -26,6 +28,8 @@ pub const TokenKind = enum {
     right_paren,
     left_brace,
     right_brace,
+    left_bracket,
+    right_bracket,
     arrow, // ->
     fat_arrow, // =>
     dot,
@@ -120,6 +124,8 @@ pub const Lexer = struct {
             ')' => return self.makeToken(.right_paren, start_pos, start_line, start_column),
             '{' => return self.makeToken(.left_brace, start_pos, start_line, start_column),
             '}' => return self.makeToken(.right_brace, start_pos, start_line, start_column),
+            '[' => return self.makeToken(.left_bracket, start_pos, start_line, start_column),
+            ']' => return self.makeToken(.right_bracket, start_pos, start_line, start_column),
             '+' => return self.makeToken(.plus, start_pos, start_line, start_column),
             '*' => return self.makeToken(.star, start_pos, start_line, start_column),
             '/' => return self.makeToken(.slash, start_pos, start_line, start_column),
@@ -221,6 +227,8 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, lexeme, "false")) return .false_keyword;
         if (std.mem.eql(u8, lexeme, "type")) return .type_keyword;
         if (std.mem.eql(u8, lexeme, "match")) return .match_keyword;
+        if (std.mem.eql(u8, lexeme, "class")) return .class_keyword;
+        if (std.mem.eql(u8, lexeme, "instance")) return .instance_keyword;
         return .identifier;
     }
 

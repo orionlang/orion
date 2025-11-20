@@ -383,6 +383,11 @@ pub const Expr = union(enum) {
         scrutinee: *Expr,
         arms: []MatchArm,
     },
+    method_call: struct {
+        object: *Expr,
+        method_name: []const u8,
+        args: []*Expr,
+    },
 };
 
 pub const Param = struct {
@@ -432,6 +437,61 @@ pub const TypeDef = struct {
 
     pub fn deinit(self: *TypeDef, allocator: std.mem.Allocator) void {
         self.type_value.deinit(allocator);
+    }
+};
+
+pub const ClassMethod = struct {
+    name: []const u8,
+    self_param: bool, // true if first param is Self
+    param_types: []Type,
+    return_type: ?Type,
+};
+
+pub const ClassDef = struct {
+    name: []const u8,
+    methods: []ClassMethod,
+
+    pub fn deinit(self: *ClassDef, allocator: std.mem.Allocator) void {
+        for (self.methods) |*method| {
+            for (method.param_types) |*param_type| {
+                param_type.deinit(allocator);
+            }
+            allocator.free(method.param_types);
+            if (method.return_type) |*ret_type| {
+                ret_type.deinit(allocator);
+            }
+        }
+        allocator.free(self.methods);
+    }
+};
+
+pub const MethodImpl = struct {
+    name: []const u8,
+    params: []Param,
+    return_type: Type,
+    body: std.ArrayList(Stmt),
+};
+
+pub const InstanceDecl = struct {
+    class_name: []const u8,
+    type_name: Type,
+    methods: []MethodImpl,
+
+    pub fn deinit(self: *InstanceDecl, allocator: std.mem.Allocator) void {
+        self.type_name.deinit(allocator);
+        for (self.methods) |*method| {
+            for (method.params) |param| {
+                var param_type_copy = param.param_type;
+                param_type_copy.deinit(allocator);
+            }
+            allocator.free(method.params);
+            method.return_type.deinit(allocator);
+            for (method.body.items) |*stmt| {
+                FunctionDecl.deinitStmt(allocator, stmt);
+            }
+            method.body.deinit(allocator);
+        }
+        allocator.free(self.methods);
     }
 };
 
@@ -569,12 +629,23 @@ pub const FunctionDecl = struct {
                 }
                 allocator.free(match_expr.arms);
             },
+            .method_call => |call| {
+                deinitExpr(allocator, call.object);
+                allocator.destroy(call.object);
+                for (call.args) |arg| {
+                    deinitExpr(allocator, arg);
+                    allocator.destroy(arg);
+                }
+                allocator.free(call.args);
+            },
         }
     }
 };
 
 pub const AST = struct {
     type_defs: std.ArrayList(TypeDef),
+    class_defs: std.ArrayList(ClassDef),
+    instances: std.ArrayList(InstanceDecl),
     functions: std.ArrayList(FunctionDecl),
 
     pub fn deinit(self: *AST, allocator: std.mem.Allocator) void {
@@ -582,6 +653,14 @@ pub const AST = struct {
             typedef.deinit(allocator);
         }
         self.type_defs.deinit(allocator);
+        for (self.class_defs.items) |*classdef| {
+            classdef.deinit(allocator);
+        }
+        self.class_defs.deinit(allocator);
+        for (self.instances.items) |*instance| {
+            instance.deinit(allocator);
+        }
+        self.instances.deinit(allocator);
         for (self.functions.items) |*func| {
             func.deinit(allocator);
         }
@@ -605,6 +684,10 @@ pub const Parser = struct {
     pub fn parse(self: *Parser) !AST {
         var type_defs: std.ArrayList(TypeDef) = .empty;
         errdefer type_defs.deinit(self.allocator);
+        var class_defs: std.ArrayList(ClassDef) = .empty;
+        errdefer class_defs.deinit(self.allocator);
+        var instances: std.ArrayList(InstanceDecl) = .empty;
+        errdefer instances.deinit(self.allocator);
         var functions: std.ArrayList(FunctionDecl) = .empty;
         errdefer functions.deinit(self.allocator);
 
@@ -612,6 +695,12 @@ pub const Parser = struct {
             if (self.check(.type_keyword)) {
                 const typedef = try self.parseTypeDef();
                 try type_defs.append(self.allocator, typedef);
+            } else if (self.check(.class_keyword)) {
+                const classdef = try self.parseClassDef();
+                try class_defs.append(self.allocator, classdef);
+            } else if (self.check(.instance_keyword)) {
+                const instance = try self.parseInstanceDecl();
+                try instances.append(self.allocator, instance);
             } else if (self.check(.fn_keyword)) {
                 const func = try self.parseFunction();
                 try functions.append(self.allocator, func);
@@ -620,7 +709,12 @@ pub const Parser = struct {
             }
         }
 
-        return AST{ .type_defs = type_defs, .functions = functions };
+        return AST{
+            .type_defs = type_defs,
+            .class_defs = class_defs,
+            .instances = instances,
+            .functions = functions,
+        };
     }
 
     fn parseFunction(self: *Parser) !FunctionDecl {
@@ -655,6 +749,17 @@ pub const Parser = struct {
 
         const return_type = try self.parseType();
 
+        const body = try self.parseBlockStatements();
+
+        return FunctionDecl{
+            .name = name,
+            .params = try params.toOwnedSlice(self.allocator),
+            .return_type = return_type,
+            .body = body,
+        };
+    }
+
+    fn parseBlockStatements(self: *Parser) !std.ArrayList(Stmt) {
         _ = try self.expect(.left_brace);
         var body: std.ArrayList(Stmt) = .empty;
         errdefer body.deinit(self.allocator);
@@ -665,13 +770,7 @@ pub const Parser = struct {
         }
 
         _ = try self.expect(.right_brace);
-
-        return FunctionDecl{
-            .name = name,
-            .params = try params.toOwnedSlice(self.allocator),
-            .return_type = return_type,
-            .body = body,
-        };
+        return body;
     }
 
     fn parseTypeDef(self: *Parser) !TypeDef {
@@ -1382,16 +1481,44 @@ pub const Parser = struct {
                     .index = index,
                 } };
             } else if (self.check(.identifier)) {
-                // Struct field access: expr.field
-                const field_name = try self.expect(.identifier);
+                const identifier = try self.expect(.identifier);
 
-                const object_ptr = try self.allocator.create(Expr);
-                object_ptr.* = expr;
+                // Check if it's a method call: expr.method(args)
+                if (self.check(.left_paren)) {
+                    _ = try self.expect(.left_paren);
 
-                expr = .{ .field_access = .{
-                    .object = object_ptr,
-                    .field_name = field_name.lexeme,
-                } };
+                    var args: std.ArrayList(*Expr) = .empty;
+                    errdefer args.deinit(self.allocator);
+
+                    while (!self.check(.right_paren) and !self.isAtEnd()) {
+                        const arg = try self.parseExpressionPtr(&.{});
+                        try args.append(self.allocator, arg);
+
+                        if (!self.check(.right_paren)) {
+                            _ = try self.expect(.comma);
+                        }
+                    }
+
+                    _ = try self.expect(.right_paren);
+
+                    const object_ptr = try self.allocator.create(Expr);
+                    object_ptr.* = expr;
+
+                    expr = .{ .method_call = .{
+                        .object = object_ptr,
+                        .method_name = identifier.lexeme,
+                        .args = try args.toOwnedSlice(self.allocator),
+                    } };
+                } else {
+                    // Struct field access: expr.field
+                    const object_ptr = try self.allocator.create(Expr);
+                    object_ptr.* = expr;
+
+                    expr = .{ .field_access = .{
+                        .object = object_ptr,
+                        .field_name = identifier.lexeme,
+                    } };
+                }
             } else {
                 return error.ExpectedExpression;
             }
@@ -1616,6 +1743,141 @@ pub const Parser = struct {
 
     fn isAtEnd(self: *Parser) bool {
         return self.pos >= self.tokens.len or self.current().kind == .eof;
+    }
+
+    fn parseClassDef(self: *Parser) !ClassDef {
+        _ = try self.expect(.class_keyword);
+        const name_token = try self.expect(.identifier);
+        const name = name_token.lexeme;
+
+        _ = try self.expect(.left_brace);
+
+        var methods: std.ArrayList(ClassMethod) = .empty;
+        errdefer methods.deinit(self.allocator);
+
+        while (!self.check(.right_brace) and !self.isAtEnd()) {
+            const method_name_token = try self.expect(.identifier);
+            const method_name = method_name_token.lexeme;
+
+            _ = try self.expect(.colon);
+            _ = try self.expect(.fn_keyword);
+            _ = try self.expect(.left_paren);
+
+            var param_types: std.ArrayList(Type) = .empty;
+            errdefer param_types.deinit(self.allocator);
+
+            var self_param = false;
+            while (!self.check(.right_paren) and !self.isAtEnd()) {
+                const param_type = try self.parseType();
+                // Check if this is Self type
+                if (param_type.kind == .named) {
+                    if (std.mem.eql(u8, param_type.kind.named, "Self")) {
+                        self_param = true;
+                    }
+                }
+                try param_types.append(self.allocator, param_type);
+
+                if (!self.check(.right_paren)) {
+                    _ = try self.expect(.comma);
+                }
+            }
+
+            _ = try self.expect(.right_paren);
+
+            // Optional return type
+            var return_type: ?Type = null;
+            if (!self.check(.semicolon)) {
+                return_type = try self.parseType();
+            }
+
+            const method = ClassMethod{
+                .name = method_name,
+                .self_param = self_param,
+                .param_types = try param_types.toOwnedSlice(self.allocator),
+                .return_type = return_type,
+            };
+            try methods.append(self.allocator, method);
+
+            // Skip optional semicolon
+            if (self.check(.semicolon)) {
+                self.pos += 1;
+            }
+        }
+
+        _ = try self.expect(.right_brace);
+
+        return ClassDef{
+            .name = name,
+            .methods = try methods.toOwnedSlice(self.allocator),
+        };
+    }
+
+    fn parseInstanceDecl(self: *Parser) !InstanceDecl {
+        _ = try self.expect(.instance_keyword);
+        const class_name_token = try self.expect(.identifier);
+        const class_name = class_name_token.lexeme;
+
+        _ = try self.expect(.left_bracket);
+        const type_name = try self.parseType();
+        _ = try self.expect(.right_bracket);
+
+        _ = try self.expect(.left_brace);
+
+        var methods: std.ArrayList(MethodImpl) = .empty;
+        errdefer methods.deinit(self.allocator);
+
+        while (!self.check(.right_brace) and !self.isAtEnd()) {
+            const method_name_token = try self.expect(.identifier);
+            const method_name = method_name_token.lexeme;
+
+            _ = try self.expect(.equal);
+            _ = try self.expect(.fn_keyword);
+
+            // Parse parameters
+            _ = try self.expect(.left_paren);
+            var params: std.ArrayList(Param) = .empty;
+            errdefer params.deinit(self.allocator);
+
+            while (!self.check(.right_paren) and !self.isAtEnd()) {
+                const param_name_token = try self.expect(.identifier);
+                const param_name = param_name_token.lexeme;
+
+                _ = try self.expect(.colon);
+                const param_type = try self.parseType();
+
+                try params.append(self.allocator, Param{
+                    .name = param_name,
+                    .param_type = param_type,
+                });
+
+                if (!self.check(.right_paren)) {
+                    _ = try self.expect(.comma);
+                }
+            }
+            _ = try self.expect(.right_paren);
+
+            // Parse return type
+            const return_type = try self.parseType();
+
+            // Parse body
+            const body = try self.parseBlockStatements();
+
+            const method = MethodImpl{
+                .name = method_name,
+                .params = try params.toOwnedSlice(self.allocator),
+                .return_type = return_type,
+                .body = body,
+            };
+            try methods.append(self.allocator, method);
+        }
+
+        _ = try self.expect(.right_brace);
+
+        return InstanceDecl{
+            .class_name = class_name,
+            .type_name = type_name,
+            .methods = try methods.toOwnedSlice(self.allocator),
+        };
     }
 };
 
