@@ -23,6 +23,7 @@ Currently implemented:
 - Let bindings (immutable) and var bindings (mutable)
 - Assignment statements
 - Block expressions
+- Expression statements (expressions as statements for side effects)
 - Integer types: `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`
 - Contextual integer typing (literals infer type from context)
 - Integer literal range validation
@@ -33,6 +34,13 @@ Currently implemented:
 - Tuples: literals, indexing, destructuring
 - Structs: type definitions, literals, field access
 - Sum types (ADTs): type definitions with variants, pattern matching with `match`
+- Type classes: class definitions, instance declarations, method calls
+- Linear types: ownership tracking with usage annotations (`@*`, `@?`, `@2`, etc.)
+- Intrinsics: compiler built-in functions for low-level operations
+  - Pointer operations: `@ptr_of`, `@ptr_read`, `@ptr_write`, `@ptr_offset`
+- Standard library system
+  - `stdlib/prelude.or` - automatically imported by compiler
+  - Pointer type class with methods for `ptr` type: `read()`, `write()`, `offset()`
 
 ## Building
 
@@ -105,6 +113,20 @@ fn main() I32 {
 }
 ```
 
+### Type Classes and Standard Library
+
+```orion
+fn main() I32 {
+    let x: I32@* = 100
+    let p: ptr@* = @ptr_of(x)
+    p.write(42)
+    return p.read()
+}
+```
+
+The `Pointer` type class is defined in the standard library prelude and provides
+methods for working with the primitive `ptr` type: `read()`, `write()`, `offset()`.
+
 See [examples/](examples/) for more examples.
 
 ## Development
@@ -125,6 +147,7 @@ zig build -Doptimize=Debug
 - `src/typechecker.zig` - Type checking and inference
 - `src/codegen.zig` - LLVM IR generation
 - `src/main.zig` - Compiler entry point
+- `stdlib/prelude.or` - Standard library prelude (automatically imported)
 
 ## License
 

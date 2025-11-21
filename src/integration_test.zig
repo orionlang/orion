@@ -2464,7 +2464,7 @@ test "intrinsic ptr_of creates pointer" {
     const source =
         \\fn main() I32 {
         \\  let x: I32@* = 42
-        \\  let ptr: Ptr@* = @ptr_of(x)
+        \\  let p: ptr@* = @ptr_of(x)
         \\  return 0
         \\}
     ;
@@ -2482,8 +2482,8 @@ test "intrinsic ptr_read loads value from pointer" {
     const source =
         \\fn main() I32 {
         \\  let x: I32@* = 42
-        \\  let ptr: Ptr@* = @ptr_of(x)
-        \\  return @ptr_read(ptr)
+        \\  let p: ptr@* = @ptr_of(x)
+        \\  return @ptr_read(p)
         \\}
     ;
     const ir = try compile(source, testing.allocator);
@@ -2499,9 +2499,9 @@ test "intrinsic ptr_write stores value to pointer" {
     const source =
         \\fn main() I32 {
         \\  let x: I32@* = 0
-        \\  let ptr: Ptr@* = @ptr_of(x)
-        \\  let unit: ()@* = @ptr_write(ptr, 42)
-        \\  return @ptr_read(ptr)
+        \\  let p: ptr@* = @ptr_of(x)
+        \\  let unit: ()@* = @ptr_write(p, 42)
+        \\  return @ptr_read(p)
         \\}
     ;
     const ir = try compile(source, testing.allocator);
@@ -2517,8 +2517,8 @@ test "intrinsic ptr_offset calculates pointer arithmetic" {
     const source =
         \\fn main() I32 {
         \\  let x: I32@* = 42
-        \\  let ptr: Ptr@* = @ptr_of(x)
-        \\  let ptr2: Ptr@* = @ptr_offset(ptr, 1)
+        \\  let p: ptr@* = @ptr_of(x)
+        \\  let p2: ptr@* = @ptr_offset(p, 1)
         \\  return 0
         \\}
     ;
@@ -2529,14 +2529,14 @@ test "intrinsic ptr_offset calculates pointer arithmetic" {
     try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
 }
 
-test "stdlib Ptr.read loads value from pointer" {
+test "stdlib Pointer.read loads value from pointer" {
     const testing = std.testing;
 
     const source =
         \\fn main() I32 {
         \\  let x: I32@* = 42
-        \\  let ptr: Ptr@* = @ptr_of(x)
-        \\  return ptr.read()
+        \\  let p: ptr@* = @ptr_of(x)
+        \\  return p.read()
         \\}
     ;
     const ir = try compileWithStdlib(source, testing.allocator);
@@ -2547,15 +2547,15 @@ test "stdlib Ptr.read loads value from pointer" {
     try testing.expect(std.mem.indexOf(u8, ir, "load") != null);
 }
 
-test "stdlib Ptr.write stores value to pointer" {
+test "stdlib Pointer.write stores value to pointer" {
     const testing = std.testing;
 
     const source =
         \\fn main() I32 {
         \\  let x: I32@* = 0
-        \\  let ptr: Ptr@* = @ptr_of(x)
-        \\  let unit: ()@* = ptr.write(42)
-        \\  return ptr.read()
+        \\  let p: ptr@* = @ptr_of(x)
+        \\  let unit: ()@* = p.write(42)
+        \\  return p.read()
         \\}
     ;
     const ir = try compileWithStdlib(source, testing.allocator);
@@ -2567,14 +2567,14 @@ test "stdlib Ptr.write stores value to pointer" {
     try testing.expect(std.mem.indexOf(u8, ir, "store") != null);
 }
 
-test "stdlib Ptr.offset calculates pointer arithmetic" {
+test "stdlib Pointer.offset calculates pointer arithmetic" {
     const testing = std.testing;
 
     const source =
         \\fn main() I32 {
         \\  let x: I32@* = 42
-        \\  let ptr: Ptr@* = @ptr_of(x)
-        \\  let ptr2: Ptr@* = ptr.offset(1)
+        \\  let p: ptr@* = @ptr_of(x)
+        \\  let p2: ptr@* = p.offset(1)
         \\  return 0
         \\}
     ;
@@ -2586,15 +2586,15 @@ test "stdlib Ptr.offset calculates pointer arithmetic" {
     try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
 }
 
-test "stdlib Ptr methods can be chained" {
+test "stdlib Pointer methods can be chained" {
     const testing = std.testing;
 
     const source =
         \\fn main() I32 {
         \\  let x: I32@* = 100
-        \\  let ptr: Ptr@* = @ptr_of(x)
-        \\  let _: ()@* = ptr.write(150)
-        \\  let value: I32@* = ptr.read()
+        \\  let p: ptr@* = @ptr_of(x)
+        \\  let _: ()@* = p.write(150)
+        \\  let value: I32@* = p.read()
         \\  return value
         \\}
     ;

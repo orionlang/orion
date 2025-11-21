@@ -1,29 +1,29 @@
 // Orion Standard Library - Prelude
 // This file is automatically imported by the compiler
 
-// Ptr type class for pointer operations
-class Ptr {
-  of: fn(I32) Ptr;
-  read: fn(Ptr) I32;
-  write: fn(Ptr, I32) ();
-  offset: fn(Ptr, I32) Ptr;
+// Pointer type class for pointer operations
+class Pointer {
+  of: fn(I32) ptr;
+  read: fn(ptr) I32;
+  write: fn(ptr, I32) ();
+  offset: fn(ptr, I32) ptr;
 }
 
-// Ptr instance implementation
-instance Ptr[Ptr] {
-  of = fn(value: I32) Ptr {
+// Pointer instance implementation for primitive ptr type
+instance Pointer[ptr] {
+  of = fn(value: I32) ptr {
     return @ptr_of(value)
   }
 
-  read = fn(self: Ptr) I32 {
+  read = fn(self: ptr) I32 {
     return @ptr_read(self)
   }
 
-  write = fn(self: Ptr, value: I32) () {
+  write = fn(self: ptr, value: I32) () {
     return @ptr_write(self, value)
   }
 
-  offset = fn(self: Ptr, off: I32) Ptr {
+  offset = fn(self: ptr, off: I32) ptr {
     return @ptr_offset(self, off)
   }
 }
