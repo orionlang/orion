@@ -441,6 +441,7 @@ pub const Stmt = union(enum) {
         body: *Expr,
     },
     return_stmt: *Expr,
+    expr: *Expr,
 };
 
 pub const TypeDef = struct {
@@ -548,6 +549,10 @@ pub const FunctionDecl = struct {
                 allocator.destroy(while_stmt.body);
             },
             .return_stmt => |expr| {
+                deinitExpr(allocator, expr);
+                allocator.destroy(expr);
+            },
+            .expr => |expr| {
                 deinitExpr(allocator, expr);
                 allocator.destroy(expr);
             },
@@ -1020,7 +1025,12 @@ pub const Parser = struct {
         if (self.check(.identifier) and self.peekAhead(1).kind == .equal) {
             return try self.parseAssignment();
         }
-        return error.ExpectedStatement;
+        // Expression statement (for side effects)
+        const expr = try self.parseExpression();
+        self.skipOptionalSemicolon();
+        const expr_ptr = try self.allocator.create(Expr);
+        expr_ptr.* = expr;
+        return Stmt{ .expr = expr_ptr };
     }
 
     fn parseAssignment(self: *Parser) !Stmt {

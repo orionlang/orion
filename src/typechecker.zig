@@ -249,6 +249,9 @@ pub const TypeChecker = struct {
                     }
                 }
             },
+            .expr => |expr| {
+                _ = try self.inferExprType(expr);
+            },
         }
     }
 

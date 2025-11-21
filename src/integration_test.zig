@@ -22,6 +22,71 @@ fn compile(source: []const u8, allocator: std.mem.Allocator) ![]const u8 {
     return try codegen.generate(&ast);
 }
 
+fn compileWithStdlib(source: []const u8, allocator: std.mem.Allocator) ![]const u8 {
+    const parser_module = @import("parser.zig");
+    const AST = parser_module.AST;
+
+    // Load and parse stdlib prelude
+    const prelude_path = "stdlib/prelude.or";
+    const prelude_source = try std.fs.cwd().readFileAlloc(allocator, prelude_path, 1024 * 1024);
+    defer allocator.free(prelude_source);
+
+    var prelude_lexer = Lexer.init(prelude_source);
+    var prelude_tokens = try prelude_lexer.tokenize(allocator);
+    defer prelude_tokens.deinit(allocator);
+
+    var prelude_parser = Parser.init(prelude_tokens.items, allocator);
+    var prelude_ast = try prelude_parser.parse();
+
+    // Load and parse user source
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(allocator);
+    defer tokens.deinit(allocator);
+
+    var parser = Parser.init(tokens.items, allocator);
+    var user_ast = try parser.parse();
+
+    // Merge stdlib and user AST
+    var ast = AST{
+        .type_defs = std.ArrayList(parser_module.TypeDef).empty,
+        .class_defs = std.ArrayList(parser_module.ClassDef).empty,
+        .instances = std.ArrayList(parser_module.InstanceDecl).empty,
+        .functions = std.ArrayList(parser_module.FunctionDecl).empty,
+    };
+    defer ast.deinit(allocator);
+
+    // Add stdlib items first
+    try ast.type_defs.appendSlice(allocator, prelude_ast.type_defs.items);
+    try ast.class_defs.appendSlice(allocator, prelude_ast.class_defs.items);
+    try ast.instances.appendSlice(allocator, prelude_ast.instances.items);
+    try ast.functions.appendSlice(allocator, prelude_ast.functions.items);
+
+    // Add user items
+    try ast.type_defs.appendSlice(allocator, user_ast.type_defs.items);
+    try ast.class_defs.appendSlice(allocator, user_ast.class_defs.items);
+    try ast.instances.appendSlice(allocator, user_ast.instances.items);
+    try ast.functions.appendSlice(allocator, user_ast.functions.items);
+
+    // Free the ArrayList buffers (merged ast owns the items now)
+    prelude_ast.type_defs.deinit(allocator);
+    prelude_ast.class_defs.deinit(allocator);
+    prelude_ast.instances.deinit(allocator);
+    prelude_ast.functions.deinit(allocator);
+
+    user_ast.type_defs.deinit(allocator);
+    user_ast.class_defs.deinit(allocator);
+    user_ast.instances.deinit(allocator);
+    user_ast.functions.deinit(allocator);
+
+    var typechecker = TypeChecker.init(allocator);
+    defer typechecker.deinit();
+    try typechecker.check(&ast);
+
+    var codegen = Codegen.init(allocator);
+    defer codegen.deinit();
+    return try codegen.generate(&ast);
+}
+
 test "integration: compile simple function end-to-end" {
     const testing = std.testing;
 
@@ -2462,4 +2527,81 @@ test "intrinsic ptr_offset calculates pointer arithmetic" {
 
     try testing.expect(ir.len > 0);
     try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+}
+
+test "stdlib Ptr.read loads value from pointer" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32@* = 42
+        \\  let ptr: Ptr@* = @ptr_of(x)
+        \\  return ptr.read()
+        \\}
+    ;
+    const ir = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "ptr__read") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "load") != null);
+}
+
+test "stdlib Ptr.write stores value to pointer" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32@* = 0
+        \\  let ptr: Ptr@* = @ptr_of(x)
+        \\  let unit: ()@* = ptr.write(42)
+        \\  return ptr.read()
+        \\}
+    ;
+    const ir = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "ptr__write") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "ptr__read") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "store") != null);
+}
+
+test "stdlib Ptr.offset calculates pointer arithmetic" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32@* = 42
+        \\  let ptr: Ptr@* = @ptr_of(x)
+        \\  let ptr2: Ptr@* = ptr.offset(1)
+        \\  return 0
+        \\}
+    ;
+    const ir = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "ptr__offset") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+}
+
+test "stdlib Ptr methods can be chained" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32@* = 100
+        \\  let ptr: Ptr@* = @ptr_of(x)
+        \\  let _: ()@* = ptr.write(150)
+        \\  let value: I32@* = ptr.read()
+        \\  return value
+        \\}
+    ;
+    const ir = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "ptr__write") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "ptr__read") != null);
 }

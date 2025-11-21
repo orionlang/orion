@@ -487,6 +487,10 @@ pub const Codegen = struct {
                 defer self.allocator.free(converted);
                 try self.output.writer(self.allocator).print("  ret {s} {s}\n", .{ return_type_str, converted });
             },
+            .expr => |expr| {
+                const value = try self.generateExpression(expr);
+                self.allocator.free(value);
+            },
         }
     }
 

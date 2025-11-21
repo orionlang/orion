@@ -1,6 +1,12 @@
 const std = @import("std");
 const Lexer = @import("lexer.zig").Lexer;
-const Parser = @import("parser.zig").Parser;
+const parser_module = @import("parser.zig");
+const Parser = parser_module.Parser;
+const AST = parser_module.AST;
+const TypeDef = parser_module.TypeDef;
+const ClassDef = parser_module.ClassDef;
+const InstanceDecl = parser_module.InstanceDecl;
+const FunctionDecl = parser_module.FunctionDecl;
 const TypeChecker = @import("typechecker.zig").TypeChecker;
 const Codegen = @import("codegen.zig").Codegen;
 
@@ -25,18 +31,63 @@ pub fn main() !void {
     const stop_at_ir = args.len > 2 and std.mem.eql(u8, args[2], "-S");
     const stop_at_object = args.len > 2 and std.mem.eql(u8, args[2], "-c");
 
+    // Load and parse stdlib prelude
+    const prelude_path = "stdlib/prelude.or";
+    const prelude_source = std.fs.cwd().readFileAlloc(allocator, prelude_path, 1024 * 1024) catch |err| {
+        std.debug.print("Warning: Could not load stdlib prelude: {}\n", .{err});
+        std.debug.print("Continuing without stdlib...\n", .{});
+        // Create empty prelude AST
+        const empty_ast = AST{
+            .type_defs = std.ArrayList(TypeDef).empty,
+            .class_defs = std.ArrayList(ClassDef).empty,
+            .instances = std.ArrayList(InstanceDecl).empty,
+            .functions = std.ArrayList(FunctionDecl).empty,
+        };
+        _ = empty_ast;
+        @panic("TODO: handle missing stdlib");
+    };
+    defer allocator.free(prelude_source);
+
+    var prelude_lexer = Lexer.init(prelude_source);
+    var prelude_tokens = try prelude_lexer.tokenize(allocator);
+    defer prelude_tokens.deinit(allocator);
+
+    var prelude_parser = Parser.init(prelude_tokens.items, allocator);
+    const prelude_ast = try prelude_parser.parse();
+    // Don't deinit prelude_ast - ownership transferred to merged ast
+
+    // Load and parse user source
     const source = try std.fs.cwd().readFileAlloc(allocator, input_path, 1024 * 1024);
     defer allocator.free(source);
 
-    // Lexer
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(allocator);
     defer tokens.deinit(allocator);
 
-    // Parser
     var parser = Parser.init(tokens.items, allocator);
-    var ast = try parser.parse();
+    const user_ast = try parser.parse();
+    // Don't deinit user_ast - ownership transferred to merged ast
+
+    // Merge stdlib and user AST
+    var ast = AST{
+        .type_defs = std.ArrayList(TypeDef).empty,
+        .class_defs = std.ArrayList(ClassDef).empty,
+        .instances = std.ArrayList(InstanceDecl).empty,
+        .functions = std.ArrayList(FunctionDecl).empty,
+    };
     defer ast.deinit(allocator);
+
+    // Add stdlib items first
+    try ast.type_defs.appendSlice(allocator, prelude_ast.type_defs.items);
+    try ast.class_defs.appendSlice(allocator, prelude_ast.class_defs.items);
+    try ast.instances.appendSlice(allocator, prelude_ast.instances.items);
+    try ast.functions.appendSlice(allocator, prelude_ast.functions.items);
+
+    // Add user items
+    try ast.type_defs.appendSlice(allocator, user_ast.type_defs.items);
+    try ast.class_defs.appendSlice(allocator, user_ast.class_defs.items);
+    try ast.instances.appendSlice(allocator, user_ast.instances.items);
+    try ast.functions.appendSlice(allocator, user_ast.functions.items);
 
     // Type checker
     var typechecker = TypeChecker.init(allocator);
