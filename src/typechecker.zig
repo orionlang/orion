@@ -279,6 +279,13 @@ pub const TypeChecker = struct {
     fn checkExprWithExpectedType(self: *TypeChecker, expr: *Expr, expected_type: Type) !void {
         // For integer literals, update the inferred type and validate range
         switch (expr.*) {
+            .string_literal => {
+                // String literals are str type
+                if (expected_type.kind != .primitive or expected_type.kind.primitive != .str) {
+                    std.debug.print("String literal has type str but expected different type\n", .{});
+                    return error.TypeMismatch;
+                }
+            },
             .tuple_literal => |elements| {
                 if (expected_type.kind != .tuple) {
                     std.debug.print("Expected tuple type but got non-tuple\n", .{});
@@ -373,6 +380,10 @@ pub const TypeChecker = struct {
         switch (expr.*) {
             .integer_literal => |lit| return lit.inferred_type,
             .bool_literal => return .{ .kind = .{ .primitive = .bool  }, .usage = .once },
+            .string_literal => {
+                // String literals are str type (unlimited usage like other primitives)
+                return .{ .kind = .{ .primitive = .str }, .usage = .unlimited };
+            },
             .tuple_literal => |elements| {
                 const elem_types = try self.allocator.alloc(*Type, elements.len);
                 for (elements, 0..) |elem, i| {

@@ -37,12 +37,13 @@ pub const PrimitiveType = enum {
     u32,
     u64,
     ptr, // Opaque pointer type
+    str, // String type (null-terminated C string, represented as ptr in LLVM)
     type, // Type value (for compile-time type information)
 
     pub fn isSigned(self: PrimitiveType) bool {
         return switch (self) {
             .i8, .i16, .i32, .i64 => true,
-            .bool, .u8, .u16, .u32, .u64, .ptr, .type => false,
+            .bool, .u8, .u16, .u32, .u64, .ptr, .str, .type => false,
         };
     }
 
@@ -54,6 +55,7 @@ pub const PrimitiveType = enum {
             .i32, .u32 => 32,
             .i64, .u64 => 64,
             .ptr => 64, // Pointer width (target-dependent, using 64 for now)
+            .str => 64, // str is a pointer
             .type => 64, // Type represented as i64 at runtime
         };
     }
@@ -61,7 +63,7 @@ pub const PrimitiveType = enum {
     pub fn isInteger(self: PrimitiveType) bool {
         return switch (self) {
             .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => true,
-            .bool, .ptr, .type => false,
+            .bool, .ptr, .str, .type => false,
         };
     }
 
@@ -73,6 +75,7 @@ pub const PrimitiveType = enum {
             .i32, .u32 => "i32",
             .i64, .u64 => "i64",
             .ptr => "ptr",
+            .str => "ptr", // str is represented as ptr in LLVM
             .type => "i64", // Type represented as i64 at runtime
         };
     }
@@ -106,6 +109,7 @@ pub const PrimitiveType = enum {
             .u32 => 4294967295,
             .u64 => std.math.maxInt(i64), // Limited by i64 storage
             .ptr => 0, // Pointers don't have meaningful numeric ranges
+            .str => 0, // Strings don't have meaningful numeric ranges
             .type => 9, // Type IDs range from 1-9
         };
     }
@@ -347,6 +351,7 @@ pub const Expr = union(enum) {
         inferred_type: Type,
     },
     bool_literal: bool,
+    string_literal: []const u8, // Includes quotes, e.g. "hello"
     variable: []const u8,
     binary_op: struct {
         op: BinaryOp,
@@ -593,6 +598,7 @@ pub const FunctionDecl = struct {
                 lit.inferred_type.deinit(allocator);
             },
             .bool_literal => {},
+            .string_literal => {},
             .variable => {},
             .binary_op => |binop| {
                 deinitExpr(allocator, binop.left);
@@ -990,6 +996,7 @@ pub const Parser = struct {
         .{ "I32", .i32 },
         .{ "I64", .i64 },
         .{ "ptr", .ptr },
+        .{ "str", .str },
         .{ "Type", .type },
         .{ "U8", .u8 },
         .{ "U16", .u16 },
@@ -1494,6 +1501,11 @@ pub const Parser = struct {
             const token = try self.expect(.integer);
             const value = try std.fmt.parseInt(i64, token.lexeme, 10);
             return .{ .integer_literal = .{ .value = value, .inferred_type = .{ .kind = .{ .primitive = .i32 }, .usage = .once } } };
+        }
+
+        if (self.check(.string)) {
+            const token = try self.expect(.string);
+            return .{ .string_literal = token.lexeme };
         }
 
         if (self.check(.true_keyword)) {

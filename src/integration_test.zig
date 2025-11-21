@@ -2718,3 +2718,86 @@ test "module system: resolve from include_dirs" {
     const utils_mod = graph.modules.get("utils").?;
     try testing.expectEqualStrings("test_fixtures/external_lib/utils.or", utils_mod.file_path);
 }
+
+test "string literals: basic string" {
+    const testing = std.testing;
+    const source =
+        \\fn get_msg() str {
+        \\    return "hello"
+        \\}
+        \\fn main() I32 {
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Check for string constant declaration
+    try testing.expect(std.mem.indexOf(u8, result, "@.str.0") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "hello") != null);
+
+    // Check string is null-terminated
+    try testing.expect(std.mem.indexOf(u8, result, "\\00") != null);
+}
+
+test "string literals: escape sequences" {
+    const testing = std.testing;
+    const source =
+        \\fn get_msg() str {
+        \\    return "hello\nworld\t!"
+        \\}
+        \\fn main() I32 {
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Check for escape sequences in LLVM IR (\0A = newline, \09 = tab)
+    try testing.expect(std.mem.indexOf(u8, result, "\\0A") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "\\09") != null);
+}
+
+test "string literals: empty string" {
+    const testing = std.testing;
+    const source =
+        \\fn get_msg() str {
+        \\    return ""
+        \\}
+        \\fn main() I32 {
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Empty string should just be null terminator
+    try testing.expect(std.mem.indexOf(u8, result, "[1 x i8]") != null);
+}
+
+test "string literals: multiple strings" {
+    const testing = std.testing;
+    const source =
+        \\fn get_first() str {
+        \\    return "first"
+        \\}
+        \\fn get_second() str {
+        \\    return "second"
+        \\}
+        \\fn main() I32 {
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Should have two different string constants
+    try testing.expect(std.mem.indexOf(u8, result, "@.str.0") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "@.str.1") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "first") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "second") != null);
+}

@@ -22,6 +22,7 @@ pub const TokenKind = enum {
 
     // Literals
     integer,
+    string,
 
     // Identifiers
     identifier,
@@ -199,6 +200,31 @@ pub const Lexer = struct {
                 return self.makeToken(.at, start_pos, start_line, start_column);
             },
             '?' => return self.makeToken(.question, start_pos, start_line, start_column),
+            '"' => {
+                // String literal
+                while (!self.isAtEnd() and self.peek() != '"') {
+                    if (self.peek() == '\\') {
+                        _ = self.advance(); // Skip backslash
+                        if (!self.isAtEnd()) {
+                            _ = self.advance(); // Skip escaped char
+                        }
+                    } else if (self.peek() == '\n') {
+                        self.line += 1;
+                        self.column = 1;
+                        _ = self.advance();
+                    } else {
+                        _ = self.advance();
+                    }
+                }
+
+                if (self.isAtEnd()) {
+                    return error.UnterminatedString;
+                }
+
+                // Consume closing "
+                _ = self.advance();
+                return self.makeToken(.string, start_pos, start_line, start_column);
+            },
             '0'...'9' => {
                 while (!self.isAtEnd() and std.ascii.isDigit(self.peek())) {
                     _ = self.advance();
@@ -500,6 +526,38 @@ test "lexer: deeply nested block comments" {
     // fn main ( ) I32 { return 42 } EOF
     try testing.expectEqual(@as(usize, 10), tokens.items.len);
     try testing.expectEqual(TokenKind.fn_keyword, tokens.items[0].kind);
+}
+
+test "lexer: string literals" {
+    const testing = std.testing;
+    const source =
+        \\"hello world"
+        \\"escape\nsequences\t"
+        \\""
+    ;
+    var lexer = Lexer.init(source);
+
+    var tokens = try lexer.tokenize(testing.allocator);
+    defer tokens.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(usize, 4), tokens.items.len); // 3 strings + EOF
+    try testing.expectEqual(TokenKind.string, tokens.items[0].kind);
+    try testing.expectEqualStrings("\"hello world\"", tokens.items[0].lexeme);
+
+    try testing.expectEqual(TokenKind.string, tokens.items[1].kind);
+    try testing.expectEqualStrings("\"escape\\nsequences\\t\"", tokens.items[1].lexeme);
+
+    try testing.expectEqual(TokenKind.string, tokens.items[2].kind);
+    try testing.expectEqualStrings("\"\"", tokens.items[2].lexeme);
+}
+
+test "lexer: unterminated string" {
+    const testing = std.testing;
+    const source = "\"hello";
+    var lexer = Lexer.init(source);
+
+    const result = lexer.tokenize(testing.allocator);
+    try testing.expectError(error.UnterminatedString, result);
 }
 
 test "lexer: mixed comments" {

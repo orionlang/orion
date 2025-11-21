@@ -29,6 +29,8 @@ pub const Codegen = struct {
     allocator: std.mem.Allocator,
     output: std.ArrayList(u8),
     next_temp: usize,
+    next_string: usize,
+    string_literals: std.ArrayList(u8), // Global string constants
     variables: std.StringHashMap(VarInfo),
     functions: std.StringHashMap(FunctionInfo),
     type_defs: std.StringHashMap(Type),
@@ -43,6 +45,8 @@ pub const Codegen = struct {
             .allocator = allocator,
             .output = .empty,
             .next_temp = 0,
+            .next_string = 0,
+            .string_literals = .empty,
             .variables = std.StringHashMap(VarInfo).init(allocator),
             .functions = std.StringHashMap(FunctionInfo).init(allocator),
             .type_defs = std.StringHashMap(Type).init(allocator),
@@ -60,6 +64,9 @@ pub const Codegen = struct {
         while (iter.next()) |var_info| {
             self.allocator.free(var_info.llvm_ptr);
         }
+
+        // Free string literals
+        self.string_literals.deinit(self.allocator);
 
         // Free all inferred tuple types (shallow - nested tuples tracked separately)
         for (self.inferred_types.items) |*typ| {
@@ -88,6 +95,67 @@ pub const Codegen = struct {
         const temp_name = try std.fmt.allocPrint(self.allocator, "%t{d}", .{self.next_temp});
         self.next_temp += 1;
         return temp_name;
+    }
+
+    fn generateStringLiteral(self: *Codegen, lexeme: []const u8) ![]const u8 {
+        // lexeme includes quotes, e.g. "hello world"
+        // Strip quotes and process escape sequences
+        const content = lexeme[1 .. lexeme.len - 1];
+
+        // Process escape sequences and calculate final length
+        var processed = std.ArrayList(u8).empty;
+        defer processed.deinit(self.allocator);
+
+        var i: usize = 0;
+        while (i < content.len) {
+            if (content[i] == '\\' and i + 1 < content.len) {
+                const next = content[i + 1];
+                switch (next) {
+                    'n' => try processed.append(self.allocator, '\n'),
+                    't' => try processed.append(self.allocator, '\t'),
+                    'r' => try processed.append(self.allocator, '\r'),
+                    '\\' => try processed.append(self.allocator, '\\'),
+                    '"' => try processed.append(self.allocator, '"'),
+                    '0' => try processed.append(self.allocator, 0),
+                    else => {
+                        // Unknown escape, keep as-is
+                        try processed.append(self.allocator, '\\');
+                        try processed.append(self.allocator, next);
+                    },
+                }
+                i += 2;
+            } else {
+                try processed.append(self.allocator, content[i]);
+                i += 1;
+            }
+        }
+
+        // Add null terminator
+        try processed.append(self.allocator, 0);
+
+        // Generate global constant
+        const str_id = self.next_string;
+        self.next_string += 1;
+
+        const global_name = try std.fmt.allocPrint(self.allocator, "@.str.{d}", .{str_id});
+        defer self.allocator.free(global_name);
+
+        // Write to string_literals section
+        try self.string_literals.writer(self.allocator).print("{s} = private unnamed_addr constant [{d} x i8] c\"", .{ global_name, processed.items.len });
+
+        // Write escaped bytes
+        for (processed.items) |byte| {
+            if (byte >= 32 and byte <= 126 and byte != '\\' and byte != '"') {
+                try self.string_literals.writer(self.allocator).writeByte(byte);
+            } else {
+                try self.string_literals.writer(self.allocator).print("\\{X:0>2}", .{byte});
+            }
+        }
+
+        try self.string_literals.writer(self.allocator).print("\"\n", .{});
+
+        // Return a pointer to the global
+        return try std.fmt.allocPrint(self.allocator, "getelementptr inbounds ([{d} x i8], ptr {s}, i32 0, i32 0)", .{ processed.items.len, global_name });
     }
 
     fn allocLabel(self: *Codegen, prefix: []const u8) ![]const u8 {
@@ -296,6 +364,13 @@ pub const Codegen = struct {
         // Generate each function
         for (ast.functions.items) |func| {
             try self.generateFunction(&func);
+        }
+
+        // Output string literals after functions but they'll be moved to top later
+        // For now, just append them at the end
+        if (self.string_literals.items.len > 0) {
+            try self.output.appendSlice(self.allocator, "\n");
+            try self.output.appendSlice(self.allocator, self.string_literals.items);
         }
 
         // Generate instance methods
@@ -605,6 +680,10 @@ pub const Codegen = struct {
             },
             .bool_literal => |value| {
                 return try std.fmt.allocPrint(self.allocator, "{d}", .{if (value) @as(i32, 1) else @as(i32, 0)});
+            },
+            .string_literal => |lexeme| {
+                // Generate global string constant
+                return try self.generateStringLiteral(lexeme);
             },
             .variable => |name| {
                 // Load variable from stack
@@ -1499,6 +1578,7 @@ pub const Codegen = struct {
         switch (expr.*) {
             .integer_literal => |lit| return lit.inferred_type,
             .bool_literal => return .{ .kind = .{ .primitive = .bool  }, .usage = .once },
+            .string_literal => return .{ .kind = .{ .primitive = .str }, .usage = .unlimited },
             .tuple_literal => |elements| {
                 const elem_types = self.allocator.alloc(*Type, elements.len) catch unreachable;
                 for (elements, 0..) |elem, i| {
