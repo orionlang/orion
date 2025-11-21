@@ -11,6 +11,8 @@ const TypeChecker = @import("typechecker.zig").TypeChecker;
 const Codegen = @import("codegen.zig").Codegen;
 const target_module = @import("target.zig");
 const TargetTriple = target_module.TargetTriple;
+const ModuleResolver = @import("module.zig").ModuleResolver;
+const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -23,9 +25,10 @@ pub fn main() !void {
     if (args.len < 2) {
         std.debug.print("Usage: orion <input.or> [options]\n", .{});
         std.debug.print("Options:\n", .{});
-        std.debug.print("  -S                Stop after generating LLVM IR (.ll)\n", .{});
-        std.debug.print("  -c                Stop after generating object file (.o)\n", .{});
-        std.debug.print("  --target <triple> Target triple (default: host)\n", .{});
+        std.debug.print("  -S                  Stop after generating LLVM IR (.ll)\n", .{});
+        std.debug.print("  -c                  Stop after generating object file (.o)\n", .{});
+        std.debug.print("  --target <triple>   Target triple (default: host)\n", .{});
+        std.debug.print("  -I, --include <dir> Add directory to module search path\n", .{});
         return error.MissingInputFile;
     }
 
@@ -34,6 +37,8 @@ pub fn main() !void {
     var stop_at_ir = false;
     var stop_at_object = false;
     var target_triple_str: ?[]const u8 = null;
+    var include_dirs = std.ArrayList([]const u8).empty;
+    defer include_dirs.deinit(allocator);
 
     var i: usize = 2;
     while (i < args.len) : (i += 1) {
@@ -48,6 +53,13 @@ pub fn main() !void {
                 return error.MissingTargetTriple;
             }
             target_triple_str = args[i];
+        } else if (std.mem.eql(u8, args[i], "-I") or std.mem.eql(u8, args[i], "--include")) {
+            i += 1;
+            if (i >= args.len) {
+                std.debug.print("Error: -I/--include requires an argument\n", .{});
+                return error.MissingIncludeDir;
+            }
+            try include_dirs.append(allocator, args[i]);
         }
     }
 
@@ -71,6 +83,7 @@ pub fn main() !void {
         std.debug.print("Continuing without stdlib...\n", .{});
         // Create empty prelude AST
         const empty_ast = AST{
+            .imports = std.ArrayList(parser_module.ImportDecl).empty,
             .type_defs = std.ArrayList(TypeDef).empty,
             .class_defs = std.ArrayList(ClassDef).empty,
             .instances = std.ArrayList(InstanceDecl).empty,
@@ -88,31 +101,98 @@ pub fn main() !void {
     var prelude_parser = Parser.init(prelude_tokens.items, allocator);
     var prelude_ast = try prelude_parser.parse();
     defer {
+        prelude_ast.imports.deinit(allocator);
         prelude_ast.type_defs.deinit(allocator);
         prelude_ast.class_defs.deinit(allocator);
         prelude_ast.instances.deinit(allocator);
         prelude_ast.functions.deinit(allocator);
     }
 
-    // Load and parse user source
-    const source = try std.fs.cwd().readFileAlloc(allocator, input_path, 1024 * 1024);
-    defer allocator.free(source);
+    // Derive src directory from input path
+    // e.g., "test_multi/src/main.or" -> "test_multi/src"
+    //       "src/main.or" -> "src"
+    //       "main.or" -> "."
+    const src_dir = blk: {
+        if (std.fs.path.dirname(input_path)) |dir| {
+            break :blk dir;
+        }
+        break :blk ".";
+    };
 
-    var lexer = Lexer.init(source);
-    var tokens = try lexer.tokenize(allocator);
-    defer tokens.deinit(allocator);
+    // Discover all modules via dependency graph
+    const resolver = ModuleResolver.init(allocator, src_dir, "stdlib", include_dirs.items);
+    var dep_graph = DependencyGraph.init(allocator, resolver);
+    defer dep_graph.deinit();
 
-    var parser = Parser.init(tokens.items, allocator);
-    var user_ast = try parser.parse();
-    defer {
-        user_ast.type_defs.deinit(allocator);
-        user_ast.class_defs.deinit(allocator);
-        user_ast.instances.deinit(allocator);
-        user_ast.functions.deinit(allocator);
+    try dep_graph.discover(input_path);
+
+    // Check for circular dependencies
+    if (try dep_graph.detectCycles()) |cycle| {
+        defer allocator.free(cycle);
+        std.debug.print("Error: Circular dependency detected:\n", .{});
+        for (cycle, 0..) |module, idx| {
+            std.debug.print("  {s}", .{module});
+            if (idx < cycle.len - 1) {
+                std.debug.print(" → ", .{});
+            }
+        }
+        std.debug.print("\n", .{});
+        return error.CircularDependency;
     }
 
-    // Merge stdlib and user AST
+    // Get topologically sorted compilation order
+    const levels = try dep_graph.topologicalSort();
+    defer {
+        for (levels) |*level| {
+            level.deinit(allocator);
+        }
+        allocator.free(levels);
+    }
+
+    // For bootstrap simplicity: load and parse all modules in order, merge ASTs
+    // TODO: Full compiler should compile modules separately
+    var module_asts = std.ArrayList(AST).empty;
+    defer {
+        for (module_asts.items) |*mod_ast| {
+            mod_ast.imports.deinit(allocator);
+            mod_ast.type_defs.deinit(allocator);
+            mod_ast.class_defs.deinit(allocator);
+            mod_ast.instances.deinit(allocator);
+            mod_ast.functions.deinit(allocator);
+        }
+        module_asts.deinit(allocator);
+    }
+
+    // Track module sources so they aren't freed while ASTs still reference them
+    var module_sources = std.ArrayList([]const u8).empty;
+    defer {
+        for (module_sources.items) |source| {
+            allocator.free(source);
+        }
+        module_sources.deinit(allocator);
+    }
+
+    // Load and parse each module in dependency order
+    for (levels) |level| {
+        for (level.items) |module_path| {
+            const mod_id = dep_graph.modules.get(module_path) orelse continue;
+
+            const source = try std.fs.cwd().readFileAlloc(allocator, mod_id.file_path, 1024 * 1024);
+            try module_sources.append(allocator, source); // Keep source alive
+
+            var lexer = Lexer.init(source);
+            var tokens = try lexer.tokenize(allocator);
+            defer tokens.deinit(allocator);
+
+            var parser = Parser.init(tokens.items, allocator);
+            const mod_ast = try parser.parse();
+            try module_asts.append(allocator, mod_ast);
+        }
+    }
+
+    // Merge stdlib and all discovered module ASTs
     var ast = AST{
+        .imports = std.ArrayList(parser_module.ImportDecl).empty,
         .type_defs = std.ArrayList(TypeDef).empty,
         .class_defs = std.ArrayList(ClassDef).empty,
         .instances = std.ArrayList(InstanceDecl).empty,
@@ -121,16 +201,20 @@ pub fn main() !void {
     defer ast.deinit(allocator);
 
     // Add stdlib items first
+    try ast.imports.appendSlice(allocator, prelude_ast.imports.items);
     try ast.type_defs.appendSlice(allocator, prelude_ast.type_defs.items);
     try ast.class_defs.appendSlice(allocator, prelude_ast.class_defs.items);
     try ast.instances.appendSlice(allocator, prelude_ast.instances.items);
     try ast.functions.appendSlice(allocator, prelude_ast.functions.items);
 
-    // Add user items
-    try ast.type_defs.appendSlice(allocator, user_ast.type_defs.items);
-    try ast.class_defs.appendSlice(allocator, user_ast.class_defs.items);
-    try ast.instances.appendSlice(allocator, user_ast.instances.items);
-    try ast.functions.appendSlice(allocator, user_ast.functions.items);
+    // Add all discovered modules in dependency order
+    for (module_asts.items) |mod_ast| {
+        try ast.imports.appendSlice(allocator, mod_ast.imports.items);
+        try ast.type_defs.appendSlice(allocator, mod_ast.type_defs.items);
+        try ast.class_defs.appendSlice(allocator, mod_ast.class_defs.items);
+        try ast.instances.appendSlice(allocator, mod_ast.instances.items);
+        try ast.functions.appendSlice(allocator, mod_ast.functions.items);
+    }
 
     // Type checker
     var typechecker = TypeChecker.init(allocator);

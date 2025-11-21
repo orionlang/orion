@@ -1265,12 +1265,14 @@ pub const Codegen = struct {
                             const ext_op = if (is_signed) "sext" else "zext";
                             try self.output.writer(self.allocator).print("  {s} = {s} {s} {s} to i64\n",
                                 .{ extended, ext_op, type_str, loaded_val });
+                            self.allocator.free(loaded_val);
                             break :blk extended;
                         };
 
                         // Convert to ptr
                         const ptr_result = try self.allocTempName();
                         try self.output.writer(self.allocator).print("  {s} = inttoptr {s} {s} to ptr\n", .{ ptr_result, self.target_info.native_int_type, i64_val });
+                        self.allocator.free(i64_val);
                         return ptr_result;
                     } else {
                         // Runtime Type variable - generate runtime dispatch based on type ID
@@ -1691,7 +1693,8 @@ test "codegen: simple function" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -1716,7 +1719,8 @@ test "codegen: binary addition" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -1746,7 +1750,8 @@ test "codegen: all arithmetic operators" {
         var ast = try p.parse();
         defer ast.deinit(testing.allocator);
 
-        var codegen = Codegen.init(testing.allocator);
+        const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
         defer codegen.deinit();
 
         const llvm_ir = try codegen.generate(&ast);
@@ -1779,7 +1784,8 @@ test "codegen: comparison operators" {
         var ast = try p.parse();
         defer ast.deinit(testing.allocator);
 
-        var codegen = Codegen.init(testing.allocator);
+        const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
         defer codegen.deinit();
 
         const llvm_ir = try codegen.generate(&ast);
@@ -1811,7 +1817,8 @@ test "codegen: bitwise and shift operators" {
         var ast = try p.parse();
         defer ast.deinit(testing.allocator);
 
-        var codegen = Codegen.init(testing.allocator);
+        const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
         defer codegen.deinit();
 
         const llvm_ir = try codegen.generate(&ast);
@@ -1841,7 +1848,8 @@ test "codegen: unary operators" {
         var ast = try p.parse();
         defer ast.deinit(testing.allocator);
 
-        var codegen = Codegen.init(testing.allocator);
+        const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
         defer codegen.deinit();
 
         const llvm_ir = try codegen.generate(&ast);
@@ -1870,7 +1878,8 @@ test "codegen: logical operators" {
         var ast = try p.parse();
         defer ast.deinit(testing.allocator);
 
-        var codegen = Codegen.init(testing.allocator);
+        const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
         defer codegen.deinit();
 
         const llvm_ir = try codegen.generate(&ast);
@@ -1899,7 +1908,8 @@ test "codegen: bool literals" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -1923,7 +1933,8 @@ test "codegen: simple if expression" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -1954,7 +1965,8 @@ test "codegen: if with integer condition" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -1978,7 +1990,8 @@ test "codegen: if with comparison condition" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -2003,7 +2016,8 @@ test "codegen: nested if expressions" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -2034,7 +2048,8 @@ test "codegen: elseif creates nested if" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -2066,7 +2081,8 @@ test "codegen: basic block tracking in elseif" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -2091,7 +2107,8 @@ test "codegen: simple while loop" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -2126,7 +2143,8 @@ test "codegen: while loop with comparison condition" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);
@@ -2150,7 +2168,8 @@ test "codegen: nested while loops" {
     var ast = try p.parse();
     defer ast.deinit(testing.allocator);
 
-    var codegen = Codegen.init(testing.allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(testing.allocator, target);
     defer codegen.deinit();
 
     const llvm_ir = try codegen.generate(&ast);

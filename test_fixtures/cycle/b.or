@@ -1,0 +1,5 @@
+import a
+
+pub fn bar() I32 {
+    return 2
+}

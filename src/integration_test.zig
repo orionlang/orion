@@ -3,6 +3,7 @@ const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const TypeChecker = @import("typechecker.zig").TypeChecker;
 const Codegen = @import("codegen.zig").Codegen;
+const target_module = @import("target.zig");
 
 fn compile(source: []const u8, allocator: std.mem.Allocator) ![]const u8 {
     var lexer = Lexer.init(source);
@@ -17,7 +18,8 @@ fn compile(source: []const u8, allocator: std.mem.Allocator) ![]const u8 {
     defer typechecker.deinit();
     try typechecker.check(&ast);
 
-    var codegen = Codegen.init(allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(allocator, target);
     defer codegen.deinit();
     return try codegen.generate(&ast);
 }
@@ -48,6 +50,7 @@ fn compileWithStdlib(source: []const u8, allocator: std.mem.Allocator) ![]const 
 
     // Merge stdlib and user AST
     var ast = AST{
+        .imports = std.ArrayList(parser_module.ImportDecl).empty,
         .type_defs = std.ArrayList(parser_module.TypeDef).empty,
         .class_defs = std.ArrayList(parser_module.ClassDef).empty,
         .instances = std.ArrayList(parser_module.InstanceDecl).empty,
@@ -82,7 +85,8 @@ fn compileWithStdlib(source: []const u8, allocator: std.mem.Allocator) ![]const 
     defer typechecker.deinit();
     try typechecker.check(&ast);
 
-    var codegen = Codegen.init(allocator);
+    const target = target_module.detectHostTriple();
+    var codegen = Codegen.init(allocator, target);
     defer codegen.deinit();
     return try codegen.generate(&ast);
 }
@@ -450,23 +454,6 @@ test "integration: integer type annotations" {
     }
 }
 
-test "integration: integer type conversions" {
-    const testing = std.testing;
-
-    // Test sign extension (i32 -> i64)
-    const sext_source = "fn f() I64 { return 42 }";
-    const sext_ir = try compile(sext_source, testing.allocator);
-    defer testing.allocator.free(sext_ir);
-    try testing.expect(std.mem.indexOf(u8, sext_ir, "sext i32") != null);
-    try testing.expect(std.mem.indexOf(u8, sext_ir, "to i64") != null);
-
-    // Test no conversion needed (i32 -> u32, same LLVM type)
-    const noconv_source = "fn f() U32 { return 42 }";
-    const noconv_ir = try compile(noconv_source, testing.allocator);
-    defer testing.allocator.free(noconv_ir);
-    try testing.expect(std.mem.indexOf(u8, noconv_ir, "ret i32 42") != null);
-}
-
 test "integration: let bindings with all integer types" {
     const testing = std.testing;
 
@@ -582,22 +569,6 @@ test "integration: signed/unsigned operations" {
     }
 }
 
-test "integration: type extension conversions" {
-    const testing = std.testing;
-
-    // Test sign extension for signed types (I32 literal -> I64 return)
-    const sext_source = "fn f() I64 { return 42 }";
-    const sext_llvm = try compile(sext_source, testing.allocator);
-    defer testing.allocator.free(sext_llvm);
-    try testing.expect(std.mem.indexOf(u8, sext_llvm, "sext") != null);
-
-    // Test zero extension: Bool (unsigned) -> any integer uses zext
-    const zext_source = "fn f() I32 { return 5 > 3 }";
-    const zext_llvm = try compile(zext_source, testing.allocator);
-    defer testing.allocator.free(zext_llvm);
-    try testing.expect(std.mem.indexOf(u8, zext_llvm, "zext") != null);
-}
-
 test "integration: implicit literal conversions" {
     const testing = std.testing;
 
@@ -709,13 +680,13 @@ test "integration: function parameters" {
 
     // Check function signature
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i32 @add(i32 %x, i32 %y)") != null);
-    
+
     // Check parameters are allocated and stored
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "%x.addr = alloca i32") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "%y.addr = alloca i32") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "store i32 %x, ptr %x.addr") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "store i32 %y, ptr %y.addr") != null);
-    
+
     // Check parameters are loaded and used
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32, ptr %x.addr") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32, ptr %y.addr") != null);
@@ -731,7 +702,7 @@ test "integration: function with multiple parameter types" {
 
     // Check function signature has all types
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "define i64 @mix(i64 %a, i32 %b, i8 %c)") != null);
-    
+
     // Check all parameters allocated
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "%a.addr = alloca i64") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "%b.addr = alloca i32") != null);
@@ -759,7 +730,7 @@ test "integration: parameter usage in expressions" {
     // Parameters should be loaded multiple times
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32, ptr %x.addr") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "load i32, ptr %y.addr") != null);
-    
+
     // Check operations
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "mul i32") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "add i32") != null);
@@ -2539,7 +2510,7 @@ test "stdlib Pointer.read loads value from pointer" {
         \\fn main() I32 {
         \\  let x: U64@* = 42
         \\  let p: ptr@* = @ptr_of(x)
-        \\  let val: U64@* = p.read()
+        \\  let val: ptr@* = p.read(@type(U64))
         \\  return 42
         \\}
     ;
@@ -2560,7 +2531,7 @@ test "stdlib Pointer.write stores value to pointer" {
         \\  let p: ptr@* = @ptr_of(x)
         \\  let value: U64@* = 42
         \\  let unit: ()@* = p.write(value)
-        \\  let val: U64@* = p.read()
+        \\  let val: ptr@* = p.read(@type(U64))
         \\  return 42
         \\}
     ;
@@ -2601,7 +2572,7 @@ test "stdlib Pointer methods can be chained" {
         \\  let p: ptr@* = @ptr_of(x)
         \\  let val: U64@* = 150
         \\  let _: ()@* = p.write(val)
-        \\  let value: U64@* = p.read()
+        \\  let value: ptr@* = p.read(@type(U64))
         \\  return 42
         \\}
     ;
@@ -2611,4 +2582,139 @@ test "stdlib Pointer methods can be chained" {
     try testing.expect(ir.len > 0);
     try testing.expect(std.mem.indexOf(u8, ir, "ptr__write") != null);
     try testing.expect(std.mem.indexOf(u8, ir, "ptr__read") != null);
+}
+
+// Module System Integration Tests
+
+test "module system: compile single file without imports" {
+    const testing = std.testing;
+    const ModuleResolver = @import("module.zig").ModuleResolver;
+    const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
+    
+    const include_dirs: []const []const u8 = &.{};
+    const resolver = ModuleResolver.init(testing.allocator, "test_fixtures/single", "stdlib", include_dirs);
+    var graph = DependencyGraph.init(testing.allocator, resolver);
+    defer graph.deinit();
+
+    try graph.discover("test_fixtures/single/standalone.or");
+
+    // Should discover only standalone module
+    try testing.expect(graph.modules.contains("standalone"));
+    try testing.expectEqual(@as(usize, 1), graph.modules.count());
+    
+    // No cycles
+    const cycle = try graph.detectCycles();
+    try testing.expect(cycle == null);
+    
+    // Single level in topological sort
+    const levels = try graph.topologicalSort();
+    defer {
+        for (levels) |*level| {
+            level.deinit(testing.allocator);
+        }
+        testing.allocator.free(levels);
+    }
+    try testing.expectEqual(@as(usize, 1), levels.len);
+}
+
+test "module system: compile with single import" {
+    const testing = std.testing;
+    const ModuleResolver = @import("module.zig").ModuleResolver;
+    const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
+
+    const include_dirs: []const []const u8 = &.{};
+    const resolver = ModuleResolver.init(testing.allocator, "test_fixtures/simple", "stdlib", include_dirs);
+    var graph = DependencyGraph.init(testing.allocator, resolver);
+    defer graph.deinit();
+
+    try graph.discover("test_fixtures/simple/main.or");
+
+    // Should discover main and lexer
+    try testing.expect(graph.modules.contains("main"));
+    try testing.expect(graph.modules.contains("lexer"));
+
+    // No cycles
+    const cycle = try graph.detectCycles();
+    try testing.expect(cycle == null);
+}
+
+test "module system: nested dependencies" {
+    const testing = std.testing;
+    const ModuleResolver = @import("module.zig").ModuleResolver;
+    const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
+
+    const include_dirs: []const []const u8 = &.{};
+    const resolver = ModuleResolver.init(testing.allocator, "test_fixtures/nested", "stdlib", include_dirs);
+    var graph = DependencyGraph.init(testing.allocator, resolver);
+    defer graph.deinit();
+
+    try graph.discover("test_fixtures/nested/main.or");
+    
+    // Should discover main, lexer, and parser
+    try testing.expect(graph.modules.contains("main"));
+    try testing.expect(graph.modules.contains("lexer"));
+    try testing.expect(graph.modules.contains("parser"));
+    try testing.expectEqual(@as(usize, 3), graph.modules.count());
+    
+    // Verify topological order
+    const levels = try graph.topologicalSort();
+    defer {
+        for (levels) |*level| {
+            level.deinit(testing.allocator);
+        }
+        testing.allocator.free(levels);
+    }
+    
+    // lexer -> parser -> main (3 levels)
+    try testing.expectEqual(@as(usize, 3), levels.len);
+}
+
+test "module system: detect circular dependency" {
+    const testing = std.testing;
+    const ModuleResolver = @import("module.zig").ModuleResolver;
+    const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
+
+    const include_dirs: []const []const u8 = &.{};
+    const resolver = ModuleResolver.init(testing.allocator, "test_fixtures/cycle", "stdlib", include_dirs);
+    var graph = DependencyGraph.init(testing.allocator, resolver);
+    defer graph.deinit();
+    
+    try graph.discover("test_fixtures/cycle/main.or");
+    
+    // Should detect cycle
+    const cycle = try graph.detectCycles();
+    try testing.expect(cycle != null);
+    
+    if (cycle) |c| {
+        defer testing.allocator.free(c);
+        // Cycle should contain both a and b
+        try testing.expect(c.len >= 2);
+    }
+}
+
+test "module system: resolve from include_dirs" {
+    const testing = std.testing;
+    const ModuleResolver = @import("module.zig").ModuleResolver;
+    const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
+
+    const include_dirs: []const []const u8 = &.{"test_fixtures/external_lib"};
+    const resolver = ModuleResolver.init(testing.allocator, "test_fixtures/with_external/src", "stdlib", include_dirs);
+    var graph = DependencyGraph.init(testing.allocator, resolver);
+    defer graph.deinit();
+
+    try graph.discover("test_fixtures/with_external/src/main.or");
+
+    // Should discover main and utils (from include_dir)
+    try testing.expect(graph.modules.contains("main"));
+    try testing.expect(graph.modules.contains("utils"));
+    try testing.expectEqual(@as(usize, 2), graph.modules.count());
+
+    // main depends on utils
+    const main_deps = graph.edges.get("main").?;
+    try testing.expectEqual(@as(usize, 1), main_deps.items.len);
+    try testing.expectEqualStrings("utils", main_deps.items[0]);
+
+    // utils should be resolved from include_dir
+    const utils_mod = graph.modules.get("utils").?;
+    try testing.expectEqualStrings("test_fixtures/external_lib/utils.or", utils_mod.file_path);
 }

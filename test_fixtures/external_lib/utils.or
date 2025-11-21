@@ -1,0 +1,3 @@
+pub fn helper() I32 {
+    return 99
+}

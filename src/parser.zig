@@ -448,9 +448,31 @@ pub const Stmt = union(enum) {
     expr: *Expr,
 };
 
+pub const ImportItem = union(enum) {
+    module: []const u8, // import foo
+    specific: struct { // import foo::bar or import foo::{bar, baz}
+        path: []const u8, // e.g., "foo"
+        items: [][]const u8, // e.g., ["bar"] or ["bar", "baz"]
+    },
+};
+
+pub const ImportDecl = struct {
+    item: ImportItem,
+
+    pub fn deinit(self: *ImportDecl, allocator: std.mem.Allocator) void {
+        switch (self.item) {
+            .module => {},
+            .specific => |spec| {
+                allocator.free(spec.items);
+            },
+        }
+    }
+};
+
 pub const TypeDef = struct {
     name: []const u8,
     type_value: Type,
+    is_public: bool,
 
     pub fn deinit(self: *TypeDef, allocator: std.mem.Allocator) void {
         self.type_value.deinit(allocator);
@@ -467,6 +489,7 @@ pub const ClassMethod = struct {
 pub const ClassDef = struct {
     name: []const u8,
     methods: []ClassMethod,
+    is_public: bool,
 
     pub fn deinit(self: *ClassDef, allocator: std.mem.Allocator) void {
         for (self.methods) |*method| {
@@ -518,6 +541,7 @@ pub const FunctionDecl = struct {
     return_type: Type,
     body: std.ArrayList(Stmt),
     is_unsafe: bool,
+    is_public: bool,
 
     pub fn deinit(self: *FunctionDecl, allocator: std.mem.Allocator) void {
         for (self.params) |param| {
@@ -682,12 +706,17 @@ pub const FunctionDecl = struct {
 };
 
 pub const AST = struct {
+    imports: std.ArrayList(ImportDecl),
     type_defs: std.ArrayList(TypeDef),
     class_defs: std.ArrayList(ClassDef),
     instances: std.ArrayList(InstanceDecl),
     functions: std.ArrayList(FunctionDecl),
 
     pub fn deinit(self: *AST, allocator: std.mem.Allocator) void {
+        for (self.imports.items) |*import_decl| {
+            import_decl.deinit(allocator);
+        }
+        self.imports.deinit(allocator);
         for (self.type_defs.items) |*typedef| {
             typedef.deinit(allocator);
         }
@@ -721,6 +750,8 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Parser) !AST {
+        var imports: std.ArrayList(ImportDecl) = .empty;
+        errdefer imports.deinit(self.allocator);
         var type_defs: std.ArrayList(TypeDef) = .empty;
         errdefer type_defs.deinit(self.allocator);
         var class_defs: std.ArrayList(ClassDef) = .empty;
@@ -731,17 +762,26 @@ pub const Parser = struct {
         errdefer functions.deinit(self.allocator);
 
         while (!self.isAtEnd()) {
-            if (self.check(.type_keyword)) {
-                const typedef = try self.parseTypeDef();
+            // Check for optional pub keyword
+            const is_public = if (self.check(.pub_keyword)) blk: {
+                _ = try self.expect(.pub_keyword);
+                break :blk true;
+            } else false;
+
+            if (self.check(.import_keyword)) {
+                const import_decl = try self.parseImport();
+                try imports.append(self.allocator, import_decl);
+            } else if (self.check(.type_keyword)) {
+                const typedef = try self.parseTypeDef(is_public);
                 try type_defs.append(self.allocator, typedef);
             } else if (self.check(.class_keyword)) {
-                const classdef = try self.parseClassDef();
+                const classdef = try self.parseClassDef(is_public);
                 try class_defs.append(self.allocator, classdef);
             } else if (self.check(.instance_keyword)) {
                 const instance = try self.parseInstanceDecl();
                 try instances.append(self.allocator, instance);
             } else if (self.check(.unsafe_keyword) or self.check(.fn_keyword)) {
-                const func = try self.parseFunction();
+                const func = try self.parseFunction(is_public);
                 try functions.append(self.allocator, func);
             } else {
                 return error.UnexpectedToken;
@@ -749,6 +789,7 @@ pub const Parser = struct {
         }
 
         return AST{
+            .imports = imports,
             .type_defs = type_defs,
             .class_defs = class_defs,
             .instances = instances,
@@ -756,7 +797,7 @@ pub const Parser = struct {
         };
     }
 
-    fn parseFunction(self: *Parser) !FunctionDecl {
+    fn parseFunction(self: *Parser, is_public: bool) !FunctionDecl {
         // Check for optional unsafe keyword
         const is_unsafe = if (self.check(.unsafe_keyword)) blk: {
             _ = try self.expect(.unsafe_keyword);
@@ -802,6 +843,7 @@ pub const Parser = struct {
             .return_type = return_type,
             .body = body,
             .is_unsafe = is_unsafe,
+            .is_public = is_public,
         };
     }
 
@@ -819,7 +861,116 @@ pub const Parser = struct {
         return body;
     }
 
-    fn parseTypeDef(self: *Parser) !TypeDef {
+    fn parseImport(self: *Parser) !ImportDecl {
+        _ = try self.expect(.import_keyword);
+
+        // Parse module path (e.g., "foo" or "foo.bar")
+        // We need to distinguish:
+        // - import foo       -> module import
+        // - import foo.bar   -> could be module foo.bar OR module foo with item bar
+        // - import foo.{a,b} -> module foo with items a,b
+
+        const first_part = try self.expect(.identifier);
+
+        // Check if there's a dot after the first identifier
+        if (!self.check(.dot)) {
+            // Just: import foo
+            return ImportDecl{
+                .item = .{ .module = first_part.lexeme },
+            };
+        }
+
+        _ = try self.expect(.dot);
+
+        // Check for brace list: import foo.{bar, baz}
+        if (self.check(.left_brace)) {
+            _ = try self.expect(.left_brace);
+            var items: std.ArrayList([]const u8) = .empty;
+            errdefer items.deinit(self.allocator);
+
+            while (!self.check(.right_brace)) {
+                const item = try self.expect(.identifier);
+                try items.append(self.allocator, item.lexeme);
+
+                if (self.check(.comma)) {
+                    _ = try self.expect(.comma);
+                } else {
+                    break;
+                }
+            }
+
+            _ = try self.expect(.right_brace);
+
+            return ImportDecl{
+                .item = .{
+                    .specific = .{
+                        .path = first_part.lexeme,
+                        .items = try items.toOwnedSlice(self.allocator),
+                    },
+                },
+            };
+        }
+
+        // Parse rest of path: foo.bar.baz or foo.bar
+        var path_buf: std.ArrayList(u8) = .empty;
+        defer path_buf.deinit(self.allocator);
+
+        try path_buf.appendSlice(self.allocator, first_part.lexeme);
+        try path_buf.appendSlice(self.allocator, ".");
+
+        const second_part = try self.expect(.identifier);
+        try path_buf.appendSlice(self.allocator, second_part.lexeme);
+
+        // Continue parsing module path
+        while (self.check(.dot)) {
+            // Peek ahead to see if it's a brace list
+            if (self.peekAhead(1).kind == .left_brace) {
+                // This is: import foo.bar.{items}
+                _ = try self.expect(.dot);
+                _ = try self.expect(.left_brace);
+
+                var items: std.ArrayList([]const u8) = .empty;
+                errdefer items.deinit(self.allocator);
+
+                while (!self.check(.right_brace)) {
+                    const item = try self.expect(.identifier);
+                    try items.append(self.allocator, item.lexeme);
+
+                    if (self.check(.comma)) {
+                        _ = try self.expect(.comma);
+                    } else {
+                        break;
+                    }
+                }
+
+                _ = try self.expect(.right_brace);
+
+                const module_path = try self.allocator.dupe(u8, path_buf.items);
+                return ImportDecl{
+                    .item = .{
+                        .specific = .{
+                            .path = module_path,
+                            .items = try items.toOwnedSlice(self.allocator),
+                        },
+                    },
+                };
+            }
+
+            // Continue building module path
+            _ = try self.expect(.dot);
+            const next_part = try self.expect(.identifier);
+            try path_buf.appendSlice(self.allocator, ".");
+            try path_buf.appendSlice(self.allocator, next_part.lexeme);
+        }
+
+        // Module import: import foo.bar.baz
+        const module_path = try self.allocator.dupe(u8, path_buf.items);
+        return ImportDecl{
+            .item = .{ .module = module_path },
+        };
+    }
+
+    fn parseTypeDef(self: *Parser, is_public: bool) !TypeDef {
         _ = try self.expect(.type_keyword);
         const name_token = try self.expect(.identifier);
         _ = try self.expect(.equal);
@@ -828,6 +979,7 @@ pub const Parser = struct {
         return TypeDef{
             .name = name_token.lexeme,
             .type_value = type_value,
+            .is_public = is_public,
         };
     }
 
@@ -1879,7 +2031,7 @@ pub const Parser = struct {
         return self.pos >= self.tokens.len or self.current().kind == .eof;
     }
 
-    fn parseClassDef(self: *Parser) !ClassDef {
+    fn parseClassDef(self: *Parser, is_public: bool) !ClassDef {
         _ = try self.expect(.class_keyword);
         const name_token = try self.expect(.identifier);
         const name = name_token.lexeme;
@@ -1943,6 +2095,7 @@ pub const Parser = struct {
         return ClassDef{
             .name = name,
             .methods = try methods.toOwnedSlice(self.allocator),
+            .is_public = is_public,
         };
     }
 

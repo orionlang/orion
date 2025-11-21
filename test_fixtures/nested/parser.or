@@ -1,0 +1,5 @@
+import lexer
+
+pub fn parse() I32 {
+    return 100
+}
