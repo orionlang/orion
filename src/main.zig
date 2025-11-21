@@ -53,8 +53,13 @@ pub fn main() !void {
     defer prelude_tokens.deinit(allocator);
 
     var prelude_parser = Parser.init(prelude_tokens.items, allocator);
-    const prelude_ast = try prelude_parser.parse();
-    // Don't deinit prelude_ast - ownership transferred to merged ast
+    var prelude_ast = try prelude_parser.parse();
+    defer {
+        prelude_ast.type_defs.deinit(allocator);
+        prelude_ast.class_defs.deinit(allocator);
+        prelude_ast.instances.deinit(allocator);
+        prelude_ast.functions.deinit(allocator);
+    }
 
     // Load and parse user source
     const source = try std.fs.cwd().readFileAlloc(allocator, input_path, 1024 * 1024);
@@ -65,8 +70,13 @@ pub fn main() !void {
     defer tokens.deinit(allocator);
 
     var parser = Parser.init(tokens.items, allocator);
-    const user_ast = try parser.parse();
-    // Don't deinit user_ast - ownership transferred to merged ast
+    var user_ast = try parser.parse();
+    defer {
+        user_ast.type_defs.deinit(allocator);
+        user_ast.class_defs.deinit(allocator);
+        user_ast.instances.deinit(allocator);
+        user_ast.functions.deinit(allocator);
+    }
 
     // Merge stdlib and user AST
     var ast = AST{

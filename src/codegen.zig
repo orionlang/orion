@@ -31,6 +31,7 @@ pub const Codegen = struct {
     type_defs: std.StringHashMap(Type),
     current_block: ?[]const u8,
     inferred_types: std.ArrayList(Type),
+    instance_methods: std.StringHashMap(Type),
 
     pub fn init(allocator: std.mem.Allocator) Codegen {
         return .{
@@ -42,6 +43,7 @@ pub const Codegen = struct {
             .type_defs = std.StringHashMap(Type).init(allocator),
             .current_block = null,
             .inferred_types = .empty,
+            .instance_methods = std.StringHashMap(Type).init(allocator),
         };
     }
 
@@ -62,10 +64,17 @@ pub const Codegen = struct {
             self.allocator.free(block);
         }
 
+        // Free instance_methods keys
+        var it = self.instance_methods.keyIterator();
+        while (it.next()) |key| {
+            self.allocator.free(key.*);
+        }
+
         self.output.deinit(self.allocator);
         self.variables.deinit();
         self.functions.deinit();
         self.type_defs.deinit();
+        self.instance_methods.deinit();
     }
 
     fn allocTempName(self: *Codegen) ![]const u8 {
@@ -252,6 +261,22 @@ pub const Codegen = struct {
             try self.functions.put(func.name, .{
                 .return_type = func.return_type,
             });
+        }
+
+        // Third pass: collect instance method signatures
+        for (ast.instances.items) |instance| {
+            const type_name = switch (instance.type_name.kind) {
+                .named => |name| name,
+                .primitive => |prim| @tagName(prim),
+                else => "unknown",
+            };
+
+            for (instance.methods) |method| {
+                const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method.name });
+                const saved_name = try self.allocator.dupe(u8, mangled_name);
+                self.allocator.free(mangled_name);
+                try self.instance_methods.put(saved_name, method.return_type);
+            }
         }
 
         // LLVM IR header
@@ -1181,29 +1206,170 @@ pub const Codegen = struct {
                     try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ value_type_str, value_val, ptr_temp });
 
                     return ptr_temp;
+                } else if (std.mem.eql(u8, call.name, "@type")) {
+                    // @type(TypeName) -> returns Type value (represented as i64)
+                    // Extract type name and return a constant representing it
+                    const type_name_expr = call.args[0];
+                    const type_name = switch (type_name_expr.*) {
+                        .variable => |v| v,
+                        .constructor_call => |c| c.name,
+                        else => unreachable,
+                    };
+
+                    // Map type names to integer constants
+                    const type_id: i64 = if (std.mem.eql(u8, type_name, "Bool")) 1
+                        else if (std.mem.eql(u8, type_name, "I8")) 2
+                        else if (std.mem.eql(u8, type_name, "I16")) 3
+                        else if (std.mem.eql(u8, type_name, "I32")) 4
+                        else if (std.mem.eql(u8, type_name, "I64")) 5
+                        else if (std.mem.eql(u8, type_name, "U8")) 6
+                        else if (std.mem.eql(u8, type_name, "U16")) 7
+                        else if (std.mem.eql(u8, type_name, "U32")) 8
+                        else if (std.mem.eql(u8, type_name, "U64")) 9
+                        else unreachable;
+
+                    return try std.fmt.allocPrint(self.allocator, "{d}", .{type_id});
                 } else if (std.mem.eql(u8, call.name, "@ptr_read")) {
-                    // @ptr_read(ptr) -> load
+                    // @ptr_read(ptr, type_val) -> load based on type
                     const ptr_val = try self.generateExpression(call.args[0]);
                     defer self.allocator.free(ptr_val);
 
-                    const result_temp = try self.allocTempName();
-                    // For now, hardcode to i32 (we'll improve this with generics later)
-                    try self.output.writer(self.allocator).print("  {s} = load i32, ptr {s}\n", .{ result_temp, ptr_val });
+                    const type_arg = call.args[1];
 
-                    return result_temp;
+                    // Check if second arg is compile-time @type(...) or runtime Type variable
+                    if (type_arg.* == .intrinsic_call and std.mem.eql(u8, type_arg.intrinsic_call.name, "@type")) {
+                        // Compile-time known type - direct load
+                        const type_name_expr = type_arg.intrinsic_call.args[0];
+                        const type_name = switch (type_name_expr.*) {
+                            .variable => |v| v,
+                            .constructor_call => |c| c.name,
+                            else => unreachable,
+                        };
+
+                        const type_str = if (std.mem.eql(u8, type_name, "I8")) "i8"
+                            else if (std.mem.eql(u8, type_name, "I16")) "i16"
+                            else if (std.mem.eql(u8, type_name, "I32")) "i32"
+                            else if (std.mem.eql(u8, type_name, "I64")) "i64"
+                            else if (std.mem.eql(u8, type_name, "U8")) "i8"
+                            else if (std.mem.eql(u8, type_name, "U16")) "i16"
+                            else if (std.mem.eql(u8, type_name, "U32")) "i32"
+                            else if (std.mem.eql(u8, type_name, "U64")) "i64"
+                            else if (std.mem.eql(u8, type_name, "Bool")) "i1"
+                            else unreachable;
+
+                        const loaded_val = try self.allocTempName();
+                        try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ loaded_val, type_str, ptr_val });
+
+                        // Extend/convert to i64 if needed
+                        const i64_val = if (std.mem.eql(u8, type_str, "i64"))
+                            loaded_val
+                        else blk: {
+                            const extended = try self.allocTempName();
+                            const is_signed = std.mem.eql(u8, type_name, "I8") or
+                                            std.mem.eql(u8, type_name, "I16") or
+                                            std.mem.eql(u8, type_name, "I32");
+                            const ext_op = if (is_signed) "sext" else "zext";
+                            try self.output.writer(self.allocator).print("  {s} = {s} {s} {s} to i64\n",
+                                .{ extended, ext_op, type_str, loaded_val });
+                            break :blk extended;
+                        };
+
+                        // Convert to ptr
+                        const ptr_result = try self.allocTempName();
+                        try self.output.writer(self.allocator).print("  {s} = inttoptr i64 {s} to ptr\n", .{ ptr_result, i64_val });
+                        return ptr_result;
+                    } else {
+                        // Runtime Type variable - generate runtime dispatch based on type ID
+                        const type_val = try self.generateExpression(type_arg);
+                        defer self.allocator.free(type_val);
+
+                        // Generate switch on type ID
+                        // Create basic blocks for each type case and a default case
+                        const result_temp = try self.allocTempName();
+                        defer self.allocator.free(result_temp);
+                        try self.output.writer(self.allocator).print("  {s} = alloca i64\n", .{result_temp});
+
+                        const type_id_temp = try self.allocTempName();
+                        defer self.allocator.free(type_id_temp);
+                        try self.output.writer(self.allocator).print("  {s} = icmp eq i64 {s}, 1\n", .{ type_id_temp, type_val });
+
+                        const bool_label = try self.allocLabel("bool_case");
+                        defer self.allocator.free(bool_label);
+                        const i8_label = try self.allocLabel("i8_check");
+                        defer self.allocator.free(i8_label);
+                        const continue_label = try self.allocLabel("continue");
+                        defer self.allocator.free(continue_label);
+
+                        try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n\n", .{ type_id_temp, bool_label, i8_label });
+
+                        // Bool case (type ID 1)
+                        try self.output.writer(self.allocator).print("{s}:\n", .{bool_label});
+                        const bool_val = try self.allocTempName();
+                        defer self.allocator.free(bool_val);
+                        try self.output.writer(self.allocator).print("  {s} = load i1, ptr {s}\n", .{ bool_val, ptr_val });
+                        const bool_ext = try self.allocTempName();
+                        defer self.allocator.free(bool_ext);
+                        try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to i64\n", .{ bool_ext, bool_val });
+                        try self.output.writer(self.allocator).print("  store i64 {s}, ptr {s}\n", .{ bool_ext, result_temp });
+                        try self.output.writer(self.allocator).print("  br label %{s}\n\n", .{continue_label});
+
+                        // I8 case (type ID 2) - continue with other types
+                        try self.output.writer(self.allocator).print("{s}:\n", .{i8_label});
+                        const i8_check = try self.allocTempName();
+                        defer self.allocator.free(i8_check);
+                        try self.output.writer(self.allocator).print("  {s} = icmp eq i64 {s}, 2\n", .{ i8_check, type_val });
+                        const i8_block = try self.allocLabel("i8_block");
+                        defer self.allocator.free(i8_block);
+                        const i16_label = try self.allocLabel("default");
+                        defer self.allocator.free(i16_label);
+                        try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n\n", .{ i8_check, i8_block, i16_label });
+
+                        try self.output.writer(self.allocator).print("{s}:\n", .{i8_block});
+                        const i8_val = try self.allocTempName();
+                        defer self.allocator.free(i8_val);
+                        try self.output.writer(self.allocator).print("  {s} = load i8, ptr {s}\n", .{ i8_val, ptr_val });
+                        const i8_ext = try self.allocTempName();
+                        defer self.allocator.free(i8_ext);
+                        try self.output.writer(self.allocator).print("  {s} = sext i8 {s} to i64\n", .{ i8_ext, i8_val });
+                        try self.output.writer(self.allocator).print("  store i64 {s}, ptr {s}\n", .{ i8_ext, result_temp });
+                        try self.output.writer(self.allocator).print("  br label %{s}\n\n", .{continue_label});
+
+                        // Generate remaining type cases (I16, I32, I64, U8, U16, U32, U64)
+                        // For simplicity, defaulting to i64 load for now
+                        try self.output.writer(self.allocator).print("{s}:\n", .{i16_label});
+                        const default_val = try self.allocTempName();
+                        defer self.allocator.free(default_val);
+                        try self.output.writer(self.allocator).print("  {s} = load i64, ptr {s}\n", .{ default_val, ptr_val });
+                        try self.output.writer(self.allocator).print("  store i64 {s}, ptr {s}\n", .{ default_val, result_temp });
+                        try self.output.writer(self.allocator).print("  br label %{s}\n\n", .{continue_label});
+
+                        // Continue label
+                        try self.output.writer(self.allocator).print("{s}:\n", .{continue_label});
+                        const final_result = try self.allocTempName();
+                        defer self.allocator.free(final_result);
+                        try self.output.writer(self.allocator).print("  {s} = load i64, ptr {s}\n", .{ final_result, result_temp });
+
+                        // Convert i64 result to ptr
+                        const ptr_result = try self.allocTempName();
+                        try self.output.writer(self.allocator).print("  {s} = inttoptr i64 {s} to ptr\n", .{ ptr_result, final_result });
+
+                        return ptr_result;
+                    }
                 } else if (std.mem.eql(u8, call.name, "@ptr_write")) {
                     // @ptr_write(ptr, value) -> store
+                    // value is ptr type, convert to i64 before storing
                     const ptr_val = try self.generateExpression(call.args[0]);
                     defer self.allocator.free(ptr_val);
 
                     const value_val = try self.generateExpression(call.args[1]);
                     defer self.allocator.free(value_val);
 
-                    const value_type = self.inferExprType(call.args[1]);
-                    const value_type_str = try self.llvmTypeString(value_type);
-                    defer self.allocator.free(value_type_str);
+                    // Convert ptr to i64 for storage
+                    const i64_val = try self.allocTempName();
+                    defer self.allocator.free(i64_val);
+                    try self.output.writer(self.allocator).print("  {s} = ptrtoint ptr {s} to i64\n", .{ i64_val, value_val });
 
-                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ value_type_str, value_val, ptr_val });
+                    try self.output.writer(self.allocator).print("  store i64 {s}, ptr {s}\n", .{ i64_val, ptr_val });
 
                     // Return unit value (undef for empty tuple)
                     return try std.fmt.allocPrint(self.allocator, "undef", .{});
@@ -1216,8 +1382,8 @@ pub const Codegen = struct {
                     defer self.allocator.free(offset_val);
 
                     const result_temp = try self.allocTempName();
-                    // For now, hardcode to i32 type (we'll improve this with generics later)
-                    try self.output.writer(self.allocator).print("  {s} = getelementptr i32, ptr {s}, i32 {s}\n", .{ result_temp, ptr_val, offset_val });
+                    // Use 64-bit values for 64-bit targets
+                    try self.output.writer(self.allocator).print("  {s} = getelementptr i64, ptr {s}, i64 {s}\n", .{ result_temp, ptr_val, offset_val });
 
                     return result_temp;
                 } else {
@@ -1419,16 +1585,58 @@ pub const Codegen = struct {
                 // Match result type is the type of the first arm
                 return self.inferExprType(match_expr.arms[0].body);
             },
-            .method_call => {
-                // Stub: method calls not yet implemented
-                return Type{ .kind = .{ .primitive = .i32 }, .usage = .once };
+            .method_call => |method_call| {
+                // Look up method return type from instance_methods
+                const object_type = self.inferExprType(method_call.object);
+                const type_name = switch (object_type.kind) {
+                    .named => |name| name,
+                    .primitive => |prim| @tagName(prim),
+                    else => "unknown",
+                };
+
+                const mangled_name = std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method_call.method_name }) catch unreachable;
+                defer self.allocator.free(mangled_name);
+
+                if (self.instance_methods.get(mangled_name)) |return_type| {
+                    return return_type;
+                } else {
+                    return Type{ .kind = .{ .primitive = .i32 }, .usage = .once };
+                }
             },
             .intrinsic_call => |call| {
                 // Infer type of intrinsic calls
                 if (std.mem.eql(u8, call.name, "@ptr_of")) {
                     return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@type")) {
+                    // @type returns Type primitive
+                    return .{ .kind = .{ .primitive = .type }, .usage = .once };
                 } else if (std.mem.eql(u8, call.name, "@ptr_read")) {
-                    return .{ .kind = .{ .primitive = .i32 }, .usage = .once };
+                    // Return type is based on @type(...) argument if compile-time, otherwise ptr
+                    const type_arg = call.args[1];
+                    if (type_arg.* == .intrinsic_call and std.mem.eql(u8, type_arg.intrinsic_call.name, "@type")) {
+                        const type_name_expr = type_arg.intrinsic_call.args[0];
+                        const type_name = switch (type_name_expr.*) {
+                            .variable => |v| v,
+                            .constructor_call => |c| c.name,
+                            else => unreachable,
+                        };
+
+                        const prim_type = if (std.mem.eql(u8, type_name, "I8")) parser.PrimitiveType.i8
+                            else if (std.mem.eql(u8, type_name, "I16")) parser.PrimitiveType.i16
+                            else if (std.mem.eql(u8, type_name, "I32")) parser.PrimitiveType.i32
+                            else if (std.mem.eql(u8, type_name, "I64")) parser.PrimitiveType.i64
+                            else if (std.mem.eql(u8, type_name, "U8")) parser.PrimitiveType.u8
+                            else if (std.mem.eql(u8, type_name, "U16")) parser.PrimitiveType.u16
+                            else if (std.mem.eql(u8, type_name, "U32")) parser.PrimitiveType.u32
+                            else if (std.mem.eql(u8, type_name, "U64")) parser.PrimitiveType.u64
+                            else if (std.mem.eql(u8, type_name, "Bool")) parser.PrimitiveType.bool
+                            else unreachable;
+
+                        return .{ .kind = .{ .primitive = prim_type }, .usage = .once };
+                    } else {
+                        // Runtime Type variable - return ptr as generic return type
+                        return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                    }
                 } else if (std.mem.eql(u8, call.name, "@ptr_write")) {
                     return .{ .kind = .{ .tuple = &[_]*parser.Type{} }, .usage = .once };
                 } else if (std.mem.eql(u8, call.name, "@ptr_offset")) {

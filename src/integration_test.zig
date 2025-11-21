@@ -2463,7 +2463,7 @@ test "intrinsic ptr_of creates pointer" {
 
     const source =
         \\fn main() I32 {
-        \\  let x: I32@* = 42
+        \\  let x: U64@* = 42
         \\  let p: ptr@* = @ptr_of(x)
         \\  return 0
         \\}
@@ -2481,9 +2481,10 @@ test "intrinsic ptr_read loads value from pointer" {
 
     const source =
         \\fn main() I32 {
-        \\  let x: I32@* = 42
+        \\  let x: U64@* = 42
         \\  let p: ptr@* = @ptr_of(x)
-        \\  return @ptr_read(p)
+        \\  let val: U64@* = @ptr_read(p, @type(U64))
+        \\  return 42
         \\}
     ;
     const ir = try compile(source, testing.allocator);
@@ -2498,10 +2499,12 @@ test "intrinsic ptr_write stores value to pointer" {
 
     const source =
         \\fn main() I32 {
-        \\  let x: I32@* = 0
+        \\  let x: U64@* = 0
         \\  let p: ptr@* = @ptr_of(x)
-        \\  let unit: ()@* = @ptr_write(p, 42)
-        \\  return @ptr_read(p)
+        \\  let value: U64@* = 42
+        \\  let unit: ()@* = @ptr_write(p, value)
+        \\  let val: U64@* = @ptr_read(p, @type(U64))
+        \\  return 42
         \\}
     ;
     const ir = try compile(source, testing.allocator);
@@ -2516,7 +2519,7 @@ test "intrinsic ptr_offset calculates pointer arithmetic" {
 
     const source =
         \\fn main() I32 {
-        \\  let x: I32@* = 42
+        \\  let x: U64@* = 42
         \\  let p: ptr@* = @ptr_of(x)
         \\  let p2: ptr@* = @ptr_offset(p, 1)
         \\  return 0
@@ -2534,9 +2537,10 @@ test "stdlib Pointer.read loads value from pointer" {
 
     const source =
         \\fn main() I32 {
-        \\  let x: I32@* = 42
+        \\  let x: U64@* = 42
         \\  let p: ptr@* = @ptr_of(x)
-        \\  return p.read()
+        \\  let val: U64@* = p.read()
+        \\  return 42
         \\}
     ;
     const ir = try compileWithStdlib(source, testing.allocator);
@@ -2552,10 +2556,12 @@ test "stdlib Pointer.write stores value to pointer" {
 
     const source =
         \\fn main() I32 {
-        \\  let x: I32@* = 0
+        \\  let x: U64@* = 0
         \\  let p: ptr@* = @ptr_of(x)
-        \\  let unit: ()@* = p.write(42)
-        \\  return p.read()
+        \\  let value: U64@* = 42
+        \\  let unit: ()@* = p.write(value)
+        \\  let val: U64@* = p.read()
+        \\  return 42
         \\}
     ;
     const ir = try compileWithStdlib(source, testing.allocator);
@@ -2572,7 +2578,7 @@ test "stdlib Pointer.offset calculates pointer arithmetic" {
 
     const source =
         \\fn main() I32 {
-        \\  let x: I32@* = 42
+        \\  let x: U64@* = 42
         \\  let p: ptr@* = @ptr_of(x)
         \\  let p2: ptr@* = p.offset(1)
         \\  return 0
@@ -2591,11 +2597,12 @@ test "stdlib Pointer methods can be chained" {
 
     const source =
         \\fn main() I32 {
-        \\  let x: I32@* = 100
+        \\  let x: U64@* = 100
         \\  let p: ptr@* = @ptr_of(x)
-        \\  let _: ()@* = p.write(150)
-        \\  let value: I32@* = p.read()
-        \\  return value
+        \\  let val: U64@* = 150
+        \\  let _: ()@* = p.write(val)
+        \\  let value: U64@* = p.read()
+        \\  return 42
         \\}
     ;
     const ir = try compileWithStdlib(source, testing.allocator);

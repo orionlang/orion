@@ -807,15 +807,55 @@ pub const TypeChecker = struct {
                     _ = try self.inferExprType(call.args[0]);
                     // Return ptr primitive type
                     return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
-                } else if (std.mem.eql(u8, call.name, "@ptr_read")) {
+                } else if (std.mem.eql(u8, call.name, "@type")) {
                     if (call.args.len != 1) {
-                        std.debug.print("@ptr_read expects 1 argument but got {d}\n", .{call.args.len});
+                        std.debug.print("@type expects 1 argument but got {d}\n", .{call.args.len});
                         return error.ArgumentCountMismatch;
                     }
-                    const ptr_type = try self.inferExprType(call.args[0]);
-                    // For now, assume reading returns I32 (we'll refine this with generics later)
-                    _ = ptr_type;
-                    return .{ .kind = .{ .primitive = .i32 }, .usage = .once };
+                    // @type returns Type primitive
+                    return .{ .kind = .{ .primitive = .type }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@ptr_read")) {
+                    if (call.args.len != 2) {
+                        std.debug.print("@ptr_read expects 2 arguments but got {d}\n", .{call.args.len});
+                        return error.ArgumentCountMismatch;
+                    }
+                    _ = try self.inferExprType(call.args[0]);
+
+                    // Second argument should be @type(TypeName)
+                    const type_arg = call.args[1];
+                    if (type_arg.* != .intrinsic_call or !std.mem.eql(u8, type_arg.intrinsic_call.name, "@type")) {
+                        std.debug.print("@ptr_read second argument must be @type(...)\n", .{});
+                        return error.TypeMismatch;
+                    }
+                    const type_name_expr = type_arg.intrinsic_call.args[0];
+                    const type_name = switch (type_name_expr.*) {
+                        .variable => |v| v,
+                        .constructor_call => |c| c.name,
+                        else => {
+                            std.debug.print("@type argument must be a type name, got: {s}\n", .{@tagName(type_name_expr.*)});
+                            return error.TypeMismatch;
+                        },
+                    };
+
+                    // Map type name to primitive type using parser's type_name_map
+                    const type_map = std.StaticStringMap(parser.PrimitiveType).initComptime(.{
+                        .{ "Bool", .bool },
+                        .{ "I8", .i8 },
+                        .{ "I16", .i16 },
+                        .{ "I32", .i32 },
+                        .{ "I64", .i64 },
+                        .{ "U8", .u8 },
+                        .{ "U16", .u16 },
+                        .{ "U32", .u32 },
+                        .{ "U64", .u64 },
+                    });
+
+                    const prim_type = type_map.get(type_name) orelse {
+                        std.debug.print("Unknown type name in @type: {s}\n", .{type_name});
+                        return error.TypeMismatch;
+                    };
+
+                    return .{ .kind = .{ .primitive = prim_type }, .usage = .once };
                 } else if (std.mem.eql(u8, call.name, "@ptr_write")) {
                     if (call.args.len != 2) {
                         std.debug.print("@ptr_write expects 2 arguments but got {d}\n", .{call.args.len});

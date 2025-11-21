@@ -37,11 +37,12 @@ pub const PrimitiveType = enum {
     u32,
     u64,
     ptr, // Opaque pointer type
+    type, // Type value (for compile-time type information)
 
     pub fn isSigned(self: PrimitiveType) bool {
         return switch (self) {
             .i8, .i16, .i32, .i64 => true,
-            .bool, .u8, .u16, .u32, .u64, .ptr => false,
+            .bool, .u8, .u16, .u32, .u64, .ptr, .type => false,
         };
     }
 
@@ -53,13 +54,14 @@ pub const PrimitiveType = enum {
             .i32, .u32 => 32,
             .i64, .u64 => 64,
             .ptr => 64, // Pointer width (target-dependent, using 64 for now)
+            .type => 64, // Type represented as i64 at runtime
         };
     }
 
     pub fn isInteger(self: PrimitiveType) bool {
         return switch (self) {
             .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => true,
-            .bool, .ptr => false,
+            .bool, .ptr, .type => false,
         };
     }
 
@@ -71,6 +73,7 @@ pub const PrimitiveType = enum {
             .i32, .u32 => "i32",
             .i64, .u64 => "i64",
             .ptr => "ptr",
+            .type => "i64", // Type represented as i64 at runtime
         };
     }
 
@@ -103,6 +106,7 @@ pub const PrimitiveType = enum {
             .u32 => 4294967295,
             .u64 => std.math.maxInt(i64), // Limited by i64 storage
             .ptr => 0, // Pointers don't have meaningful numeric ranges
+            .type => 9, // Type IDs range from 1-9
         };
     }
 };
@@ -834,6 +838,7 @@ pub const Parser = struct {
         .{ "I32", .i32 },
         .{ "I64", .i64 },
         .{ "ptr", .ptr },
+        .{ "Type", .type },
         .{ "U8", .u8 },
         .{ "U16", .u16 },
         .{ "U32", .u32 },
