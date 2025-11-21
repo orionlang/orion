@@ -1158,6 +1158,69 @@ pub const Codegen = struct {
                 try self.output.appendSlice(self.allocator, ")\n");
                 return result_temp;
             },
+            .intrinsic_call => |call| {
+                // Generate LLVM IR for intrinsic calls
+                if (std.mem.eql(u8, call.name, "@ptr_of")) {
+                    // @ptr_of(value) -> alloca + store
+                    const value_val = try self.generateExpression(call.args[0]);
+                    defer self.allocator.free(value_val);
+
+                    const value_type = self.inferExprType(call.args[0]);
+                    const value_type_str = try self.llvmTypeString(value_type);
+                    defer self.allocator.free(value_type_str);
+
+                    // Allocate stack space
+                    const ptr_temp = try self.allocTempName();
+                    try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ ptr_temp, value_type_str });
+
+                    // Store value to the pointer
+                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ value_type_str, value_val, ptr_temp });
+
+                    return ptr_temp;
+                } else if (std.mem.eql(u8, call.name, "@ptr_read")) {
+                    // @ptr_read(ptr) -> load
+                    const ptr_val = try self.generateExpression(call.args[0]);
+                    defer self.allocator.free(ptr_val);
+
+                    const result_temp = try self.allocTempName();
+                    // For now, hardcode to i32 (we'll improve this with generics later)
+                    try self.output.writer(self.allocator).print("  {s} = load i32, ptr {s}\n", .{ result_temp, ptr_val });
+
+                    return result_temp;
+                } else if (std.mem.eql(u8, call.name, "@ptr_write")) {
+                    // @ptr_write(ptr, value) -> store
+                    const ptr_val = try self.generateExpression(call.args[0]);
+                    defer self.allocator.free(ptr_val);
+
+                    const value_val = try self.generateExpression(call.args[1]);
+                    defer self.allocator.free(value_val);
+
+                    const value_type = self.inferExprType(call.args[1]);
+                    const value_type_str = try self.llvmTypeString(value_type);
+                    defer self.allocator.free(value_type_str);
+
+                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ value_type_str, value_val, ptr_val });
+
+                    // Return unit value (undef for empty tuple)
+                    return try std.fmt.allocPrint(self.allocator, "undef", .{});
+                } else if (std.mem.eql(u8, call.name, "@ptr_offset")) {
+                    // @ptr_offset(ptr, offset) -> getelementptr
+                    const ptr_val = try self.generateExpression(call.args[0]);
+                    defer self.allocator.free(ptr_val);
+
+                    const offset_val = try self.generateExpression(call.args[1]);
+                    defer self.allocator.free(offset_val);
+
+                    const result_temp = try self.allocTempName();
+                    // For now, hardcode to i32 type (we'll improve this with generics later)
+                    try self.output.writer(self.allocator).print("  {s} = getelementptr i32, ptr {s}, i32 {s}\n", .{ result_temp, ptr_val, offset_val });
+
+                    return result_temp;
+                } else {
+                    // Unknown intrinsic
+                    unreachable;
+                }
+            },
         }
     }
 
@@ -1355,6 +1418,20 @@ pub const Codegen = struct {
             .method_call => {
                 // Stub: method calls not yet implemented
                 return Type{ .kind = .{ .primitive = .i32 }, .usage = .once };
+            },
+            .intrinsic_call => |call| {
+                // Infer type of intrinsic calls
+                if (std.mem.eql(u8, call.name, "@ptr_of")) {
+                    return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@ptr_read")) {
+                    return .{ .kind = .{ .primitive = .i32 }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@ptr_write")) {
+                    return .{ .kind = .{ .tuple = &[_]*parser.Type{} }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@ptr_offset")) {
+                    return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                } else {
+                    unreachable;
+                }
             },
         }
     }

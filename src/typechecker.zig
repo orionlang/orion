@@ -299,16 +299,22 @@ pub const TypeChecker = struct {
                 const max = expected_type.maxValue();
 
                 if (value < min or value > max) {
+                    // Get type name for error message
+                    const type_name = switch (expected_type.kind) {
+                        .primitive => |prim| @tagName(prim),
+                        else => @tagName(expected_type.kind),
+                    };
+
                     // Provide clear error messages for common cases
                     if (!expected_type.isSigned() and value < 0) {
                         std.debug.print("Integer literal {d} is negative but type {s} is unsigned\n", .{
                             value,
-                            @tagName(expected_type.kind),
+                            type_name,
                         });
                     } else {
                         std.debug.print("Integer literal {d} does not fit in type {s} (range: {d} to {d})\n", .{
                             value,
-                            @tagName(expected_type.kind),
+                            type_name,
                             min,
                             max,
                         });
@@ -347,7 +353,7 @@ pub const TypeChecker = struct {
                 // TODO: Propagate expected type to result expression
                 _ = block;
             },
-            .bool_literal, .variable, .function_call, .struct_literal, .field_access, .constructor_call, .match_expr, .method_call => {
+            .bool_literal, .variable, .function_call, .struct_literal, .field_access, .constructor_call, .match_expr, .method_call, .intrinsic_call => {
                 // These expressions have fixed types that can't be influenced by context:
                 // - bool_literal: always Bool
                 // - variable: type determined at declaration
@@ -781,6 +787,57 @@ pub const TypeChecker = struct {
                 } else {
                     // Method not found, return object type as fallback
                     return object_type;
+                }
+            },
+            .intrinsic_call => |call| {
+                // Type check intrinsic calls
+                // @ptr_of(value: T) -> Ptr[T]  (for now, returns a named type "Ptr")
+                // @ptr_read(ptr: Ptr[T]) -> T  (for now, returns I32)
+                // @ptr_write(ptr: Ptr[T], value: T) -> ()
+                // @ptr_offset(ptr: Ptr[T], offset: I32) -> Ptr[T]
+
+                if (std.mem.eql(u8, call.name, "@ptr_of")) {
+                    if (call.args.len != 1) {
+                        std.debug.print("@ptr_of expects 1 argument but got {d}\n", .{call.args.len});
+                        return error.ArgumentCountMismatch;
+                    }
+                    _ = try self.inferExprType(call.args[0]);
+                    // Return ptr primitive type
+                    return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@ptr_read")) {
+                    if (call.args.len != 1) {
+                        std.debug.print("@ptr_read expects 1 argument but got {d}\n", .{call.args.len});
+                        return error.ArgumentCountMismatch;
+                    }
+                    const ptr_type = try self.inferExprType(call.args[0]);
+                    // For now, assume reading returns I32 (we'll refine this with generics later)
+                    _ = ptr_type;
+                    return .{ .kind = .{ .primitive = .i32 }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@ptr_write")) {
+                    if (call.args.len != 2) {
+                        std.debug.print("@ptr_write expects 2 arguments but got {d}\n", .{call.args.len});
+                        return error.ArgumentCountMismatch;
+                    }
+                    _ = try self.inferExprType(call.args[0]);
+                    _ = try self.inferExprType(call.args[1]);
+                    // Returns unit type (empty tuple)
+                    return .{ .kind = .{ .tuple = &[_]*parser.Type{} }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@ptr_offset")) {
+                    if (call.args.len != 2) {
+                        std.debug.print("@ptr_offset expects 2 arguments but got {d}\n", .{call.args.len});
+                        return error.ArgumentCountMismatch;
+                    }
+                    _ = try self.inferExprType(call.args[0]);
+                    const offset_type = try self.inferExprType(call.args[1]);
+                    // Offset must be an integer
+                    if (!self.isIntegerType(offset_type)) {
+                        std.debug.print("@ptr_offset offset must be an integer type\n", .{});
+                        return error.TypeMismatch;
+                    }
+                    return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                } else {
+                    std.debug.print("Unknown intrinsic: {s}\n", .{call.name});
+                    return error.UndefinedFunction;
                 }
             },
         }

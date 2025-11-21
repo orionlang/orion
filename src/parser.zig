@@ -36,11 +36,12 @@ pub const PrimitiveType = enum {
     u16,
     u32,
     u64,
+    ptr, // Opaque pointer type
 
     pub fn isSigned(self: PrimitiveType) bool {
         return switch (self) {
             .i8, .i16, .i32, .i64 => true,
-            .bool, .u8, .u16, .u32, .u64 => false,
+            .bool, .u8, .u16, .u32, .u64, .ptr => false,
         };
     }
 
@@ -51,13 +52,14 @@ pub const PrimitiveType = enum {
             .i16, .u16 => 16,
             .i32, .u32 => 32,
             .i64, .u64 => 64,
+            .ptr => 64, // Pointer width (target-dependent, using 64 for now)
         };
     }
 
     pub fn isInteger(self: PrimitiveType) bool {
         return switch (self) {
             .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => true,
-            .bool => false,
+            .bool, .ptr => false,
         };
     }
 
@@ -68,6 +70,7 @@ pub const PrimitiveType = enum {
             .i16, .u16 => "i16",
             .i32, .u32 => "i32",
             .i64, .u64 => "i64",
+            .ptr => "ptr",
         };
     }
 
@@ -99,6 +102,7 @@ pub const PrimitiveType = enum {
             .u16 => 65535,
             .u32 => 4294967295,
             .u64 => std.math.maxInt(i64), // Limited by i64 storage
+            .ptr => 0, // Pointers don't have meaningful numeric ranges
         };
     }
 };
@@ -392,6 +396,10 @@ pub const Expr = union(enum) {
         method_name: []const u8,
         args: []*Expr,
     },
+    intrinsic_call: struct {
+        name: []const u8,
+        args: []*Expr,
+    },
 };
 
 pub const Param = struct {
@@ -653,6 +661,13 @@ pub const FunctionDecl = struct {
                 }
                 allocator.free(call.args);
             },
+            .intrinsic_call => |call| {
+                for (call.args) |arg| {
+                    deinitExpr(allocator, arg);
+                    allocator.destroy(arg);
+                }
+                allocator.free(call.args);
+            },
         }
     }
 };
@@ -813,6 +828,7 @@ pub const Parser = struct {
         .{ "I16", .i16 },
         .{ "I32", .i32 },
         .{ "I64", .i64 },
+        .{ "Ptr", .ptr },
         .{ "U8", .u8 },
         .{ "U16", .u16 },
         .{ "U32", .u32 },
@@ -1337,6 +1353,42 @@ pub const Parser = struct {
 
         if (self.check(.left_brace)) {
             return try self.parseBlockExpression();
+        }
+
+        if (self.check(.intrinsic)) {
+            const intrinsic_token = try self.expect(.intrinsic);
+            _ = try self.expect(.left_paren);
+
+            // Parse arguments
+            var args: std.ArrayList(*Expr) = .empty;
+            errdefer {
+                for (args.items) |arg| {
+                    FunctionDecl.deinitExpr(self.allocator, arg);
+                    self.allocator.destroy(arg);
+                }
+                args.deinit(self.allocator);
+            }
+
+            if (!self.check(.right_paren)) {
+                while (true) {
+                    const arg_expr = try self.parseExpression();
+                    const arg_ptr = try self.allocator.create(Expr);
+                    arg_ptr.* = arg_expr;
+                    try args.append(self.allocator, arg_ptr);
+
+                    if (!self.check(.comma)) break;
+                    _ = try self.expect(.comma);
+                }
+            }
+
+            _ = try self.expect(.right_paren);
+
+            return .{
+                .intrinsic_call = .{
+                    .name = intrinsic_token.lexeme,
+                    .args = try args.toOwnedSlice(self.allocator),
+                },
+            };
         }
 
         if (self.check(.identifier)) {

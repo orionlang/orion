@@ -2392,3 +2392,74 @@ test "unsafe function cannot be called from safe context" {
     const result = compile(source, testing.allocator);
     try testing.expectError(error.UnsafeCallOutsideUnsafeContext, result);
 }
+
+test "intrinsic ptr_of creates pointer" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32@* = 42
+        \\  let ptr: Ptr@* = @ptr_of(x)
+        \\  return 0
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "alloca") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "store") != null);
+}
+
+test "intrinsic ptr_read loads value from pointer" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32@* = 42
+        \\  let ptr: Ptr@* = @ptr_of(x)
+        \\  return @ptr_read(ptr)
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "load") != null);
+}
+
+test "intrinsic ptr_write stores value to pointer" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32@* = 0
+        \\  let ptr: Ptr@* = @ptr_of(x)
+        \\  let unit: ()@* = @ptr_write(ptr, 42)
+        \\  return @ptr_read(ptr)
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "store") != null);
+}
+
+test "intrinsic ptr_offset calculates pointer arithmetic" {
+    const testing = std.testing;
+
+    const source =
+        \\fn main() I32 {
+        \\  let x: I32@* = 42
+        \\  let ptr: Ptr@* = @ptr_of(x)
+        \\  let ptr2: Ptr@* = @ptr_offset(ptr, 1)
+        \\  return 0
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    try testing.expect(ir.len > 0);
+    try testing.expect(std.mem.indexOf(u8, ir, "getelementptr") != null);
+}

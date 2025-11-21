@@ -23,6 +23,7 @@ pub const TokenKind = enum {
 
     // Identifiers
     identifier,
+    intrinsic, // @identifier
 
     // Punctuation
     left_paren,
@@ -185,7 +186,16 @@ pub const Lexer = struct {
                 }
                 return self.makeToken(.pipe, start_pos, start_line, start_column);
             },
-            '@' => return self.makeToken(.at, start_pos, start_line, start_column),
+            '@' => {
+                // Check if followed by identifier for intrinsic
+                if (!self.isAtEnd() and (std.ascii.isAlphabetic(self.peek()) or self.peek() == '_')) {
+                    while (!self.isAtEnd() and self.isIdentifierChar(self.peek())) {
+                        _ = self.advance();
+                    }
+                    return self.makeToken(.intrinsic, start_pos, start_line, start_column);
+                }
+                return self.makeToken(.at, start_pos, start_line, start_column);
+            },
             '?' => return self.makeToken(.question, start_pos, start_line, start_column),
             '0'...'9' => {
                 while (!self.isAtEnd() and std.ascii.isDigit(self.peek())) {
