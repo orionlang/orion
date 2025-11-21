@@ -69,7 +69,31 @@ zig build run
 
 # Stop after generating object file
 ./zig-out/bin/orion source.or -c
+
+# Cross-compile for different target (defaults to host)
+./zig-out/bin/orion source.or --target x86_64-pc-linux-gnu
+./zig-out/bin/orion source.or --target aarch64-apple-darwin
+./zig-out/bin/orion source.or --target x86_64-pc-windows-msvc
 ```
+
+## Cross-Compilation
+
+The compiler supports cross-compilation to multiple platforms and architectures. Target triples follow LLVM's format: `<arch>-<vendor>-<os>`.
+
+Supported targets:
+- **Linux**: `x86_64-pc-linux-gnu`, `i686-pc-linux-gnu`, `aarch64-unknown-linux-gnu`, `arm-unknown-linux-gnu`
+- **macOS**: `x86_64-apple-darwin`, `aarch64-apple-darwin`
+- **Windows**: `x86_64-pc-windows-msvc`, `i686-pc-windows-msvc`
+
+The compiler automatically handles:
+- Pointer size differences (32-bit vs 64-bit)
+- Platform-specific ABIs and calling conventions
+- System C library linking (glibc on Linux, libSystem on macOS, UCRT/msvcrt on Windows)
+
+Requirements:
+- **Linux targets**: `gcc` (system linker driver)
+- **macOS targets**: `clang` (system linker driver)
+- **Windows targets**: `clang-cl` (MSVC toolchain) or `x86_64-w64-mingw32-gcc` (MinGW-w64)
 
 ## Examples
 

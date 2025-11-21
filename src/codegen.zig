@@ -5,6 +5,9 @@ const Type = parser.Type;
 const Expr = parser.Expr;
 const Stmt = parser.Stmt;
 const Pattern = parser.Pattern;
+const target_module = @import("target.zig");
+const TargetTriple = target_module.TargetTriple;
+const TargetInfo = target_module.TargetInfo;
 
 pub const CodegenError = error{
     OutOfMemory,
@@ -32,8 +35,10 @@ pub const Codegen = struct {
     current_block: ?[]const u8,
     inferred_types: std.ArrayList(Type),
     instance_methods: std.StringHashMap(Type),
+    target: TargetTriple,
+    target_info: TargetInfo,
 
-    pub fn init(allocator: std.mem.Allocator) Codegen {
+    pub fn init(allocator: std.mem.Allocator, target: TargetTriple) Codegen {
         return .{
             .allocator = allocator,
             .output = .empty,
@@ -44,6 +49,8 @@ pub const Codegen = struct {
             .current_block = null,
             .inferred_types = .empty,
             .instance_methods = std.StringHashMap(Type).init(allocator),
+            .target = target,
+            .target_info = target.getTargetInfo(),
         };
     }
 
@@ -281,10 +288,10 @@ pub const Codegen = struct {
 
         // LLVM IR header
         try self.output.appendSlice(self.allocator, "; Bootstrap Orion Compiler Output\n");
-        try self.output.appendSlice(self.allocator, "target triple = \"x86_64-pc-linux-gnu\"\n\n");
 
-        // Declare syscall exit
-        try self.output.appendSlice(self.allocator, "declare void @llvm.trap() noreturn nounwind\n\n");
+        const target_triple_str = try self.target.toLLVMTriple(self.allocator);
+        defer self.allocator.free(target_triple_str);
+        try self.output.writer(self.allocator).print("target triple = \"{s}\"\n\n", .{target_triple_str});
 
         // Generate each function
         for (ast.functions.items) |func| {
@@ -296,23 +303,10 @@ pub const Codegen = struct {
             try self.generateInstanceMethods(&instance);
         }
 
-        // Generate _start entry point that calls main and exits
-        try self.generateStartFunction();
+        // When linking with libc, crt0 provides _start and calls main()
+        // No need to generate _start ourselves
 
         return try self.allocator.dupe(u8, self.output.items);
-    }
-
-    fn generateStartFunction(self: *Codegen) !void {
-        try self.output.writer(self.allocator).print(
-            \\define void @_start() {{
-            \\  %result = call i32 @main()
-            \\  %result_i64 = sext i32 %result to i64
-            \\  %rax = call i64 asm sideeffect "syscall", "={{rax}},{{rax}},{{rdi}}"(i64 60, i64 %result_i64)
-            \\  call void @llvm.trap()
-            \\  unreachable
-            \\}}
-            \\
-        , .{});
     }
 
     fn generateInstanceMethods(self: *Codegen, instance: *const parser.InstanceDecl) !void {
@@ -1276,7 +1270,7 @@ pub const Codegen = struct {
 
                         // Convert to ptr
                         const ptr_result = try self.allocTempName();
-                        try self.output.writer(self.allocator).print("  {s} = inttoptr i64 {s} to ptr\n", .{ ptr_result, i64_val });
+                        try self.output.writer(self.allocator).print("  {s} = inttoptr {s} {s} to ptr\n", .{ ptr_result, self.target_info.native_int_type, i64_val });
                         return ptr_result;
                     } else {
                         // Runtime Type variable - generate runtime dispatch based on type ID
@@ -1287,11 +1281,11 @@ pub const Codegen = struct {
                         // Create basic blocks for each type case and a default case
                         const result_temp = try self.allocTempName();
                         defer self.allocator.free(result_temp);
-                        try self.output.writer(self.allocator).print("  {s} = alloca i64\n", .{result_temp});
+                        try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ result_temp, self.target_info.native_int_type });
 
                         const type_id_temp = try self.allocTempName();
                         defer self.allocator.free(type_id_temp);
-                        try self.output.writer(self.allocator).print("  {s} = icmp eq i64 {s}, 1\n", .{ type_id_temp, type_val });
+                        try self.output.writer(self.allocator).print("  {s} = icmp eq {s} {s}, 1\n", .{ type_id_temp, self.target_info.native_int_type, type_val });
 
                         const bool_label = try self.allocLabel("bool_case");
                         defer self.allocator.free(bool_label);
@@ -1309,15 +1303,15 @@ pub const Codegen = struct {
                         try self.output.writer(self.allocator).print("  {s} = load i1, ptr {s}\n", .{ bool_val, ptr_val });
                         const bool_ext = try self.allocTempName();
                         defer self.allocator.free(bool_ext);
-                        try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to i64\n", .{ bool_ext, bool_val });
-                        try self.output.writer(self.allocator).print("  store i64 {s}, ptr {s}\n", .{ bool_ext, result_temp });
+                        try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to {s}\n", .{ bool_ext, bool_val, self.target_info.native_int_type });
+                        try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ self.target_info.native_int_type, bool_ext, result_temp });
                         try self.output.writer(self.allocator).print("  br label %{s}\n\n", .{continue_label});
 
                         // I8 case (type ID 2) - continue with other types
                         try self.output.writer(self.allocator).print("{s}:\n", .{i8_label});
                         const i8_check = try self.allocTempName();
                         defer self.allocator.free(i8_check);
-                        try self.output.writer(self.allocator).print("  {s} = icmp eq i64 {s}, 2\n", .{ i8_check, type_val });
+                        try self.output.writer(self.allocator).print("  {s} = icmp eq {s} {s}, 2\n", .{ i8_check, self.target_info.native_int_type, type_val });
                         const i8_block = try self.allocLabel("i8_block");
                         defer self.allocator.free(i8_block);
                         const i16_label = try self.allocLabel("default");
@@ -1330,28 +1324,28 @@ pub const Codegen = struct {
                         try self.output.writer(self.allocator).print("  {s} = load i8, ptr {s}\n", .{ i8_val, ptr_val });
                         const i8_ext = try self.allocTempName();
                         defer self.allocator.free(i8_ext);
-                        try self.output.writer(self.allocator).print("  {s} = sext i8 {s} to i64\n", .{ i8_ext, i8_val });
-                        try self.output.writer(self.allocator).print("  store i64 {s}, ptr {s}\n", .{ i8_ext, result_temp });
+                        try self.output.writer(self.allocator).print("  {s} = sext i8 {s} to {s}\n", .{ i8_ext, i8_val, self.target_info.native_int_type });
+                        try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ self.target_info.native_int_type, i8_ext, result_temp });
                         try self.output.writer(self.allocator).print("  br label %{s}\n\n", .{continue_label});
 
                         // Generate remaining type cases (I16, I32, I64, U8, U16, U32, U64)
-                        // For simplicity, defaulting to i64 load for now
+                        // For simplicity, defaulting to native int load for now
                         try self.output.writer(self.allocator).print("{s}:\n", .{i16_label});
                         const default_val = try self.allocTempName();
                         defer self.allocator.free(default_val);
-                        try self.output.writer(self.allocator).print("  {s} = load i64, ptr {s}\n", .{ default_val, ptr_val });
-                        try self.output.writer(self.allocator).print("  store i64 {s}, ptr {s}\n", .{ default_val, result_temp });
+                        try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ default_val, self.target_info.native_int_type, ptr_val });
+                        try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ self.target_info.native_int_type, default_val, result_temp });
                         try self.output.writer(self.allocator).print("  br label %{s}\n\n", .{continue_label});
 
                         // Continue label
                         try self.output.writer(self.allocator).print("{s}:\n", .{continue_label});
                         const final_result = try self.allocTempName();
                         defer self.allocator.free(final_result);
-                        try self.output.writer(self.allocator).print("  {s} = load i64, ptr {s}\n", .{ final_result, result_temp });
+                        try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ final_result, self.target_info.native_int_type, result_temp });
 
-                        // Convert i64 result to ptr
+                        // Convert native int result to ptr
                         const ptr_result = try self.allocTempName();
-                        try self.output.writer(self.allocator).print("  {s} = inttoptr i64 {s} to ptr\n", .{ ptr_result, final_result });
+                        try self.output.writer(self.allocator).print("  {s} = inttoptr {s} {s} to ptr\n", .{ ptr_result, self.target_info.native_int_type, final_result });
 
                         return ptr_result;
                     }
@@ -1364,12 +1358,12 @@ pub const Codegen = struct {
                     const value_val = try self.generateExpression(call.args[1]);
                     defer self.allocator.free(value_val);
 
-                    // Convert ptr to i64 for storage
-                    const i64_val = try self.allocTempName();
-                    defer self.allocator.free(i64_val);
-                    try self.output.writer(self.allocator).print("  {s} = ptrtoint ptr {s} to i64\n", .{ i64_val, value_val });
+                    // Convert ptr to native int for storage
+                    const int_val = try self.allocTempName();
+                    defer self.allocator.free(int_val);
+                    try self.output.writer(self.allocator).print("  {s} = ptrtoint ptr {s} to {s}\n", .{ int_val, value_val, self.target_info.native_int_type });
 
-                    try self.output.writer(self.allocator).print("  store i64 {s}, ptr {s}\n", .{ i64_val, ptr_val });
+                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ self.target_info.native_int_type, int_val, ptr_val });
 
                     // Return unit value (undef for empty tuple)
                     return try std.fmt.allocPrint(self.allocator, "undef", .{});
@@ -1382,8 +1376,8 @@ pub const Codegen = struct {
                     defer self.allocator.free(offset_val);
 
                     const result_temp = try self.allocTempName();
-                    // Use 64-bit values for 64-bit targets
-                    try self.output.writer(self.allocator).print("  {s} = getelementptr i64, ptr {s}, i64 {s}\n", .{ result_temp, ptr_val, offset_val });
+                    // Use native int size for pointer arithmetic
+                    try self.output.writer(self.allocator).print("  {s} = getelementptr {s}, ptr {s}, {s} {s}\n", .{ result_temp, self.target_info.native_int_type, ptr_val, self.target_info.native_int_type, offset_val });
 
                     return result_temp;
                 } else {
