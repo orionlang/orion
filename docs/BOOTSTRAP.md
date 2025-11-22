@@ -7,7 +7,7 @@ This document specifies the minimal bootstrap version of Orion - a small, simple
 Bootstrap Orion is intentionally minimal:
 - Linear types (ownership tracking without borrowing)
 - Minimal type class system (no generics, no polymorphism)
-- No dependent types
+- Minimal dependent types (type-level value parameters for fixed-size arrays)
 - No closures
 - No borrowing/references
 - No advanced features
@@ -255,6 +255,61 @@ let p3 = p;         // OK: p still valid after copy
 3. Returning from function transfers ownership
 4. Pattern matching consumes the matched value
 5. Field access on linear types consumes the parent
+
+### 2.8 Dependent Types (Minimal)
+
+Bootstrap Orion includes minimal dependent types sufficient for expressing fixed-size arrays and vectors.
+
+**Type Definition with Parameters:**
+```orion
+type Vec[A, n: U64] = I32
+type Matrix[A, rows: U64, cols: U64] = I32
+```
+
+**Type Parameters:**
+- Type parameters (e.g., `A`) - compile-time erased type variables
+- Value parameters (e.g., `n: U64`) - compile-time constant values with types
+
+**Using Dependent Types:**
+```orion
+fn make_vec() Vec[I32, 5] {
+    return 42
+}
+
+let v: Vec[I32, 5] = make_vec()
+```
+
+**Instance Methods on Dependent Types:**
+```orion
+class VecOps {
+    get_value: fn(Vec[A, n]) I32;
+}
+
+instance VecOps[Vec[I32, 5]] {
+    get_value = fn(v: Vec[I32, 5]) I32 {
+        return v
+    }
+}
+
+let result = v.get_value()  // Calls Vec$$i32$5$$__get_value
+```
+
+**Name Mangling:**
+- Dependent type instances use `$$` delimiter mangling
+- Format: `TypeName$$type_param$value_param$$__method_name`
+- Example: `Vec[I32, 5]` methods → `Vec$$i32$5$$__method_name`
+
+**Limitations:**
+- No type-level computation (can't do `Vec[A, n+1]`)
+- Value parameters must be compile-time literals at instantiation
+- Type erasure: value parameters don't exist at runtime
+- No partial instantiation of type classes
+- No dependent function types (return type can't depend on parameter value)
+
+**LLVM Representation:**
+- Dependent types resolve to their underlying type definition
+- `Vec[I32, 5]` compiles identically to bare `I32` in this example
+- Type parameters only affect name mangling for instance methods
 
 ---
 
@@ -1155,13 +1210,12 @@ Bootstrap Orion intentionally **does not have**:
 ### Not Included:
 - ❌ Variable mutation (no `var`, no assignment `=`)
 - ❌ Generics/polymorphism
-- ❌ Dependent types (`String[n]`)
+- ❌ Full dependent types (type-level computation, runtime dependencies)
 - ❌ Borrowing/references (`&T`, `&mut T`)
 - ❌ Closures (cannot capture environment)
 - ❌ Trait objects / dynamic dispatch
 - ❌ Automatic memory management
 - ❌ String type (use `Ptr[U8]`)
-- ❌ Array types (use `Ptr[T]` + length)
 - ❌ For loops (use `while`)
 - ❌ Break/continue
 - ❌ Defer statements
@@ -1176,6 +1230,7 @@ Bootstrap Orion intentionally **does not have**:
 - ✅ **Minimal type class system** (Copy, Eq, Display)
 - ✅ **Method syntax** (for class methods only)
 - ✅ **Ownership transfer** (no borrowing, thread values through functions)
+- ✅ **Minimal dependent types** (compile-time value parameters for fixed-size arrays)
 
 ---
 
@@ -1326,7 +1381,9 @@ import = "import" qualified_name ";" ;
 
 declaration = type_def | fn_def | extern_block | class_def | class_instance ;
 
-type_def = [ "pub" ] "type" IDENT "=" type_body ;
+type_def = [ "pub" ] "type" IDENT [ type_params ] "=" type_body ;
+type_params = "[" type_param { "," type_param } "]" ;
+type_param = IDENT [ ":" type ] ;  (* IDENT alone = type param, IDENT : type = value param *)
 type_body = struct_type | sum_type | type ;
 
 struct_type = "{" [ field { "," field } ] "}" ;
@@ -1348,11 +1405,14 @@ class_method = IDENT ":" "fn" "(" "Self" { "," type } ")" [ type ] ";" ;
 class_instance = "instance" IDENT "[" type "]" "{" { method_impl } "}" ;
 method_impl = IDENT "=" fn_literal ;
 
-type = IDENT                        (* Named type *)
-     | "Ptr" "[" type "]"          (* Pointer type *)
+type = IDENT [ "[" type_args "]" ]   (* Named or dependent type *)
+     | "Ptr" "[" type "]"            (* Pointer type *)
      | "(" [ type { "," type } ] ")" (* Tuple type *)
      | "fn" "(" [ type { "," type } ] ")" type (* Function type *)
-     | "Self" ;                     (* Self type in trait *)
+     | "Self" ;                      (* Self type in trait *)
+
+type_args = type_arg { "," type_arg } ;
+type_arg = type | expr ;             (* Heuristically determined: types or value expressions *)
 
 stmt = let_binding
      | expr ";" ;
