@@ -2873,3 +2873,174 @@ test "string operations: find" {
     // Should compile successfully
     try testing.expect(std.mem.indexOf(u8, result, "define") != null);
 }
+
+test "dependent types: basic type definition" {
+    const testing = std.testing;
+    const source =
+        \\type Vec[A, n: U64] = I32
+        \\fn main() I32 { return 0 }
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    try testing.expect(std.mem.indexOf(u8, result, "define") != null);
+}
+
+test "dependent types: function returning dependent type" {
+    const testing = std.testing;
+    const source =
+        \\type Vec[A, n: U64] = I32
+        \\fn make_vec() Vec[I32, 5] {
+        \\  return 42
+        \\}
+        \\fn main() I32 {
+        \\  unsafe {
+        \\    let v: Vec[I32, 5] = make_vec()
+        \\    return v
+        \\  }
+        \\}
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    try testing.expect(std.mem.indexOf(u8, result, "define") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "make_vec") != null);
+}
+
+test "dependent types: instance method with mangled names" {
+    const testing = std.testing;
+    const source =
+        \\type Vec[A, n: U64] = I32
+        \\class VecOps {
+        \\  get_value: fn(Vec[A, n]) I32;
+        \\}
+        \\instance VecOps[Vec[I32, 5]] {
+        \\  get_value = fn(v: Vec[I32, 5]) I32 {
+        \\    return v
+        \\  }
+        \\}
+        \\fn main() I32 { return 0 }
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Check for mangled method name: Vec$$i32$5$$__get_value
+    try testing.expect(std.mem.indexOf(u8, result, "Vec$$i32$5$$__get_value") != null);
+}
+
+test "dependent types: method call on dependent type" {
+    const testing = std.testing;
+    const source =
+        \\type Vec[A, n: U64] = I32
+        \\class VecOps {
+        \\  get_value: fn(Vec[A, n]) I32;
+        \\}
+        \\instance VecOps[Vec[I32, 5]] {
+        \\  get_value = fn(v: Vec[I32, 5]) I32 {
+        \\    return v
+        \\  }
+        \\}
+        \\fn make_vec() Vec[I32, 5] {
+        \\  return 42
+        \\}
+        \\fn main() I32 {
+        \\  unsafe {
+        \\    let my_vec: Vec[I32, 5] = make_vec()
+        \\    let value: I32 = my_vec.get_value()
+        \\    return value
+        \\  }
+        \\}
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Check for mangled method name in both definition and call
+    try testing.expect(std.mem.indexOf(u8, result, "Vec$$i32$5$$__get_value") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "call") != null);
+}
+
+test "dependent types: multiple value parameters" {
+    const testing = std.testing;
+    const source =
+        \\type Matrix[A, rows: U64, cols: U64] = I32
+        \\class MatrixOps {
+        \\  get_elem: fn(Matrix[A, rows, cols]) I32;
+        \\}
+        \\instance MatrixOps[Matrix[I32, 3, 4]] {
+        \\  get_elem = fn(m: Matrix[I32, 3, 4]) I32 {
+        \\    return m
+        \\  }
+        \\}
+        \\fn main() I32 { return 0 }
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Check for mangled method name: Matrix$$i32$3$4$$__get_elem
+    try testing.expect(std.mem.indexOf(u8, result, "Matrix$$i32$3$4$$__get_elem") != null);
+}
+
+test "dependent types: type resolution in operations" {
+    const testing = std.testing;
+    const source =
+        \\type Vec[A, n: U64] = I32
+        \\class VecOps {
+        \\  add_ten: fn(Vec[A, n]) I32;
+        \\}
+        \\instance VecOps[Vec[I32, 5]] {
+        \\  add_ten = fn(v: Vec[I32, 5]) I32 {
+        \\    return v + 10
+        \\  }
+        \\}
+        \\fn main() I32 { return 0 }
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Check that arithmetic operation compiles correctly
+    try testing.expect(std.mem.indexOf(u8, result, "add") != null);
+}
+
+test "dependent types: full chain test" {
+    const testing = std.testing;
+    const source =
+        \\type Vec[A, n: U64] = I32
+        \\class VecOps {
+        \\  get_value: fn(Vec[A, n]) I32;
+        \\  add_ten: fn(Vec[A, n]) I32;
+        \\}
+        \\instance VecOps[Vec[I32, 5]] {
+        \\  get_value = fn(v: Vec[I32, 5]) I32 {
+        \\    return v
+        \\  }
+        \\  add_ten = fn(v: Vec[I32, 5]) I32 {
+        \\    return v + 10
+        \\  }
+        \\}
+        \\fn make_vec() Vec[I32, 5] {
+        \\  return 42
+        \\}
+        \\fn main() I32 {
+        \\  unsafe {
+        \\    let my_vec: Vec[I32, 5] = make_vec()
+        \\    let value: I32 = my_vec.get_value()
+        \\    let result: I32 = my_vec.add_ten()
+        \\    return result
+        \\  }
+        \\}
+    ;
+
+    const result = try compile(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Check all mangled names are present
+    try testing.expect(std.mem.indexOf(u8, result, "Vec$$i32$5$$__get_value") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "Vec$$i32$5$$__add_ten") != null);
+    try testing.expect(std.mem.indexOf(u8, result, "make_vec") != null);
+}

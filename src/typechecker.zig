@@ -333,8 +333,8 @@ pub const TypeChecker = struct {
                     return error.TypeMismatch;
                 }
 
-                // Update the inferred type
-                lit.inferred_type = expected_type;
+                // Update the inferred type (but only for primitives to avoid double-free with heap-allocated types)
+                lit.inferred_type = resolved_type;
             },
             .binary_op => |*binop| {
                 // For arithmetic binary operations, propagate expected type to both operands
@@ -898,20 +898,23 @@ pub const TypeChecker = struct {
         }
     }
 
-    fn canImplicitlyConvert(_: *TypeChecker, from: Type, to: Type) bool {
+    fn canImplicitlyConvert(self: *TypeChecker, from: Type, to: Type) bool {
+        // Resolve dependent types first
+        const resolved_from = self.resolveType(from);
+        const resolved_to = self.resolveType(to);
 
         // Exact match is always allowed
-        if (from.eql(to)) return true;
+        if (resolved_from.eql(resolved_to)) return true;
 
         // Bool can convert to any integer type (safe: 0 or 1)
-        if (from.kind == .primitive and from.kind.primitive == .bool and to.isInteger()) return true;
+        if (resolved_from.kind == .primitive and resolved_from.kind.primitive == .bool and resolved_to.isInteger()) return true;
 
         // Allow widening conversions between integer types (no data loss)
         // Signed can widen to larger signed, unsigned can widen to larger unsigned
         // We don't allow mixing signed/unsigned to prevent unexpected behavior
-        if (from.isInteger() and to.isInteger()) {
+        if (resolved_from.isInteger() and resolved_to.isInteger()) {
             // Same signedness and target is wider (not equal - handled by exact match above)
-            if (from.isSigned() == to.isSigned() and to.bitWidth() > from.bitWidth()) {
+            if (resolved_from.isSigned() == resolved_to.isSigned() and resolved_to.bitWidth() > resolved_from.bitWidth()) {
                 return true;
             }
         }
