@@ -22,5 +22,3 @@ instance Pointer[ptr] {
     return @ptr_offset(self, off)
   }
 }
-
-import std.string

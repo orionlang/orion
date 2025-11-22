@@ -466,8 +466,11 @@ pub const ImportDecl = struct {
 
     pub fn deinit(self: *ImportDecl, allocator: std.mem.Allocator) void {
         switch (self.item) {
-            .module => {},
+            .module => |path| {
+                allocator.free(path);
+            },
             .specific => |spec| {
+                allocator.free(spec.path);
                 allocator.free(spec.items);
             },
         }
@@ -881,8 +884,9 @@ pub const Parser = struct {
         // Check if there's a dot after the first identifier
         if (!self.check(.dot)) {
             // Just: import foo
+            const module_path = try self.allocator.dupe(u8, first_part.lexeme);
             return ImportDecl{
-                .item = .{ .module = first_part.lexeme },
+                .item = .{ .module = module_path },
             };
         }
 
@@ -907,10 +911,11 @@ pub const Parser = struct {
 
             _ = try self.expect(.right_brace);
 
+            const path = try self.allocator.dupe(u8, first_part.lexeme);
             return ImportDecl{
                 .item = .{
                     .specific = .{
-                        .path = first_part.lexeme,
+                        .path = path,
                         .items = try items.toOwnedSlice(self.allocator),
                     },
                 },

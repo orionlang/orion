@@ -4,6 +4,7 @@ const Parser = @import("parser.zig").Parser;
 const TypeChecker = @import("typechecker.zig").TypeChecker;
 const Codegen = @import("codegen.zig").Codegen;
 const target_module = @import("target.zig");
+const compiler_module = @import("compiler.zig");
 
 fn compile(source: []const u8, allocator: std.mem.Allocator) ![]const u8 {
     var lexer = Lexer.init(source);
@@ -25,70 +26,21 @@ fn compile(source: []const u8, allocator: std.mem.Allocator) ![]const u8 {
 }
 
 fn compileWithStdlib(source: []const u8, allocator: std.mem.Allocator) ![]const u8 {
-    const parser_module = @import("parser.zig");
-    const AST = parser_module.AST;
-
-    // Load and parse stdlib prelude
-    const prelude_path = "stdlib/prelude.or";
-    const prelude_source = try std.fs.cwd().readFileAlloc(allocator, prelude_path, 1024 * 1024);
-    defer allocator.free(prelude_source);
-
-    var prelude_lexer = Lexer.init(prelude_source);
-    var prelude_tokens = try prelude_lexer.tokenize(allocator);
-    defer prelude_tokens.deinit(allocator);
-
-    var prelude_parser = Parser.init(prelude_tokens.items, allocator);
-    var prelude_ast = try prelude_parser.parse();
-
-    // Load and parse user source
-    var lexer = Lexer.init(source);
-    var tokens = try lexer.tokenize(allocator);
-    defer tokens.deinit(allocator);
-
-    var parser = Parser.init(tokens.items, allocator);
-    var user_ast = try parser.parse();
-
-    // Merge stdlib and user AST
-    var ast = AST{
-        .imports = std.ArrayList(parser_module.ImportDecl).empty,
-        .type_defs = std.ArrayList(parser_module.TypeDef).empty,
-        .class_defs = std.ArrayList(parser_module.ClassDef).empty,
-        .instances = std.ArrayList(parser_module.InstanceDecl).empty,
-        .functions = std.ArrayList(parser_module.FunctionDecl).empty,
-    };
-    defer ast.deinit(allocator);
-
-    // Add stdlib items first
-    try ast.type_defs.appendSlice(allocator, prelude_ast.type_defs.items);
-    try ast.class_defs.appendSlice(allocator, prelude_ast.class_defs.items);
-    try ast.instances.appendSlice(allocator, prelude_ast.instances.items);
-    try ast.functions.appendSlice(allocator, prelude_ast.functions.items);
-
-    // Add user items
-    try ast.type_defs.appendSlice(allocator, user_ast.type_defs.items);
-    try ast.class_defs.appendSlice(allocator, user_ast.class_defs.items);
-    try ast.instances.appendSlice(allocator, user_ast.instances.items);
-    try ast.functions.appendSlice(allocator, user_ast.functions.items);
-
-    // Free the ArrayList buffers (merged ast owns the items now)
-    prelude_ast.type_defs.deinit(allocator);
-    prelude_ast.class_defs.deinit(allocator);
-    prelude_ast.instances.deinit(allocator);
-    prelude_ast.functions.deinit(allocator);
-
-    user_ast.type_defs.deinit(allocator);
-    user_ast.class_defs.deinit(allocator);
-    user_ast.instances.deinit(allocator);
-    user_ast.functions.deinit(allocator);
-
-    var typechecker = TypeChecker.init(allocator);
-    defer typechecker.deinit();
-    try typechecker.check(&ast);
+    // Write source to a temporary file since the compiler needs to read from disk
+    const tmp_path = ".test_temp.or";
+    try std.fs.cwd().writeFile(.{.sub_path = tmp_path, .data = source});
+    defer std.fs.cwd().deleteFile(tmp_path) catch {};
 
     const target = target_module.detectHostTriple();
-    var codegen = Codegen.init(allocator, target);
-    defer codegen.deinit();
-    return try codegen.generate(&ast);
+
+    return try compiler_module.compileProgram(.{
+        .allocator = allocator,
+        .input_source = source,
+        .input_path = tmp_path,
+        .src_dir = ".",
+        .include_dirs = &[_][]const u8{},
+        .target = target,
+    });
 }
 
 test "integration: compile simple function end-to-end" {
@@ -2730,7 +2682,7 @@ test "string literals: basic string" {
         \\}
     ;
 
-    const result = try compile(source, testing.allocator);
+    const result = try compileWithStdlib(source, testing.allocator);
     defer testing.allocator.free(result);
 
     // Check for string constant declaration
@@ -2752,7 +2704,7 @@ test "string literals: escape sequences" {
         \\}
     ;
 
-    const result = try compile(source, testing.allocator);
+    const result = try compileWithStdlib(source, testing.allocator);
     defer testing.allocator.free(result);
 
     // Check for escape sequences in LLVM IR (\0A = newline, \09 = tab)
@@ -2771,7 +2723,7 @@ test "string literals: empty string" {
         \\}
     ;
 
-    const result = try compile(source, testing.allocator);
+    const result = try compileWithStdlib(source, testing.allocator);
     defer testing.allocator.free(result);
 
     // Empty string should just be null terminator
@@ -2792,7 +2744,7 @@ test "string literals: multiple strings" {
         \\}
     ;
 
-    const result = try compile(source, testing.allocator);
+    const result = try compileWithStdlib(source, testing.allocator);
     defer testing.allocator.free(result);
 
     // Should have two different string constants
@@ -2800,4 +2752,124 @@ test "string literals: multiple strings" {
     try testing.expect(std.mem.indexOf(u8, result, "@.str.1") != null);
     try testing.expect(std.mem.indexOf(u8, result, "first") != null);
     try testing.expect(std.mem.indexOf(u8, result, "second") != null);
+}
+
+test "string operations: len" {
+    const testing = std.testing;
+    const source =
+        \\fn main() I32 {
+        \\    let s: str = "hello"
+        \\    let length: I64@* = s.len()
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Should compile successfully
+    try testing.expect(std.mem.indexOf(u8, result, "define") != null);
+}
+
+test "string operations: at" {
+    const testing = std.testing;
+    const source =
+        \\fn main() I32 {
+        \\    let s: str = "hello"
+        \\    let c: U8@* = s.at(0)
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Should compile successfully
+    try testing.expect(std.mem.indexOf(u8, result, "define") != null);
+}
+
+test "string operations: is_empty" {
+    const testing = std.testing;
+    const source =
+        \\fn main() I32 {
+        \\    let s: str = "hello"
+        \\    let empty: Bool@* = s.is_empty()
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Should compile successfully
+    try testing.expect(std.mem.indexOf(u8, result, "define") != null);
+}
+
+test "string operations: equals" {
+    const testing = std.testing;
+    const source =
+        \\fn main() I32 {
+        \\    let s1: str = "hello"
+        \\    let s2: str@* = "world"
+        \\    let eq: Bool@* = s1.equals(s2)
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Should compile successfully
+    try testing.expect(std.mem.indexOf(u8, result, "define") != null);
+}
+
+test "string operations: starts_with" {
+    const testing = std.testing;
+    const source =
+        \\fn main() I32 {
+        \\    let s: str = "hello world"
+        \\    let starts: Bool@* = s.starts_with("hello")
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Should compile successfully
+    try testing.expect(std.mem.indexOf(u8, result, "define") != null);
+}
+
+test "string operations: ends_with" {
+    const testing = std.testing;
+    const source =
+        \\fn main() I32 {
+        \\    let s: str = "hello world"
+        \\    let ends: Bool@* = s.ends_with("world")
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Should compile successfully
+    try testing.expect(std.mem.indexOf(u8, result, "define") != null);
+}
+
+test "string operations: find" {
+    const testing = std.testing;
+    const source =
+        \\fn main() I32 {
+        \\    let s: str = "hello world"
+        \\    let pos: I64@* = s.find("world")
+        \\    return 0
+        \\}
+    ;
+
+    const result = try compileWithStdlib(source, testing.allocator);
+    defer testing.allocator.free(result);
+
+    // Should compile successfully
+    try testing.expect(std.mem.indexOf(u8, result, "define") != null);
 }

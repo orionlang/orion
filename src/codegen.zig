@@ -39,6 +39,7 @@ pub const Codegen = struct {
     instance_methods: std.StringHashMap(Type),
     target: TargetTriple,
     target_info: TargetInfo,
+    current_function_return_type: ?Type,
 
     pub fn init(allocator: std.mem.Allocator, target: TargetTriple) Codegen {
         return .{
@@ -55,6 +56,7 @@ pub const Codegen = struct {
             .instance_methods = std.StringHashMap(Type).init(allocator),
             .target = target,
             .target_info = target.getTargetInfo(),
+            .current_function_return_type = null,
         };
     }
 
@@ -401,6 +403,9 @@ pub const Codegen = struct {
             }
             self.variables.clearRetainingCapacity();
 
+            // Set current function return type
+            self.current_function_return_type = method.return_type;
+
             // Generate mangled function name
             const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method.name });
             defer self.allocator.free(mangled_name);
@@ -451,6 +456,9 @@ pub const Codegen = struct {
             self.allocator.free(var_info.llvm_ptr);
         }
         self.variables.clearRetainingCapacity();
+
+        // Set current function return type
+        self.current_function_return_type = func.return_type;
 
         // Function signature with parameters
         const return_type_str = try self.llvmTypeString(func.return_type);
@@ -647,6 +655,30 @@ pub const Codegen = struct {
     fn convertType(self: *Codegen, value: []const u8, from_type: Type, to_type: Type) ![]const u8 {
         const from_llvm = self.llvmType(from_type);
         const to_llvm = self.llvmType(to_type);
+
+        // Handle ptr <-> integer conversions
+        // Note: both .ptr and .str map to LLVM ptr type
+        const from_is_ptr = from_type.kind == .primitive and
+            (from_type.kind.primitive == .ptr or from_type.kind.primitive == .str);
+        const to_is_ptr = to_type.kind == .primitive and
+            (to_type.kind.primitive == .ptr or to_type.kind.primitive == .str);
+
+        // If both are pointer types (ptr or str), no conversion needed
+        if (from_is_ptr and to_is_ptr) {
+            return try self.allocator.dupe(u8, value);
+        }
+
+        if (from_is_ptr and !to_is_ptr) {
+            // ptr/str -> integer: use ptrtoint
+            const temp = try self.allocTempName();
+            try self.output.writer(self.allocator).print("  {s} = ptrtoint {s} {s} to {s}\n", .{ temp, from_llvm, value, to_llvm });
+            return temp;
+        } else if (!from_is_ptr and to_is_ptr) {
+            // integer -> ptr/str: use inttoptr
+            const temp = try self.allocTempName();
+            try self.output.writer(self.allocator).print("  {s} = inttoptr {s} {s} to {s}\n", .{ temp, from_llvm, value, to_llvm });
+            return temp;
+        }
 
         // Bool uses zero extension (unsigned)
         if (from_type.kind == .primitive and from_type.kind.primitive == .bool) {
@@ -899,9 +931,10 @@ pub const Codegen = struct {
                 return result_temp;
             },
             .block_expr => |block| {
-                // Generate all statements
+                // Generate all statements - use current function return type
+                const ret_type = if (self.current_function_return_type) |rt| rt else parser.Type{ .kind = .{ .primitive = .i32  }, .usage = .once };
                 for (block.statements) |*stmt| {
-                    try self.generateStatement(stmt, .{ .kind = .{ .primitive = .i32  }, .usage = .once }); // Dummy return type for blocks
+                    try self.generateStatement(stmt, ret_type);
                 }
 
                 // Generate result expression or unit value
@@ -912,9 +945,10 @@ pub const Codegen = struct {
                 }
             },
             .unsafe_block => |block| {
-                // Generate all statements (same as regular block)
+                // Generate all statements (same as regular block) - use current function return type
+                const ret_type = if (self.current_function_return_type) |rt| rt else parser.Type{ .kind = .{ .primitive = .i32  }, .usage = .once };
                 for (block.statements) |*stmt| {
-                    try self.generateStatement(stmt, .{ .kind = .{ .primitive = .i32  }, .usage = .once });
+                    try self.generateStatement(stmt, ret_type);
                 }
 
                 // Generate result expression or unit value
@@ -1348,11 +1382,8 @@ pub const Codegen = struct {
                             break :blk extended;
                         };
 
-                        // Convert to ptr
-                        const ptr_result = try self.allocTempName();
-                        try self.output.writer(self.allocator).print("  {s} = inttoptr {s} {s} to ptr\n", .{ ptr_result, self.target_info.native_int_type, i64_val });
-                        self.allocator.free(i64_val);
-                        return ptr_result;
+                        // Return the i64 value directly (not converted to ptr)
+                        return i64_val;
                     } else {
                         // Runtime Type variable - generate runtime dispatch based on type ID
                         const type_val = try self.generateExpression(type_arg);
@@ -1424,7 +1455,7 @@ pub const Codegen = struct {
                         defer self.allocator.free(final_result);
                         try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ final_result, self.target_info.native_int_type, result_temp });
 
-                        // Convert native int result to ptr
+                        // Convert native int result to ptr for runtime dispatch (type unknown at compile time)
                         const ptr_result = try self.allocTempName();
                         try self.output.writer(self.allocator).print("  {s} = inttoptr {s} {s} to ptr\n", .{ ptr_result, self.target_info.native_int_type, final_result });
 
@@ -1687,30 +1718,13 @@ pub const Codegen = struct {
                     // @type returns Type primitive
                     return .{ .kind = .{ .primitive = .type }, .usage = .once };
                 } else if (std.mem.eql(u8, call.name, "@ptr_read")) {
-                    // Return type is based on @type(...) argument if compile-time, otherwise ptr
+                    // Return type depends on whether type arg is compile-time or runtime
                     const type_arg = call.args[1];
                     if (type_arg.* == .intrinsic_call and std.mem.eql(u8, type_arg.intrinsic_call.name, "@type")) {
-                        const type_name_expr = type_arg.intrinsic_call.args[0];
-                        const type_name = switch (type_name_expr.*) {
-                            .variable => |v| v,
-                            .constructor_call => |c| c.name,
-                            else => unreachable,
-                        };
-
-                        const prim_type = if (std.mem.eql(u8, type_name, "I8")) parser.PrimitiveType.i8
-                            else if (std.mem.eql(u8, type_name, "I16")) parser.PrimitiveType.i16
-                            else if (std.mem.eql(u8, type_name, "I32")) parser.PrimitiveType.i32
-                            else if (std.mem.eql(u8, type_name, "I64")) parser.PrimitiveType.i64
-                            else if (std.mem.eql(u8, type_name, "U8")) parser.PrimitiveType.u8
-                            else if (std.mem.eql(u8, type_name, "U16")) parser.PrimitiveType.u16
-                            else if (std.mem.eql(u8, type_name, "U32")) parser.PrimitiveType.u32
-                            else if (std.mem.eql(u8, type_name, "U64")) parser.PrimitiveType.u64
-                            else if (std.mem.eql(u8, type_name, "Bool")) parser.PrimitiveType.bool
-                            else unreachable;
-
-                        return .{ .kind = .{ .primitive = prim_type }, .usage = .once };
+                        // Compile-time: we extend to i64, so return i64
+                        return .{ .kind = .{ .primitive = .i64 }, .usage = .once };
                     } else {
-                        // Runtime Type variable - return ptr as generic return type
+                        // Runtime: we return ptr since we can't know the type
                         return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
                     }
                 } else if (std.mem.eql(u8, call.name, "@ptr_write")) {

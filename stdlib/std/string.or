@@ -1,0 +1,187 @@
+// String type class for string operations
+class String {
+  len: fn(str) I64;
+  at: fn(str, I64) U8;
+  slice: fn(str, I64, I64) str;
+  is_empty: fn(str) Bool;
+  equals: fn(str, str) Bool;
+  starts_with: fn(str, str) Bool;
+  ends_with: fn(str, str) Bool;
+  find: fn(str, str) I64;
+}
+
+// String instance implementation for primitive str type
+instance String[str] {
+  len = fn(self: str) I64 {
+    unsafe {
+      var length: I64 = 0
+      var p: ptr = self
+      while @ptr_read(p, @type(U8)) != 0 {
+        length = length + 1
+        p = @ptr_offset(p, 1)
+      }
+      return length
+    }
+  }
+
+  at = fn(self: str, index: I64) U8 {
+    unsafe {
+      var p: ptr = self
+      p = @ptr_offset(p, index)
+      return @ptr_read(p, @type(U8))
+    }
+  }
+
+  slice = fn(self: str, start: I64, end: I64) str {
+    // TODO: This needs memory allocation to create a new string
+    // For now, we can't implement this without malloc
+    return self
+  }
+
+  is_empty = fn(self: str) Bool {
+    unsafe {
+      var p: ptr = self
+      var first: U8 = @ptr_read(p, @type(U8))
+      return first == 0
+    }
+  }
+
+  equals = fn(self: str, other: str) Bool {
+    unsafe {
+      var p1: ptr = self
+      var p2: ptr = other
+      var continue: Bool = true
+      var result: Bool = true
+
+      while continue {
+        var c1: U8 = @ptr_read(p1, @type(U8))
+        var c2: U8 = @ptr_read(p2, @type(U8))
+
+        result = if c1 != c2 { false } elseif c1 == 0 { true } else { true }
+        continue = if c1 != c2 { false } elseif c1 == 0 { false } else { true }
+
+        p1 = @ptr_offset(p1, 1)
+        p2 = @ptr_offset(p2, 1)
+      }
+
+      return result
+    }
+  }
+
+  starts_with = fn(self: str, prefix: str) Bool {
+    unsafe {
+      var p_str: ptr = self
+      var p_prefix: ptr = prefix
+      var result: Bool = true
+      var continue: Bool = true
+
+      while continue {
+        var prefix_char: U8 = @ptr_read(p_prefix, @type(U8))
+        continue = if prefix_char != 0 { true } else { false }
+
+        var c_str: U8 = if continue { @ptr_read(p_str, @type(U8)) } else { 0 }
+        var c_prefix: U8 = if continue { @ptr_read(p_prefix, @type(U8)) } else { 0 }
+
+        result = if continue {
+          if c_str != c_prefix { false } else { true }
+        } else { result }
+
+        continue = if result { continue } else { false }
+
+        p_str = @ptr_offset(p_str, 1)
+        p_prefix = @ptr_offset(p_prefix, 1)
+      }
+
+      return result
+    }
+  }
+
+  ends_with = fn(self: str, suffix: str) Bool {
+    // Need len() to implement this - call recursively
+    var self_len: I64 = self.len()
+    var suffix_len: I64 = suffix.len()
+
+    var result: Bool = if suffix_len > self_len { false } else { true }
+
+    result = if result {
+      unsafe {
+        var start_pos: I64 = self_len - suffix_len
+        var p_str: ptr = self
+        p_str = @ptr_offset(p_str, start_pos)
+
+        var p_suffix: ptr = suffix
+        var continue: Bool = true
+        var is_match: Bool = true
+
+        while continue {
+          var suffix_char: U8 = @ptr_read(p_suffix, @type(U8))
+          continue = if suffix_char != 0 { true } else { false }
+
+          var c_str: U8 = if continue { @ptr_read(p_str, @type(U8)) } else { 0 }
+          var c_suffix: U8 = if continue { @ptr_read(p_suffix, @type(U8)) } else { 0 }
+
+          is_match = if continue {
+            if c_str != c_suffix { false } else { true }
+          } else { is_match }
+
+          continue = if is_match { continue } else { false }
+
+          p_str = @ptr_offset(p_str, 1)
+          p_suffix = @ptr_offset(p_suffix, 1)
+        }
+
+        is_match
+      }
+    } else { false }
+
+    return result
+  }
+
+  find = fn(self: str, needle: str) I64 {
+    unsafe {
+      var p_haystack: ptr = self
+      var pos: I64 = 0
+      var found: Bool = false
+      var result: I64 = -1
+      var continue: Bool = true
+      var p_check: ptr = self
+      var p_needle: ptr = needle
+      var matches: Bool = true
+      var inner_continue: Bool = true
+
+      while continue {
+        var haystack_char: U8 = @ptr_read(p_haystack, @type(U8))
+        continue = if haystack_char != 0 { true } else { false }
+
+        p_check = if continue { p_haystack } else { p_check }
+        p_needle = if continue { needle } else { p_needle }
+        matches = if continue { true } else { matches }
+        inner_continue = if continue { true } else { inner_continue }
+
+        while inner_continue {
+          var needle_char: U8 = @ptr_read(p_needle, @type(U8))
+          inner_continue = if needle_char != 0 { true } else { false }
+
+          var c_check: U8 = if inner_continue { @ptr_read(p_check, @type(U8)) } else { 0 }
+          var c_needle: U8 = if inner_continue { @ptr_read(p_needle, @type(U8)) } else { 0 }
+
+          matches = if inner_continue {
+            if c_check != c_needle { false } else { matches }
+          } else { matches }
+
+          p_check = @ptr_offset(p_check, 1)
+          p_needle = @ptr_offset(p_needle, 1)
+        }
+
+        found = if continue { matches } else { found }
+        result = if found { pos } else { result }
+        continue = if found { false } else { continue }
+
+        p_haystack = @ptr_offset(p_haystack, 1)
+        pos = pos + 1
+      }
+
+      return result
+    }
+  }
+}

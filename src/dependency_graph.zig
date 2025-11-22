@@ -61,7 +61,7 @@ pub const DependencyGraph = struct {
         try self.discoverModule(module_name, entrypoint_path);
     }
 
-    fn discoverModule(self: *DependencyGraph, module_path: []const u8, file_path: []const u8) !void {
+    pub fn discoverModule(self: *DependencyGraph, module_path: []const u8, file_path: []const u8) !void {
         // Skip if already discovered
         if (self.modules.contains(module_path)) return;
 

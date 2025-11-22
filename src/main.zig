@@ -120,9 +120,20 @@ pub fn main() !void {
     };
 
     // Discover all modules via dependency graph
-    const resolver = ModuleResolver.init(allocator, src_dir, "stdlib", include_dirs.items);
+    var resolver = ModuleResolver.init(allocator, src_dir, "stdlib", include_dirs.items);
     var dep_graph = DependencyGraph.init(allocator, resolver);
     defer dep_graph.deinit();
+
+    // First, discover prelude's imports (stdlib modules like std.string)
+    for (prelude_ast.imports.items) |import_decl| {
+        const import_path = switch (import_decl.item) {
+            .module => |m| m,
+            .specific => |s| s.path,
+        };
+        const mod_id = try resolver.resolve(import_path);
+        defer resolver.deinitModuleId(mod_id);
+        try dep_graph.discoverModule(mod_id.path, mod_id.file_path);
+    }
 
     try dep_graph.discover(input_path);
 
