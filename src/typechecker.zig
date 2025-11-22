@@ -82,11 +82,44 @@ pub const TypeChecker = struct {
 
         // Second pass: collect instance methods
         for (ast.instances.items) |instance| {
-            const type_name = switch (instance.type_name.kind) {
-                .named => |name| name,
-                .primitive => |prim| @tagName(prim),
-                else => "unknown",
+            const type_name = blk: {
+                switch (instance.type_name.kind) {
+                    .named => |name| break :blk try self.allocator.dupe(u8, name),
+                    .primitive => |prim| break :blk try self.allocator.dupe(u8, @tagName(prim)),
+                    .dependent => |dep| {
+                        // Mangle dependent types: Vec$ptr$8
+                        var mangled = std.ArrayList(u8).empty;
+                        defer mangled.deinit(self.allocator);
+                        try mangled.appendSlice(self.allocator, dep.base);
+                        for (dep.type_params) |param| {
+                            try mangled.append(self.allocator, '$');
+                            switch (param) {
+                                .variable => |v| try mangled.appendSlice(self.allocator, v),
+                                .concrete => |t| {
+                                    const type_str = switch (t.kind) {
+                                        .primitive => |prim| @tagName(prim),
+                                        .named => |name| name,
+                                        else => "unknown",
+                                    };
+                                    try mangled.appendSlice(self.allocator, type_str);
+                                },
+                            }
+                        }
+                        // Add value parameters
+                        for (dep.value_params) |val_param| {
+                            try mangled.append(self.allocator, '$');
+                            if (val_param == .integer_literal) {
+                                const int_str = try std.fmt.allocPrint(self.allocator, "{d}", .{val_param.integer_literal.value});
+                                defer self.allocator.free(int_str);
+                                try mangled.appendSlice(self.allocator, int_str);
+                            }
+                        }
+                        break :blk try self.allocator.dupe(u8, mangled.items);
+                    },
+                    else => break :blk try self.allocator.dupe(u8, "unknown"),
+                }
             };
+            defer self.allocator.free(type_name);
 
             for (instance.methods) |method| {
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{type_name, method.name});
@@ -94,7 +127,18 @@ pub const TypeChecker = struct {
             }
         }
 
-        // Third pass: collect function signatures
+        // Third pass: collect function signatures (including extern)
+        for (ast.extern_functions.items) |extern_func| {
+            const param_types = try self.allocator.alloc(Type, extern_func.params.len);
+            for (extern_func.params, 0..) |param, i| {
+                param_types[i] = param.param_type;
+            }
+            try self.functions.put(extern_func.name, .{
+                .params = param_types,
+                .return_type = extern_func.return_type,
+                .is_unsafe = true,
+            });
+        }
         for (ast.functions.items) |func| {
             const param_types = try self.allocator.alloc(Type, func.params.len);
             for (func.params, 0..) |param, i| {
@@ -364,14 +408,35 @@ pub const TypeChecker = struct {
                 // TODO: Propagate expected type to result expression
                 _ = block;
             },
-            .bool_literal, .variable, .function_call, .struct_literal, .field_access, .constructor_call, .match_expr, .method_call, .intrinsic_call => {
+            .struct_literal => |lit| {
+                // Propagate expected types to struct fields
+                const type_name = switch (expected_type.kind) {
+                    .named => |name| name,
+                    .dependent => |dep| dep.base,
+                    else => return,  // Can't propagate if expected type isn't a struct
+                };
+
+                const typedef = self.type_defs.get(type_name) orelse return;
+                if (typedef.kind != .struct_type) return;
+
+                // Propagate expected types to each field
+                for (lit.fields) |field| {
+                    for (typedef.kind.struct_type) |type_field| {
+                        if (std.mem.eql(u8, field.name, type_field.name)) {
+                            try self.checkExprWithExpectedType(field.value, type_field.field_type.*);
+                            break;
+                        }
+                    }
+                }
+            },
+            .bool_literal, .variable, .function_call, .field_access, .constructor_call, .dependent_type_ref, .match_expr, .method_call, .intrinsic_call => {
                 // These expressions have fixed types that can't be influenced by context:
                 // - bool_literal: always Bool
                 // - variable: type determined at declaration
                 // - function_call: return type is fixed by function signature
-                // - struct_literal: type determined by struct definition
                 // - field_access: type determined by field type
                 // - constructor_call: type determined by sum type definition
+                // - dependent_type_ref: type reference for method calls on dependent types
                 // - match_expr: type is the unified type of all arms
             },
         }
@@ -622,18 +687,23 @@ pub const TypeChecker = struct {
             .field_access => |access| {
                 const object_type = try self.inferExprType(access.object);
 
-                if (object_type.kind != .named) {
-                    std.debug.print("Cannot access field of non-struct type\n", .{});
-                    return error.TypeMismatch;
-                }
+                // Get the base type name (handle both .named and .dependent)
+                const type_name = switch (object_type.kind) {
+                    .named => |name| name,
+                    .dependent => |dep| dep.base,
+                    else => {
+                        std.debug.print("Cannot access field of non-struct type\n", .{});
+                        return error.TypeMismatch;
+                    },
+                };
 
-                const typedef = self.type_defs.get(object_type.kind.named) orelse {
-                    std.debug.print("Undefined type: {s}\n", .{object_type.kind.named});
+                const typedef = self.type_defs.get(type_name) orelse {
+                    std.debug.print("Undefined type: {s}\n", .{type_name});
                     return error.UndefinedVariable;
                 };
 
                 if (typedef.kind != .struct_type) {
-                    std.debug.print("Type {s} is not a struct\n", .{object_type.kind.named});
+                    std.debug.print("Type {s} is not a struct\n", .{type_name});
                     return error.TypeMismatch;
                 }
 
@@ -783,15 +853,81 @@ pub const TypeChecker = struct {
                 return result_type.?;
             },
             .method_call => |method_call| {
-                // Infer the type of the object
-                const object_type = try self.inferExprType(method_call.object);
+                // Special case: if object is a dependent_type_ref, construct the type name directly
+                const type_name = if (method_call.object.* == .dependent_type_ref) blk: {
+                    const ref = method_call.object.dependent_type_ref;
+                    // Mangle: Vec$ptr$8
+                    var mangled = std.ArrayList(u8).empty;
+                    defer mangled.deinit(self.allocator);
+                    try mangled.appendSlice(self.allocator, ref.type_name);
+                    for (ref.type_params) |param| {
+                        try mangled.append(self.allocator, '$');
+                        switch (param) {
+                            .variable => |v| try mangled.appendSlice(self.allocator, v),
+                            .concrete => |t| {
+                                const type_str = switch (t.kind) {
+                                    .primitive => |prim| @tagName(prim),
+                                    .named => |name| name,
+                                    else => "unknown",
+                                };
+                                try mangled.appendSlice(self.allocator, type_str);
+                            },
+                        }
+                    }
+                    // Add value parameters to mangling
+                    for (ref.value_params) |val_param| {
+                        try mangled.append(self.allocator, '$');
+                        // For now, only handle integer literals
+                        if (val_param == .integer_literal) {
+                            const int_str = try std.fmt.allocPrint(self.allocator, "{d}", .{val_param.integer_literal.value});
+                            defer self.allocator.free(int_str);
+                            try mangled.appendSlice(self.allocator, int_str);
+                        }
+                    }
+                    break :blk try self.allocator.dupe(u8, mangled.items);
+                } else blk: {
+                    // Infer the type of the object
+                    const object_type = try self.inferExprType(method_call.object);
 
-                // Extract type name
-                const type_name = switch (object_type.kind) {
-                    .named => |name| name,
-                    .primitive => |prim| @tagName(prim),
-                    else => "unknown",
+                    // Extract type name
+                    const name = switch (object_type.kind) {
+                        .named => |name| name,
+                        .primitive => |prim| @tagName(prim),
+                        .dependent => |dep| {
+                            // Mangle dependent type: Vec$ptr$8
+                            var mangled = std.ArrayList(u8).empty;
+                            defer mangled.deinit(self.allocator);
+                            try mangled.appendSlice(self.allocator, dep.base);
+                            for (dep.type_params) |param| {
+                                try mangled.append(self.allocator, '$');
+                                switch (param) {
+                                    .variable => |v| try mangled.appendSlice(self.allocator, v),
+                                    .concrete => |t| {
+                                        const type_str = switch (t.kind) {
+                                            .primitive => |prim| @tagName(prim),
+                                            .named => |n| n,
+                                            else => "unknown",
+                                        };
+                                        try mangled.appendSlice(self.allocator, type_str);
+                                    },
+                                }
+                            }
+                            // Add value parameters to mangling
+                            for (dep.value_params) |val_param| {
+                                try mangled.append(self.allocator, '$');
+                                if (val_param == .integer_literal) {
+                                    const int_str = try std.fmt.allocPrint(self.allocator, "{d}", .{val_param.integer_literal.value});
+                                    defer self.allocator.free(int_str);
+                                    try mangled.appendSlice(self.allocator, int_str);
+                                }
+                            }
+                            break :blk try self.allocator.dupe(u8, mangled.items);
+                        },
+                        else => "unknown",
+                    };
+                    break :blk try self.allocator.dupe(u8, name);
                 };
+                defer self.allocator.free(type_name);
 
                 // Look up the method in instance_methods
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{type_name, method_call.method_name});
@@ -800,8 +936,9 @@ pub const TypeChecker = struct {
                 if (self.instance_methods.get(mangled_name)) |return_type| {
                     return return_type;
                 } else {
-                    // Method not found, return object type as fallback
-                    return object_type;
+                    // Method not found
+                    std.debug.print("Method {s} not found on type {s}\n", .{method_call.method_name, type_name});
+                    return error.UndefinedFunction;
                 }
             },
             .intrinsic_call => |call| {
@@ -895,6 +1032,12 @@ pub const TypeChecker = struct {
                     return error.UndefinedFunction;
                 }
             },
+            .dependent_type_ref => {
+                // A dependent type reference should only appear as the object of a method call
+                // e.g., Vec[ptr, 8].new() - the reference itself doesn't have a type
+                std.debug.print("Dependent type reference cannot be used as a value\n", .{});
+                return error.TypeMismatch;
+            },
         }
     }
 
@@ -923,12 +1066,19 @@ pub const TypeChecker = struct {
         return false;
     }
 
-    /// Resolve dependent types to their underlying type definition
+    /// Resolve dependent and named types to their underlying type definition
     fn resolveType(self: *TypeChecker, typ: Type) Type {
         switch (typ.kind) {
             .dependent => |dep| {
                 // Look up the type definition and return its underlying type
                 if (self.type_defs.get(dep.base)) |typedef| {
+                    return typedef;
+                }
+                return typ;
+            },
+            .named => |name| {
+                // Look up the type definition and return its underlying type
+                if (self.type_defs.get(name)) |typedef| {
                     return typedef;
                 }
                 return typ;

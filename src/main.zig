@@ -7,6 +7,7 @@ const TypeDef = parser_module.TypeDef;
 const ClassDef = parser_module.ClassDef;
 const InstanceDecl = parser_module.InstanceDecl;
 const FunctionDecl = parser_module.FunctionDecl;
+const ExternFunctionDecl = parser_module.ExternFunctionDecl;
 const TypeChecker = @import("typechecker.zig").TypeChecker;
 const Codegen = @import("codegen.zig").Codegen;
 const target_module = @import("target.zig");
@@ -84,6 +85,7 @@ pub fn main() !void {
         // Create empty prelude AST
         const empty_ast = AST{
             .imports = std.ArrayList(parser_module.ImportDecl).empty,
+            .extern_functions = std.ArrayList(ExternFunctionDecl).empty,
             .type_defs = std.ArrayList(TypeDef).empty,
             .class_defs = std.ArrayList(ClassDef).empty,
             .instances = std.ArrayList(InstanceDecl).empty,
@@ -101,7 +103,9 @@ pub fn main() !void {
     var prelude_parser = Parser.init(prelude_tokens.items, allocator);
     var prelude_ast = try prelude_parser.parse();
     defer {
+        // Note: prelude AST items are merged into main ast, so we only free the ArrayList containers
         prelude_ast.imports.deinit(allocator);
+        prelude_ast.extern_functions.deinit(allocator);
         prelude_ast.type_defs.deinit(allocator);
         prelude_ast.class_defs.deinit(allocator);
         prelude_ast.instances.deinit(allocator);
@@ -164,8 +168,11 @@ pub fn main() !void {
     // TODO: Full compiler should compile modules separately
     var module_asts = std.ArrayList(AST).empty;
     defer {
+        // Note: module AST items are merged into main ast, so we only free the ArrayList containers
+        // The actual items (functions, types, etc.) will be freed when main ast is deinit'd
         for (module_asts.items) |*mod_ast| {
             mod_ast.imports.deinit(allocator);
+            mod_ast.extern_functions.deinit(allocator);
             mod_ast.type_defs.deinit(allocator);
             mod_ast.class_defs.deinit(allocator);
             mod_ast.instances.deinit(allocator);
@@ -204,6 +211,7 @@ pub fn main() !void {
     // Merge stdlib and all discovered module ASTs
     var ast = AST{
         .imports = std.ArrayList(parser_module.ImportDecl).empty,
+        .extern_functions = std.ArrayList(ExternFunctionDecl).empty,
         .type_defs = std.ArrayList(TypeDef).empty,
         .class_defs = std.ArrayList(ClassDef).empty,
         .instances = std.ArrayList(InstanceDecl).empty,
@@ -213,6 +221,7 @@ pub fn main() !void {
 
     // Add stdlib items first
     try ast.imports.appendSlice(allocator, prelude_ast.imports.items);
+    try ast.extern_functions.appendSlice(allocator, prelude_ast.extern_functions.items);
     try ast.type_defs.appendSlice(allocator, prelude_ast.type_defs.items);
     try ast.class_defs.appendSlice(allocator, prelude_ast.class_defs.items);
     try ast.instances.appendSlice(allocator, prelude_ast.instances.items);
@@ -221,6 +230,7 @@ pub fn main() !void {
     // Add all discovered modules in dependency order
     for (module_asts.items) |mod_ast| {
         try ast.imports.appendSlice(allocator, mod_ast.imports.items);
+        try ast.extern_functions.appendSlice(allocator, mod_ast.extern_functions.items);
         try ast.type_defs.appendSlice(allocator, mod_ast.type_defs.items);
         try ast.class_defs.appendSlice(allocator, mod_ast.class_defs.items);
         try ast.instances.appendSlice(allocator, mod_ast.instances.items);

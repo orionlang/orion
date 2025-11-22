@@ -186,8 +186,13 @@ pub const Type = struct {
                     }
                 }
                 allocator.free(dep.type_params);
-                // Note: value_params (Expr) are freed elsewhere in AST cleanup
-                allocator.free(dep.value_params);
+                // Free value_params (Expr values stored in array)
+                for (dep.value_params) |*val_param| {
+                    FunctionDecl.deinitExpr(allocator, val_param);
+                }
+                if (dep.value_params.len > 0) {
+                    allocator.free(dep.value_params);
+                }
             },
         }
     }
@@ -437,6 +442,8 @@ pub const Expr = union(enum) {
     },
     struct_literal: struct {
         type_name: []const u8,
+        type_params: ?[]TypeParam,  // Optional type parameters for dependent types
+        value_params: ?[]Expr,      // Optional value parameters for dependent types
         fields: []StructLiteralField,
     },
     field_access: struct {
@@ -446,6 +453,11 @@ pub const Expr = union(enum) {
     constructor_call: struct {
         name: []const u8,
         args: []*Expr,
+    },
+    dependent_type_ref: struct {
+        type_name: []const u8,
+        type_params: []TypeParam,
+        value_params: []Expr,
     },
     match_expr: struct {
         scrutinee: *Expr,
@@ -612,6 +624,21 @@ pub const InstanceDecl = struct {
     }
 };
 
+pub const ExternFunctionDecl = struct {
+    name: []const u8,
+    params: []Param,
+    return_type: Type,
+
+    pub fn deinit(self: *ExternFunctionDecl, allocator: std.mem.Allocator) void {
+        for (self.params) |param| {
+            var param_type_copy = param.param_type;
+            param_type_copy.deinit(allocator);
+        }
+        allocator.free(self.params);
+        self.return_type.deinit(allocator);
+    }
+};
+
 pub const FunctionDecl = struct {
     name: []const u8,
     params: []Param,
@@ -736,6 +763,23 @@ pub const FunctionDecl = struct {
                     allocator.destroy(field.value);
                 }
                 allocator.free(lit.fields);
+                if (lit.type_params) |type_params| {
+                    for (type_params) |param| {
+                        if (param == .concrete) {
+                            param.concrete.deinit(allocator);
+                            allocator.destroy(param.concrete);
+                        }
+                    }
+                    allocator.free(type_params);
+                }
+                if (lit.value_params) |value_params| {
+                    for (value_params) |*val_param| {
+                        deinitExpr(allocator, val_param);
+                    }
+                    if (value_params.len > 0) {
+                        allocator.free(value_params);
+                    }
+                }
             },
             .field_access => |access| {
                 deinitExpr(allocator, access.object);
@@ -747,6 +791,19 @@ pub const FunctionDecl = struct {
                     allocator.destroy(arg);
                 }
                 allocator.free(call.args);
+            },
+            .dependent_type_ref => |ref| {
+                for (ref.type_params) |param| {
+                    if (param == .concrete) {
+                        param.concrete.deinit(allocator);
+                        allocator.destroy(param.concrete);
+                    }
+                }
+                allocator.free(ref.type_params);
+                for (ref.value_params) |*val_param| {
+                    deinitExpr(allocator, val_param);
+                }
+                allocator.free(ref.value_params);
             },
             .match_expr => |match_expr| {
                 deinitExpr(allocator, match_expr.scrutinee);
@@ -785,6 +842,7 @@ pub const FunctionDecl = struct {
 
 pub const AST = struct {
     imports: std.ArrayList(ImportDecl),
+    extern_functions: std.ArrayList(ExternFunctionDecl),
     type_defs: std.ArrayList(TypeDef),
     class_defs: std.ArrayList(ClassDef),
     instances: std.ArrayList(InstanceDecl),
@@ -795,6 +853,10 @@ pub const AST = struct {
             import_decl.deinit(allocator);
         }
         self.imports.deinit(allocator);
+        for (self.extern_functions.items) |*extern_func| {
+            extern_func.deinit(allocator);
+        }
+        self.extern_functions.deinit(allocator);
         for (self.type_defs.items) |*typedef| {
             typedef.deinit(allocator);
         }
@@ -830,6 +892,8 @@ pub const Parser = struct {
     pub fn parse(self: *Parser) !AST {
         var imports: std.ArrayList(ImportDecl) = .empty;
         errdefer imports.deinit(self.allocator);
+        var extern_functions: std.ArrayList(ExternFunctionDecl) = .empty;
+        errdefer extern_functions.deinit(self.allocator);
         var type_defs: std.ArrayList(TypeDef) = .empty;
         errdefer type_defs.deinit(self.allocator);
         var class_defs: std.ArrayList(ClassDef) = .empty;
@@ -849,6 +913,12 @@ pub const Parser = struct {
             if (self.check(.import_keyword)) {
                 const import_decl = try self.parseImport();
                 try imports.append(self.allocator, import_decl);
+            } else if (self.check(.extern_keyword)) {
+                var extern_decls = try self.parseExternBlock();
+                for (extern_decls.items) |extern_decl| {
+                    try extern_functions.append(self.allocator, extern_decl);
+                }
+                extern_decls.deinit(self.allocator);
             } else if (self.check(.type_keyword)) {
                 const typedef = try self.parseTypeDef(is_public);
                 try type_defs.append(self.allocator, typedef);
@@ -862,12 +932,20 @@ pub const Parser = struct {
                 const func = try self.parseFunction(is_public);
                 try functions.append(self.allocator, func);
             } else {
+                const tok = self.current();
+                std.debug.print("Unexpected token at line {d}, column {d}: {s} ({s})\n", .{
+                    tok.line,
+                    tok.column,
+                    tok.lexeme,
+                    @tagName(tok.kind),
+                });
                 return error.UnexpectedToken;
             }
         }
 
         return AST{
             .imports = imports,
+            .extern_functions = extern_functions,
             .type_defs = type_defs,
             .class_defs = class_defs,
             .instances = instances,
@@ -923,6 +1001,68 @@ pub const Parser = struct {
             .is_unsafe = is_unsafe,
             .is_public = is_public,
         };
+    }
+
+    fn parseExternBlock(self: *Parser) !std.ArrayList(ExternFunctionDecl) {
+        _ = try self.expect(.extern_keyword);
+
+        // Expect string literal "C"
+        const abi_token = try self.expect(.string);
+        if (!std.mem.eql(u8, abi_token.lexeme, "\"C\"")) {
+            return error.UnexpectedToken;
+        }
+
+        _ = try self.expect(.left_brace);
+
+        var extern_funcs: std.ArrayList(ExternFunctionDecl) = .empty;
+        errdefer extern_funcs.deinit(self.allocator);
+
+        while (!self.check(.right_brace)) {
+            _ = try self.expect(.fn_keyword);
+
+            const name_token = try self.expect(.identifier);
+            const name = name_token.lexeme;
+
+            _ = try self.expect(.left_paren);
+
+            var params: std.ArrayList(Param) = .empty;
+            errdefer params.deinit(self.allocator);
+
+            if (!self.check(.right_paren)) {
+                while (true) {
+                    const param_name = try self.expect(.identifier);
+                    _ = try self.expect(.colon);
+                    const param_type = try self.parseType();
+
+                    try params.append(self.allocator, Param{
+                        .name = param_name.lexeme,
+                        .param_type = param_type,
+                    });
+
+                    if (!self.check(.comma)) break;
+                    _ = try self.expect(.comma);
+                }
+            }
+
+            _ = try self.expect(.right_paren);
+
+            const return_type = try self.parseType();
+
+            // Expect semicolon or allow it to be optional
+            if (self.check(.semicolon)) {
+                _ = try self.expect(.semicolon);
+            }
+
+            try extern_funcs.append(self.allocator, ExternFunctionDecl{
+                .name = name,
+                .params = try params.toOwnedSlice(self.allocator),
+                .return_type = return_type,
+            });
+        }
+
+        _ = try self.expect(.right_brace);
+
+        return extern_funcs;
     }
 
     fn parseBlockStatements(self: *Parser) !std.ArrayList(Stmt) {
@@ -1151,6 +1291,13 @@ pub const Parser = struct {
             return .{ .exactly = n };
         }
 
+        const tok = self.current();
+        std.debug.print("Unexpected token in usage annotation at line {d}, column {d}: {s} ({s})\n", .{
+            tok.line,
+            tok.column,
+            tok.lexeme,
+            @tagName(tok.kind),
+        });
         return error.UnexpectedToken;
     }
 
@@ -1818,6 +1965,41 @@ pub const Parser = struct {
                 };
             }
 
+            // Check for type parameters: TypeName[params]
+            var type_params: ?[]TypeParam = null;
+            var value_params_list: ?[]Expr = null;
+            if (self.check(.left_bracket) and token.lexeme.len > 0 and std.ascii.isUpper(token.lexeme[0])) {
+                _ = try self.expect(.left_bracket);
+
+                var params = std.ArrayList(TypeParam).empty;
+                var value_params = std.ArrayList(Expr).empty;
+                errdefer {
+                    for (params.items) |param| {
+                        if (param == .concrete) {
+                            param.concrete.deinit(self.allocator);
+                            self.allocator.destroy(param.concrete);
+                        }
+                    }
+                    params.deinit(self.allocator);
+                    value_params.deinit(self.allocator);
+                }
+
+                // Parse first parameter
+                try self.parseDependentTypeParameter(&params, &value_params);
+
+                // Parse additional parameters
+                while (self.check(.comma)) {
+                    _ = try self.expect(.comma);
+                    try self.parseDependentTypeParameter(&params, &value_params);
+                }
+
+                _ = try self.expect(.right_bracket);
+                type_params = try params.toOwnedSlice(self.allocator);
+                value_params_list = try value_params.toOwnedSlice(self.allocator);
+                // Note: toOwnedSlice transfers ownership of items but ArrayList header still exists
+                // For empty ArrayLists, they don't allocate so deinit is safe/noop
+            }
+
             // Only parse as struct literal if identifier starts with uppercase (type names are capitalized)
             if (self.check(.left_brace) and token.lexeme.len > 0 and std.ascii.isUpper(token.lexeme[0])) {
                 _ = try self.expect(.left_brace);
@@ -1846,6 +2028,9 @@ pub const Parser = struct {
 
                         if (!self.check(.comma)) break;
                         _ = try self.expect(.comma);
+
+                        // Allow trailing comma
+                        if (self.check(.right_brace)) break;
                     }
                 }
 
@@ -1854,7 +2039,21 @@ pub const Parser = struct {
                 return .{
                     .struct_literal = .{
                         .type_name = token.lexeme,
+                        .type_params = type_params,
+                        .value_params = value_params_list,
                         .fields = try fields.toOwnedSlice(self.allocator),
+                    },
+                };
+            }
+
+            // If we have type parameters but no struct literal, this is a dependent type reference (for method calls)
+            if (type_params != null) {
+                const empty_value_params: []Expr = &[_]Expr{};
+                return .{
+                    .dependent_type_ref = .{
+                        .type_name = token.lexeme,
+                        .type_params = type_params.?,
+                        .value_params = value_params_list orelse empty_value_params,
                     },
                 };
             }
@@ -1915,6 +2114,13 @@ pub const Parser = struct {
             return first_expr;
         }
 
+        const tok = self.current();
+        std.debug.print("Expected expression, got {s} at line {d}, column {d}: '{s}'\n", .{
+            @tagName(tok.kind),
+            tok.line,
+            tok.column,
+            tok.lexeme,
+        });
         return error.ExpectedExpression;
     }
 
@@ -2183,17 +2389,27 @@ pub const Parser = struct {
                 const stmt = try self.parseStatement();
                 try stmts.append(self.allocator, stmt);
             } else {
-                // It's a final expression (no semicolon)
-                const result_ptr = try self.allocator.create(Expr);
-                errdefer self.allocator.destroy(result_ptr);
-                result_ptr.* = try self.parseExpression();
-                _ = try self.expect(.right_brace);
-                return .{
-                    .unsafe_block = .{
-                        .statements = try stmts.toOwnedSlice(self.allocator),
-                        .result = result_ptr,
-                    },
-                };
+                // Parse an expression - could be final result or expression statement
+                const expr = try self.parseExpression();
+
+                // If there's more content (not closing brace), it's an expression statement
+                if (!self.check(.right_brace)) {
+                    // Treat as expression statement, discard result
+                    const expr_ptr = try self.allocator.create(Expr);
+                    expr_ptr.* = expr;
+                    try stmts.append(self.allocator, .{ .expr = expr_ptr });
+                } else {
+                    // It's the final expression
+                    const result_ptr = try self.allocator.create(Expr);
+                    result_ptr.* = expr;
+                    _ = try self.expect(.right_brace);
+                    return .{
+                        .unsafe_block = .{
+                            .statements = try stmts.toOwnedSlice(self.allocator),
+                            .result = result_ptr,
+                        },
+                    };
+                }
             }
         }
 

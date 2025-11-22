@@ -19,6 +19,7 @@ pub const TokenKind = enum {
     unsafe_keyword,
     import_keyword,
     pub_keyword,
+    extern_keyword,
 
     // Literals
     integer,
@@ -271,6 +272,7 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, lexeme, "unsafe")) return .unsafe_keyword;
         if (std.mem.eql(u8, lexeme, "import")) return .import_keyword;
         if (std.mem.eql(u8, lexeme, "pub")) return .pub_keyword;
+        if (std.mem.eql(u8, lexeme, "extern")) return .extern_keyword;
         return .identifier;
     }
 

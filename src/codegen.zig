@@ -333,7 +333,12 @@ pub const Codegen = struct {
             try self.type_defs.put(typedef.name, typedef.type_value);
         }
 
-        // Second pass: collect function signatures
+        // Second pass: collect function signatures (including extern)
+        for (ast.extern_functions.items) |extern_func| {
+            try self.functions.put(extern_func.name, .{
+                .return_type = extern_func.return_type,
+            });
+        }
         for (ast.functions.items) |func| {
             try self.functions.put(func.name, .{
                 .return_type = func.return_type,
@@ -359,6 +364,14 @@ pub const Codegen = struct {
         const target_triple_str = try self.target.toLLVMTriple(self.allocator);
         defer self.allocator.free(target_triple_str);
         try self.output.writer(self.allocator).print("target triple = \"{s}\"\n\n", .{target_triple_str});
+
+        // Generate extern function declarations
+        for (ast.extern_functions.items) |extern_func| {
+            try self.generateExternDeclaration(&extern_func);
+        }
+        if (ast.extern_functions.items.len > 0) {
+            try self.output.appendSlice(self.allocator, "\n");
+        }
 
         // Generate each function
         for (ast.functions.items) |func| {
@@ -441,6 +454,21 @@ pub const Codegen = struct {
 
             try self.output.appendSlice(self.allocator, "}\n\n");
         }
+    }
+
+    fn generateExternDeclaration(self: *Codegen, extern_func: *const parser.ExternFunctionDecl) !void {
+        const return_type_str = try self.llvmTypeString(extern_func.return_type);
+        defer self.allocator.free(return_type_str);
+        try self.output.writer(self.allocator).print("declare {s} @{s}(", .{ return_type_str, extern_func.name });
+
+        for (extern_func.params, 0..) |param, i| {
+            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            const param_type_str = try self.llvmTypeString(param.param_type);
+            defer self.allocator.free(param_type_str);
+            try self.output.writer(self.allocator).print("{s}", .{param_type_str});
+        }
+
+        try self.output.appendSlice(self.allocator, ")\n");
     }
 
     fn generateFunction(self: *Codegen, func: *const parser.FunctionDecl) !void {
@@ -1007,7 +1035,12 @@ pub const Codegen = struct {
                 const object_type_str = try self.llvmTypeString(object_type);
                 defer self.allocator.free(object_type_str);
 
-                const typedef = self.type_defs.get(object_type.kind.named) orelse unreachable;
+                const type_name = switch (object_type.kind) {
+                    .named => |name| name,
+                    .dependent => |dep| dep.base,
+                    else => unreachable,
+                };
+                const typedef = self.type_defs.get(type_name) orelse unreachable;
 
                 var field_idx: usize = 0;
                 for (typedef.kind.struct_type, 0..) |field, idx| {
@@ -1086,7 +1119,12 @@ pub const Codegen = struct {
                 const scrutinee_type_str = try self.llvmTypeString(scrutinee_type);
                 defer self.allocator.free(scrutinee_type_str);
 
-                const typedef = self.type_defs.get(scrutinee_type.kind.named) orelse unreachable;
+                const type_name = switch (scrutinee_type.kind) {
+                    .named => |name| name,
+                    .dependent => |dep| dep.base,
+                    else => unreachable,
+                };
+                const typedef = self.type_defs.get(type_name) orelse unreachable;
 
                 // Extract tag
                 const tag_temp = try self.allocTempName();
@@ -1230,18 +1268,54 @@ pub const Codegen = struct {
                 return result_temp;
             },
             .method_call => |method_call| {
+                // Special case: if object is a dependent_type_ref, don't generate object value
+                const is_type_method = method_call.object.* == .dependent_type_ref;
+
                 // Generate method call as: Type__method_name(object, args...)
-                const object_type = self.inferExprType(method_call.object);
-                const type_name = try self.mangledTypeName(object_type);
+                const type_name = if (is_type_method) blk: {
+                    const ref = method_call.object.dependent_type_ref;
+                    // Mangle: Vec$ptr$8
+                    var mangled = std.ArrayList(u8).empty;
+                    defer mangled.deinit(self.allocator);
+                    try mangled.appendSlice(self.allocator, ref.type_name);
+                    for (ref.type_params) |param| {
+                        try mangled.append(self.allocator, '$');
+                        switch (param) {
+                            .variable => |v| try mangled.appendSlice(self.allocator, v),
+                            .concrete => |t| {
+                                const type_str = switch (t.kind) {
+                                    .primitive => |prim| @tagName(prim),
+                                    .named => |name| name,
+                                    else => "unknown",
+                                };
+                                try mangled.appendSlice(self.allocator, type_str);
+                            },
+                        }
+                    }
+                    // Add value parameters to mangling
+                    for (ref.value_params) |val_param| {
+                        try mangled.append(self.allocator, '$');
+                        // For now, only handle integer literals
+                        if (val_param == .integer_literal) {
+                            const int_str = try std.fmt.allocPrint(self.allocator, "{d}", .{val_param.integer_literal.value});
+                            defer self.allocator.free(int_str);
+                            try mangled.appendSlice(self.allocator, int_str);
+                        }
+                    }
+                    break :blk try self.allocator.dupe(u8, mangled.items);
+                } else blk: {
+                    const object_type = self.inferExprType(method_call.object);
+                    break :blk try self.mangledTypeName(object_type);
+                };
                 defer self.allocator.free(type_name);
 
                 // Generate mangled method name: TypeName__methodName
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method_call.method_name });
                 defer self.allocator.free(mangled_name);
 
-                // Generate arguments: object is the first arg
-                const object_val = try self.generateExpression(method_call.object);
-                defer self.allocator.free(object_val);
+                // Generate arguments: object is the first arg (unless it's a type method)
+                const object_val = if (!is_type_method) try self.generateExpression(method_call.object) else null;
+                defer if (object_val) |val| self.allocator.free(val);
 
                 var arg_vals: std.ArrayList([]const u8) = .empty;
                 defer {
@@ -1251,8 +1325,10 @@ pub const Codegen = struct {
                     arg_vals.deinit(self.allocator);
                 }
 
-                // First argument is the object (self parameter)
-                try arg_vals.append(self.allocator, try self.allocator.dupe(u8, object_val));
+                // First argument is the object (self parameter), unless it's a type method
+                if (object_val) |val| {
+                    try arg_vals.append(self.allocator, try self.allocator.dupe(u8, val));
+                }
 
                 // Then the rest of the arguments
                 for (method_call.args) |arg| {
@@ -1275,7 +1351,9 @@ pub const Codegen = struct {
                 // Write arguments with types
                 for (arg_vals.items, 0..) |val, i| {
                     if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-                    const arg_expr = if (i == 0) method_call.object else method_call.args[i - 1];
+                    // For type methods, all args come from method_call.args
+                    // For instance methods, first arg is object, rest are from method_call.args
+                    const arg_expr = if (is_type_method) method_call.args[i] else if (i == 0) method_call.object else method_call.args[i - 1];
                     const arg_type = self.inferExprType(arg_expr);
                     const arg_type_str = try self.llvmTypeString(arg_type);
                     defer self.allocator.free(arg_type_str);
@@ -1324,6 +1402,7 @@ pub const Codegen = struct {
                         else if (std.mem.eql(u8, type_name, "U16")) 7
                         else if (std.mem.eql(u8, type_name, "U32")) 8
                         else if (std.mem.eql(u8, type_name, "U64")) 9
+                        else if (std.mem.eql(u8, type_name, "ptr")) 10
                         else unreachable;
 
                     return try std.fmt.allocPrint(self.allocator, "{d}", .{type_id});
@@ -1353,10 +1432,16 @@ pub const Codegen = struct {
                             else if (std.mem.eql(u8, type_name, "U32")) "i32"
                             else if (std.mem.eql(u8, type_name, "U64")) "i64"
                             else if (std.mem.eql(u8, type_name, "Bool")) "i1"
+                            else if (std.mem.eql(u8, type_name, "ptr")) "ptr"
                             else unreachable;
 
                         const loaded_val = try self.allocTempName();
                         try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ loaded_val, type_str, ptr_val });
+
+                        // Ptr types don't need conversion, others extend to i64
+                        if (std.mem.eql(u8, type_str, "ptr")) {
+                            return loaded_val;
+                        }
 
                         // Extend/convert to i64 if needed
                         const i64_val = if (std.mem.eql(u8, type_str, "i64"))
@@ -1488,6 +1573,10 @@ pub const Codegen = struct {
                     unreachable;
                 }
             },
+            .dependent_type_ref => {
+                // Dependent type references should only appear in method call context
+                unreachable;
+            },
         }
     }
 
@@ -1555,11 +1644,10 @@ pub const Codegen = struct {
 
                 // Start with base type name
                 try result.appendSlice(self.allocator, dep.base);
-                try result.appendSlice(self.allocator, "$$");
 
                 // Add type parameters
-                for (dep.type_params, 0..) |type_param, i| {
-                    if (i > 0) try result.append(self.allocator, '$');
+                for (dep.type_params) |type_param| {
+                    try result.append(self.allocator, '$');
 
                     switch (type_param) {
                         .variable => |v| try result.appendSlice(self.allocator, v),
@@ -1590,7 +1678,6 @@ pub const Codegen = struct {
                     }
                 }
 
-                try result.appendSlice(self.allocator, "$$");
                 return try result.toOwnedSlice(self.allocator);
             },
             else => return try self.allocator.dupe(u8, "unknown"),
@@ -1729,7 +1816,12 @@ pub const Codegen = struct {
             },
             .field_access => |access| {
                 const object_type = self.inferExprType(access.object);
-                const typedef = self.type_defs.get(object_type.kind.named) orelse unreachable;
+                const type_name = switch (object_type.kind) {
+                    .named => |name| name,
+                    .dependent => |dep| dep.base,
+                    else => unreachable,
+                };
+                const typedef = self.type_defs.get(type_name) orelse unreachable;
                 for (typedef.kind.struct_type) |field| {
                     if (std.mem.eql(u8, field.name, access.field_name)) {
                         return field.field_type.*;
@@ -1757,8 +1849,41 @@ pub const Codegen = struct {
             },
             .method_call => |method_call| {
                 // Look up method return type from instance_methods
-                const object_type = self.inferExprType(method_call.object);
-                const type_name = self.mangledTypeName(object_type) catch unreachable;
+                const type_name = if (method_call.object.* == .dependent_type_ref) blk: {
+                    const ref = method_call.object.dependent_type_ref;
+                    // Mangle: Vec$ptr$8
+                    var mangled = std.ArrayList(u8).empty;
+                    defer mangled.deinit(self.allocator);
+                    mangled.appendSlice(self.allocator, ref.type_name) catch unreachable;
+                    for (ref.type_params) |param| {
+                        mangled.append(self.allocator, '$') catch unreachable;
+                        switch (param) {
+                            .variable => |v| mangled.appendSlice(self.allocator, v) catch unreachable,
+                            .concrete => |t| {
+                                const type_str = switch (t.kind) {
+                                    .primitive => |prim| @tagName(prim),
+                                    .named => |name| name,
+                                    else => "unknown",
+                                };
+                                mangled.appendSlice(self.allocator, type_str) catch unreachable;
+                            },
+                        }
+                    }
+                    // Add value parameters to mangling
+                    for (ref.value_params) |val_param| {
+                        mangled.append(self.allocator, '$') catch unreachable;
+                        // For now, only handle integer literals
+                        if (val_param == .integer_literal) {
+                            const int_str = std.fmt.allocPrint(self.allocator, "{d}", .{val_param.integer_literal.value}) catch unreachable;
+                            defer self.allocator.free(int_str);
+                            mangled.appendSlice(self.allocator, int_str) catch unreachable;
+                        }
+                    }
+                    break :blk self.allocator.dupe(u8, mangled.items) catch unreachable;
+                } else blk: {
+                    const object_type = self.inferExprType(method_call.object);
+                    break :blk self.mangledTypeName(object_type) catch unreachable;
+                };
                 defer self.allocator.free(type_name);
 
                 const mangled_name = std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method_call.method_name }) catch unreachable;
@@ -1781,8 +1906,28 @@ pub const Codegen = struct {
                     // Return type depends on whether type arg is compile-time or runtime
                     const type_arg = call.args[1];
                     if (type_arg.* == .intrinsic_call and std.mem.eql(u8, type_arg.intrinsic_call.name, "@type")) {
-                        // Compile-time: we extend to i64, so return i64
-                        return .{ .kind = .{ .primitive = .i64 }, .usage = .once };
+                        // Compile-time: extract the actual type from @type(TypeName)
+                        const type_name_expr = type_arg.intrinsic_call.args[0];
+                        const type_name = switch (type_name_expr.*) {
+                            .variable => |v| v,
+                            .constructor_call => |c| c.name,
+                            else => {
+                                // Default to i64 if we can't determine
+                                return .{ .kind = .{ .primitive = .i64 }, .usage = .once };
+                            },
+                        };
+
+                        // Map type name to actual type
+                        // For integer types, we extend to i64
+                        // For ptr, we return ptr
+                        if (std.mem.eql(u8, type_name, "ptr")) {
+                            return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                        } else if (std.mem.eql(u8, type_name, "Bool")) {
+                            return .{ .kind = .{ .primitive = .bool }, .usage = .once };
+                        } else {
+                            // Integer types get extended to i64
+                            return .{ .kind = .{ .primitive = .i64 }, .usage = .once };
+                        }
                     } else {
                         // Runtime: we return ptr since we can't know the type
                         return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
@@ -1794,6 +1939,10 @@ pub const Codegen = struct {
                 } else {
                     unreachable;
                 }
+            },
+            .dependent_type_ref => {
+                // Dependent type references should only appear in method call context
+                unreachable;
             },
         }
     }
