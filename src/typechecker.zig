@@ -1027,6 +1027,30 @@ pub const TypeChecker = struct {
                         return error.TypeMismatch;
                     }
                     return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@int_to_ptr")) {
+                    if (call.args.len != 1) {
+                        std.debug.print("@int_to_ptr expects 1 argument but got {d}\n", .{call.args.len});
+                        return error.ArgumentCountMismatch;
+                    }
+                    const int_type = try self.inferExprType(call.args[0]);
+                    // Argument must be an integer
+                    if (!self.isIntegerType(int_type)) {
+                        std.debug.print("@int_to_ptr argument must be an integer type\n", .{});
+                        return error.TypeMismatch;
+                    }
+                    return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@ptr_to_int")) {
+                    if (call.args.len != 1) {
+                        std.debug.print("@ptr_to_int expects 1 argument but got {d}\n", .{call.args.len});
+                        return error.ArgumentCountMismatch;
+                    }
+                    const ptr_type = try self.inferExprType(call.args[0]);
+                    // Argument must be a pointer
+                    if (ptr_type.kind != .primitive or ptr_type.kind.primitive != .ptr) {
+                        std.debug.print("@ptr_to_int argument must be a pointer type\n", .{});
+                        return error.TypeMismatch;
+                    }
+                    return .{ .kind = .{ .primitive = .u64 }, .usage = .once };
                 } else {
                     std.debug.print("Unknown intrinsic: {s}\n", .{call.name});
                     return error.UndefinedFunction;

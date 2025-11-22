@@ -1576,6 +1576,26 @@ pub const Codegen = struct {
                     try self.output.writer(self.allocator).print("  {s} = getelementptr {s}, ptr {s}, {s} {s}\n", .{ result_temp, self.target_info.native_int_type, ptr_val, self.target_info.native_int_type, offset_val });
 
                     return result_temp;
+                } else if (std.mem.eql(u8, call.name, "@int_to_ptr")) {
+                    // @int_to_ptr(int_val) -> inttoptr
+                    const int_val = try self.generateExpression(call.args[0]);
+                    defer self.allocator.free(int_val);
+
+                    const result_temp = try self.allocTempName();
+                    // Convert integer to pointer
+                    try self.output.writer(self.allocator).print("  {s} = inttoptr {s} {s} to ptr\n", .{ result_temp, self.target_info.native_int_type, int_val });
+
+                    return result_temp;
+                } else if (std.mem.eql(u8, call.name, "@ptr_to_int")) {
+                    // @ptr_to_int(ptr_val) -> ptrtoint
+                    const ptr_val = try self.generateExpression(call.args[0]);
+                    defer self.allocator.free(ptr_val);
+
+                    const result_temp = try self.allocTempName();
+                    // Convert pointer to integer
+                    try self.output.writer(self.allocator).print("  {s} = ptrtoint ptr {s} to {s}\n", .{ result_temp, ptr_val, self.target_info.native_int_type });
+
+                    return result_temp;
                 } else {
                     // Unknown intrinsic
                     unreachable;
@@ -1944,6 +1964,10 @@ pub const Codegen = struct {
                     return .{ .kind = .{ .tuple = &[_]*parser.Type{} }, .usage = .once };
                 } else if (std.mem.eql(u8, call.name, "@ptr_offset")) {
                     return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@int_to_ptr")) {
+                    return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@ptr_to_int")) {
+                    return .{ .kind = .{ .primitive = .u64 }, .usage = .once };
                 } else {
                     unreachable;
                 }

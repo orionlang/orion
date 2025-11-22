@@ -1,0 +1,37 @@
+import std.alloc
+
+fn main() I32 {
+  unsafe {
+    // Test GeneralPurposeAllocator free list
+    var page_alloc: PageAllocator = page_allocator_create()
+    let gpa1: GeneralPurposeAllocator = gpa_create(page_alloc)
+
+    // Allocate 3 blocks
+    var result1: (ptr, GeneralPurposeAllocator) = gpa1.alloc(128)
+    var ptr1: ptr = result1.0
+    let gpa2: GeneralPurposeAllocator = result1.1
+
+    var result2: (ptr, GeneralPurposeAllocator) = gpa2.alloc(256)
+    var ptr2: ptr = result2.0
+    let gpa3: GeneralPurposeAllocator = result2.1
+
+    var result3: (ptr, GeneralPurposeAllocator) = gpa3.alloc(64)
+    var ptr3: ptr = result3.0
+    let gpa4: GeneralPurposeAllocator = result3.1
+
+    // Free the middle block
+    let gpa5: GeneralPurposeAllocator = gpa4.free(ptr2)
+
+    // Allocate again - should reuse freed block if it fits
+    var result4: (ptr, GeneralPurposeAllocator) = gpa5.alloc(128)
+    var ptr4: ptr = result4.0
+    let gpa6: GeneralPurposeAllocator = result4.1
+
+    // Free remaining blocks
+    let gpa7: GeneralPurposeAllocator = gpa6.free(ptr1)
+    let gpa8: GeneralPurposeAllocator = gpa7.free(ptr3)
+    let gpa9: GeneralPurposeAllocator = gpa8.free(ptr4)
+
+    return 0
+  }
+}
