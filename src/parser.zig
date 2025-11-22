@@ -2212,10 +2212,10 @@ pub const Parser = struct {
         // Parse condition
         const condition = try self.parseExpressionPtr(&.{});
 
-        // Parse then branch
-        _ = try self.expect(.left_brace);
-        const then_branch = try self.parseExpressionPtr(&.{condition});
-        _ = try self.expect(.right_brace);
+        // Parse then branch (now supports statements + expression)
+        const then_branch_expr = try self.parseBlockExpression();
+        const then_branch = try self.allocator.create(Expr);
+        then_branch.* = then_branch_expr;
 
         // Parse optional elseif/else branch
         const else_branch = blk: {
@@ -2228,9 +2228,9 @@ pub const Parser = struct {
                 break :blk else_ptr;
             } else if (self.check(.else_keyword)) {
                 _ = try self.expect(.else_keyword);
-                _ = try self.expect(.left_brace);
-                const else_ptr = try self.parseExpressionPtr(&.{ condition, then_branch });
-                _ = try self.expect(.right_brace);
+                const else_branch_expr = try self.parseBlockExpression();
+                const else_ptr = try self.allocator.create(Expr);
+                else_ptr.* = else_branch_expr;
                 break :blk else_ptr;
             } else {
                 break :blk null;

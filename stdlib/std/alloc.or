@@ -1,0 +1,307 @@
+// Allocator interface
+// All allocators must implement this class
+
+class Allocator {
+  alloc: fn(Self, U64) ptr;
+  free: fn(Self, ptr) ();
+  realloc: fn(Self, ptr, U64) Bool;
+  remap: fn(Self, ptr, U64) ptr;
+}
+
+// System calls for memory management
+extern "C" {
+  fn brk(addr: ptr) I32;
+  fn sbrk(increment: I64) ptr;
+}
+
+// Page metadata stored at the beginning of each page
+type PageHeader = {
+  next: ptr,       // Pointer to next page (null if last)
+  size: U64,       // Size of this page in bytes
+}
+
+// Page allocator - allocates memory in page-sized chunks
+// Maintains linked list of allocated pages
+type PageAllocator = {
+  page_size: U64,
+  head: ptr,       // Pointer to first page (null if none)
+  current: ptr,    // Pointer to current page being allocated from
+  offset: U64,     // Current offset within current page
+}
+
+instance Allocator[PageAllocator] {
+  alloc = fn(self: PageAllocator, num_bytes: U64) ptr {
+    unsafe {
+      var pa: PageAllocator = self
+
+      // Check if current page has enough space
+      var header_size: U64 = 16  // Size of PageHeader
+      var zero: U64 = 0
+      var available: U64 = if pa.current == sbrk(0) {
+        zero  // No current page
+      } else {
+        pa.page_size - pa.offset
+      }
+
+      var needs_new_page: Bool = num_bytes > available
+
+      var pa_updated: PageAllocator = if needs_new_page {
+        // Allocate new page
+        var increment: I64 = pa.page_size
+        var new_page: ptr = sbrk(increment)
+
+        // Initialize page header
+        var header: ptr = new_page
+        var null_sentinel: ptr = sbrk(0)
+        var _: () = @ptr_write(header, null_sentinel)
+        var size_ptr: ptr = @ptr_offset(header, 8)
+        var __: () = @ptr_write(size_ptr, pa.page_size)
+
+        // Link to previous page
+        var is_first_page: Bool = pa.head == sbrk(0)
+        var new_head: ptr = if is_first_page {
+          new_page
+        } else {
+          pa.head
+        }
+
+        // If we had a current page, link it to new page
+        var dummy: () = if is_first_page {
+          ()
+        } else {
+          @ptr_write(pa.current, new_page)
+        }
+
+        PageAllocator {
+          page_size: pa.page_size,
+          head: new_head,
+          current: new_page,
+          offset: header_size,
+        }
+      } else {
+        pa
+      }
+
+      // Allocate from current page
+      var alloc_ptr: ptr = @ptr_offset(pa_updated.current, pa_updated.offset)
+      return alloc_ptr
+    }
+  }
+
+  free = fn(self: PageAllocator, ptr: ptr) () {
+    // PageAllocator doesn't free individual allocations
+    // Memory stays allocated until program ends
+    return ()
+  }
+
+  realloc = fn(self: PageAllocator, ptr: ptr, new_size: U64) Bool {
+    // PageAllocator doesn't support in-place realloc
+    return false
+  }
+
+  remap = fn(self: PageAllocator, ptr: ptr, new_size: U64) ptr {
+    // PageAllocator can't remap - would need to allocate new + copy
+    unsafe {
+      var pa: PageAllocator = self
+      var new_ptr: ptr = pa.alloc(new_size)
+      // TODO: copy old data to new_ptr
+      return new_ptr
+    }
+  }
+}
+
+// Arena allocator - bump allocator, all freed at once
+// Uses a PageAllocator as backing allocator
+type Arena = {
+  parent: PageAllocator,  // Backing allocator
+  buffer: ptr,
+  capacity: U64,
+  used: U64,
+}
+
+instance Allocator[Arena] {
+  alloc = fn(self: Arena, size: U64) (ptr, Arena) {
+    unsafe {
+      var arena: Arena = self
+
+      // Check if we need to grow the arena
+      var new_used: U64 = arena.used + size
+      var needs_grow: Bool = new_used > arena.capacity
+
+      var arena_updated: Arena = if needs_grow {
+        {
+          // Allocate more pages from parent
+          // Calculate how many pages we need
+          var page_size: U64 = arena.parent.page_size
+          var bytes_needed: U64 = new_used - arena.capacity
+          var pages_needed: U64 = (bytes_needed + page_size - 1) / page_size  // Round up
+
+          // Allocate from parent
+          var new_buffer: ptr = arena.parent.alloc(pages_needed)
+          var new_capacity: U64 = arena.capacity + (pages_needed * page_size)
+
+          // For simplicity, just use new buffer (TODO: copy old data)
+          Arena {
+            parent: arena.parent,
+            buffer: new_buffer,
+            capacity: new_capacity,
+            used: 0,
+          }
+        }
+      } else {
+        arena
+      }
+
+      // Allocate from arena
+      var alloc_ptr: ptr = @ptr_offset(arena_updated.buffer, arena_updated.used)
+
+      // Return updated arena with incremented used counter
+      var final_arena: Arena = Arena {
+        parent: arena_updated.parent,
+        buffer: arena_updated.buffer,
+        capacity: arena_updated.capacity,
+        used: new_used,
+      }
+
+      return (alloc_ptr, final_arena)
+    }
+  }
+
+  free = fn(self: Arena, ptr: ptr) () {
+    // Arena doesn't free individual allocations
+    return ()
+  }
+
+  realloc = fn(self: Arena, ptr: ptr, new_size: U64) Bool {
+    // Arena doesn't support in-place realloc
+    return false
+  }
+
+  remap = fn(self: Arena, old_ptr: ptr, new_size: U64) ptr {
+    // Arena can't remap
+    unsafe {
+      var arena: Arena = self
+      return arena.buffer
+    }
+  }
+}
+
+// General purpose allocator - maintains free list
+// For bootstrap, uses a simple free list with first-fit allocation
+type FreeBlock = {
+  size: U64,
+  next: ptr,
+}
+
+type GeneralPurposeAllocator = {
+  free_list: ptr,
+  heap_start: ptr,
+  heap_end: ptr,
+}
+
+instance Allocator[GeneralPurposeAllocator] {
+  alloc = fn(self: GeneralPurposeAllocator, size: U64) ptr {
+    unsafe {
+      var gpa: GeneralPurposeAllocator = self
+
+      // Add header size for block metadata
+      var header_size: U64 = 16  // size + next pointer
+      var total_size: U64 = size + header_size
+
+      // Try to find a free block that fits
+      var current: ptr = gpa.free_list
+      var prev: ptr = gpa.heap_start  // Sentinel
+
+      // For now, just allocate from heap using sbrk
+      // TODO: implement free list
+      var increment: I64 = total_size
+      var ptr: ptr = sbrk(increment)
+
+      // Skip header to return user data
+      var user_ptr: ptr = @ptr_offset(ptr, header_size)
+      return user_ptr
+    }
+  }
+
+  free = fn(self: GeneralPurposeAllocator, ptr: ptr) () {
+    // TODO: Add to free list
+    // For bootstrap, we just leak memory (will fix with proper free list)
+    return ()
+  }
+
+  realloc = fn(self: GeneralPurposeAllocator, ptr: ptr, new_size: U64) Bool {
+    // Can't resize in-place without free list implementation
+    return false
+  }
+
+  remap = fn(self: GeneralPurposeAllocator, ptr: ptr, new_size: U64) ptr {
+    unsafe {
+      // Allocate new block
+      var gpa: GeneralPurposeAllocator = self
+      var new_ptr: ptr = gpa.alloc(new_size)
+
+      // TODO: Copy old data to new location
+      // For now, just return new allocation
+
+      return new_ptr
+    }
+  }
+}
+
+// Helper functions for Arena
+
+// Create a new arena
+// parent_alloc: PageAllocator to use for backing memory
+// Arena starts with zero capacity and grows on demand
+fn arena_create(parent_alloc: PageAllocator) Arena {
+  // Start with no buffer, will allocate on first alloc
+  var null_ptr: ptr = unsafe { sbrk(0) }
+
+  return Arena {
+    parent: parent_alloc,
+    buffer: null_ptr,
+    capacity: 0,
+    used: 0,
+  }
+}
+
+// Reset arena (free all allocations, reset used counter)
+fn arena_reset(arena: Arena@3) Arena {
+  return Arena {
+    parent: arena.parent,
+    buffer: arena.buffer,
+    capacity: arena.capacity,
+    used: 0,
+  }
+}
+
+// Destroy arena (currently no-op, memory stays allocated)
+fn arena_destroy(arena: Arena@?) () {
+  // TODO: Could use brk to shrink heap back
+  return ()
+}
+
+// Helper functions for allocator creation
+
+fn page_allocator_create() PageAllocator {
+  // Standard page size is 4096 bytes (4KB)
+  // head and current start as null (we use sbrk(0) as null sentinel)
+  var null_sentinel: ptr = unsafe { sbrk(0) }
+
+  return PageAllocator {
+    page_size: 4096,
+    head: null_sentinel,
+    current: null_sentinel,
+    offset: 0,
+  }
+}
+
+fn gpa_create() GeneralPurposeAllocator {
+  var current: ptr = unsafe { sbrk(0) }
+
+  return GeneralPurposeAllocator {
+    free_list: current,
+    heap_start: current,
+    heap_end: current,
+  }
+}

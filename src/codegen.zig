@@ -1539,19 +1539,27 @@ pub const Codegen = struct {
                     }
                 } else if (std.mem.eql(u8, call.name, "@ptr_write")) {
                     // @ptr_write(ptr, value) -> store
-                    // value is ptr type, convert to i64 before storing
                     const ptr_val = try self.generateExpression(call.args[0]);
                     defer self.allocator.free(ptr_val);
 
                     const value_val = try self.generateExpression(call.args[1]);
                     defer self.allocator.free(value_val);
 
-                    // Convert ptr to native int for storage
-                    const int_val = try self.allocTempName();
-                    defer self.allocator.free(int_val);
-                    try self.output.writer(self.allocator).print("  {s} = ptrtoint ptr {s} to {s}\n", .{ int_val, value_val, self.target_info.native_int_type });
+                    // Infer the type of the value to determine if conversion is needed
+                    const value_type = self.inferExprType(call.args[1]);
 
-                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ self.target_info.native_int_type, int_val, ptr_val });
+                    // If value is ptr type, convert to i64 before storing
+                    // Otherwise, store the value directly
+                    const store_val: []const u8 = if (value_type.kind == .primitive and value_type.kind.primitive == .ptr) blk: {
+                        const int_val = try self.allocTempName();
+                        try self.output.writer(self.allocator).print("  {s} = ptrtoint ptr {s} to {s}\n", .{ int_val, value_val, self.target_info.native_int_type });
+                        break :blk int_val;
+                    } else blk: {
+                        break :blk value_val;
+                    };
+                    defer if (value_type.kind == .primitive and value_type.kind.primitive == .ptr) self.allocator.free(store_val);
+
+                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ self.target_info.native_int_type, store_val, ptr_val });
 
                     // Return unit value (undef for empty tuple)
                     return try std.fmt.allocPrint(self.allocator, "undef", .{});
