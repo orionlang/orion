@@ -125,6 +125,17 @@ pub const SumTypeVariant = struct {
     payload_types: []*Type,
 };
 
+pub const TypeParam = union(enum) {
+    variable: []const u8,
+    concrete: *Type,
+};
+
+pub const DependentType = struct {
+    base: []const u8,
+    type_params: []TypeParam,
+    value_params: []Expr,
+};
+
 pub const Type = struct {
     kind: TypeKind,
     usage: UsageAnnotation,
@@ -135,6 +146,7 @@ pub const Type = struct {
         struct_type: []StructField,
         sum_type: []SumTypeVariant,
         named: []const u8,
+        dependent: DependentType,
     };
 
     pub fn deinit(self: *Type, allocator: std.mem.Allocator) void {
@@ -166,6 +178,17 @@ pub const Type = struct {
                 allocator.free(variants);
             },
             .named => {},
+            .dependent => |dep| {
+                for (dep.type_params) |type_param| {
+                    if (type_param == .concrete) {
+                        type_param.concrete.deinit(allocator);
+                        allocator.destroy(type_param.concrete);
+                    }
+                }
+                allocator.free(dep.type_params);
+                // Note: value_params (Expr) are freed elsewhere in AST cleanup
+                allocator.free(dep.value_params);
+            },
         }
     }
 
@@ -196,48 +219,57 @@ pub const Type = struct {
                 allocator.free(variants);
             },
             .named => {},
+            .dependent => |dep| {
+                for (dep.type_params) |type_param| {
+                    if (type_param == .concrete) {
+                        allocator.destroy(type_param.concrete);
+                    }
+                }
+                allocator.free(dep.type_params);
+                allocator.free(dep.value_params);
+            },
         }
     }
 
     pub fn isSigned(self: Type) bool {
         return switch (self.kind) {
             .primitive => |p| p.isSigned(),
-            .tuple, .struct_type, .sum_type, .named => false,
+            .tuple, .struct_type, .sum_type, .named, .dependent => false,
         };
     }
 
     pub fn bitWidth(self: Type) u32 {
         return switch (self.kind) {
             .primitive => |p| p.bitWidth(),
-            .tuple, .struct_type, .sum_type, .named => 0,
+            .tuple, .struct_type, .sum_type, .named, .dependent => 0,
         };
     }
 
     pub fn isInteger(self: Type) bool {
         return switch (self.kind) {
             .primitive => |p| p.isInteger(),
-            .tuple, .struct_type, .sum_type, .named => false,
+            .tuple, .struct_type, .sum_type, .named, .dependent => false,
         };
     }
 
     pub fn llvmTypeName(self: Type) []const u8 {
         return switch (self.kind) {
             .primitive => |p| p.llvmTypeName(),
-            .tuple, .struct_type, .sum_type, .named => unreachable,
+            .tuple, .struct_type, .sum_type, .named, .dependent => unreachable,
         };
     }
 
     pub fn minValue(self: Type) i64 {
         return switch (self.kind) {
             .primitive => |p| p.minValue(),
-            .tuple, .struct_type, .sum_type, .named => 0,
+            .tuple, .struct_type, .sum_type, .named, .dependent => 0,
         };
     }
 
     pub fn maxValue(self: Type) i64 {
         return switch (self.kind) {
             .primitive => |p| p.maxValue(),
-            .tuple, .struct_type, .sum_type, .named => 0,
+            .tuple, .struct_type, .sum_type, .named, .dependent => 0,
         };
     }
 
@@ -274,6 +306,25 @@ pub const Type = struct {
                 return true;
             },
             .named => |name| std.mem.eql(u8, name, other.kind.named),
+            .dependent => |dep| {
+                const other_dep = other.kind.dependent;
+                if (!std.mem.eql(u8, dep.base, other_dep.base)) return false;
+                if (dep.type_params.len != other_dep.type_params.len) return false;
+                if (dep.value_params.len != other_dep.value_params.len) return false;
+
+                for (dep.type_params, other_dep.type_params) |a, b| {
+                    if (@as(@typeInfo(TypeParam).@"union".tag_type.?, a) != @as(@typeInfo(TypeParam).@"union".tag_type.?, b)) return false;
+                    switch (a) {
+                        .variable => |v| if (!std.mem.eql(u8, v, b.variable)) return false,
+                        .concrete => |c| if (!c.eql(b.concrete.*)) return false,
+                    }
+                }
+
+                // Note: value_params contain Expr which doesn't have eql yet
+                // For now, we'll skip comparing value params in eql
+                // This will need to be implemented when we add expression equality
+                return true;
+            },
         };
     }
 };
@@ -477,12 +528,30 @@ pub const ImportDecl = struct {
     }
 };
 
+pub const TypeParameter = struct {
+    name: []const u8,
+    kind: ParameterKind,
+};
+
+pub const ParameterKind = union(enum) {
+    type_param,
+    value_param: Type,
+};
+
 pub const TypeDef = struct {
     name: []const u8,
+    params: []TypeParameter,
     type_value: Type,
     is_public: bool,
 
     pub fn deinit(self: *TypeDef, allocator: std.mem.Allocator) void {
+        for (self.params) |param| {
+            if (param.kind == .value_param) {
+                var mutable_type = param.kind.value_param;
+                mutable_type.deinit(allocator);
+            }
+        }
+        allocator.free(self.params);
         self.type_value.deinit(allocator);
     }
 };
@@ -984,13 +1053,64 @@ pub const Parser = struct {
     fn parseTypeDef(self: *Parser, is_public: bool) !TypeDef {
         _ = try self.expect(.type_keyword);
         const name_token = try self.expect(.identifier);
+
+        // Parse optional type parameters: type Vec[A, n: Nat] = ...
+        var params = std.ArrayList(TypeParameter).empty;
+        errdefer {
+            for (params.items) |param| {
+                if (param.kind == .value_param) {
+                    var mutable_type = param.kind.value_param;
+                    mutable_type.deinit(self.allocator);
+                }
+            }
+            params.deinit(self.allocator);
+        }
+
+        if (self.check(.left_bracket)) {
+            _ = try self.expect(.left_bracket);
+
+            // Parse first parameter
+            const first_param = try self.parseTypeParameter();
+            try params.append(self.allocator, first_param);
+
+            // Parse additional parameters
+            while (self.check(.comma)) {
+                _ = try self.expect(.comma);
+                const param = try self.parseTypeParameter();
+                try params.append(self.allocator, param);
+            }
+
+            _ = try self.expect(.right_bracket);
+        }
+
         _ = try self.expect(.equal);
         const type_value = try self.parseType();
 
         return TypeDef{
             .name = name_token.lexeme,
+            .params = try params.toOwnedSlice(self.allocator),
             .type_value = type_value,
             .is_public = is_public,
+        };
+    }
+
+    fn parseTypeParameter(self: *Parser) !TypeParameter {
+        const param_name = try self.expect(.identifier);
+
+        // Check if this is a value parameter: name: Type
+        if (self.check(.colon)) {
+            _ = try self.expect(.colon);
+            const param_type = try self.parseType();
+            return TypeParameter{
+                .name = param_name.lexeme,
+                .kind = .{ .value_param = param_type },
+            };
+        }
+
+        // Otherwise it's a type parameter
+        return TypeParameter{
+            .name = param_name.lexeme,
+            .kind = .type_param,
         };
     }
 
@@ -1155,12 +1275,86 @@ pub const Parser = struct {
         }
 
         const type_token = try self.expect(.identifier);
+
+        // Check for dependent type syntax: TypeName[params...]
+        if (self.check(.left_bracket)) {
+            _ = try self.expect(.left_bracket);
+
+            var type_params = std.ArrayList(TypeParam).empty;
+            var value_params = std.ArrayList(Expr).empty;
+            errdefer {
+                for (type_params.items) |type_param| {
+                    if (type_param == .concrete) {
+                        type_param.concrete.deinit(self.allocator);
+                        self.allocator.destroy(type_param.concrete);
+                    }
+                }
+                type_params.deinit(self.allocator);
+                value_params.deinit(self.allocator);
+            }
+
+            // Parse first parameter
+            try self.parseDependentTypeParameter(&type_params, &value_params);
+
+            // Parse additional parameters
+            while (self.check(.comma)) {
+                _ = try self.expect(.comma);
+                try self.parseDependentTypeParameter(&type_params, &value_params);
+            }
+
+            _ = try self.expect(.right_bracket);
+            const usage = try self.parseUsageAnnotation();
+
+            return Type{
+                .kind = .{
+                    .dependent = DependentType{
+                        .base = type_token.lexeme,
+                        .type_params = try type_params.toOwnedSlice(self.allocator),
+                        .value_params = try value_params.toOwnedSlice(self.allocator),
+                    },
+                },
+                .usage = usage,
+            };
+        }
+
         const usage = try self.parseUsageAnnotation();
         if (type_name_map.get(type_token.lexeme)) |prim| {
             return Type{ .kind = .{ .primitive = prim  }, .usage = usage };
         } else {
             return Type{ .kind = .{ .named = type_token.lexeme  }, .usage = usage };
         }
+    }
+
+    fn parseDependentTypeParameter(self: *Parser, type_params: *std.ArrayList(TypeParam), value_params: *std.ArrayList(Expr)) !void {
+        // Heuristic: if it starts with identifier and isn't followed by operator, it's likely a type param
+        // If it's a number or has operators, it's a value param
+        if (self.check(.identifier)) {
+            const saved_pos = self.pos;
+            const ident = try self.expect(.identifier);
+
+            // Check if this looks like a type (primitive or type variable)
+            // If followed by comma, ], or is a known primitive, treat as type
+            if (self.check(.comma) or self.check(.right_bracket) or type_name_map.has(ident.lexeme)) {
+                // It's a type parameter
+                if (type_name_map.get(ident.lexeme)) |prim| {
+                    // Concrete primitive type
+                    const type_ptr = try self.allocator.create(Type);
+                    type_ptr.* = Type{ .kind = .{ .primitive = prim }, .usage = .once };
+                    try type_params.append(self.allocator, .{ .concrete = type_ptr });
+                } else {
+                    // Type variable
+                    try type_params.append(self.allocator, .{ .variable = ident.lexeme });
+                }
+                return;
+            }
+
+            // Otherwise, it's part of a value expression - backtrack and parse as expression
+            self.pos = saved_pos;
+        }
+
+        // Parse as value expression
+        const expr = try self.parseExpression();
+        try value_params.append(self.allocator, expr);
     }
 
     fn skipOptionalSemicolon(self: *Parser) void {

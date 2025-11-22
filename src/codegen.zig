@@ -342,11 +342,8 @@ pub const Codegen = struct {
 
         // Third pass: collect instance method signatures
         for (ast.instances.items) |instance| {
-            const type_name = switch (instance.type_name.kind) {
-                .named => |name| name,
-                .primitive => |prim| @tagName(prim),
-                else => "unknown",
-            };
+            const type_name = try self.mangledTypeName(instance.type_name);
+            defer self.allocator.free(type_name);
 
             for (instance.methods) |method| {
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method.name });
@@ -388,11 +385,8 @@ pub const Codegen = struct {
 
     fn generateInstanceMethods(self: *Codegen, instance: *const parser.InstanceDecl) !void {
         // Extract type name from instance.type_name
-        const type_name = switch (instance.type_name.kind) {
-            .named => |name| name,
-            .primitive => |prim| @tagName(prim),
-            else => "unknown",
-        };
+        const type_name = try self.mangledTypeName(instance.type_name);
+        defer self.allocator.free(type_name);
 
         // Generate each method as a function with mangled name: TypeName__methodName
         for (instance.methods) |method| {
@@ -1238,11 +1232,8 @@ pub const Codegen = struct {
             .method_call => |method_call| {
                 // Generate method call as: Type__method_name(object, args...)
                 const object_type = self.inferExprType(method_call.object);
-                const type_name = switch (object_type.kind) {
-                    .named => |name| name,
-                    .primitive => |prim| @tagName(prim),
-                    else => "unknown",
-                };
+                const type_name = try self.mangledTypeName(object_type);
+                defer self.allocator.free(type_name);
 
                 // Generate mangled method name: TypeName__methodName
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method_call.method_name });
@@ -1539,8 +1530,71 @@ pub const Codegen = struct {
         return try self.allocator.dupe(u8, result_name);
     }
 
-    fn llvmType(_: *Codegen, typ: Type) []const u8 {
-        return typ.llvmTypeName();
+    fn llvmType(self: *Codegen, typ: Type) []const u8 {
+        switch (typ.kind) {
+            .primitive => return typ.llvmTypeName(),
+            .dependent => |dep| {
+                // Look up underlying type
+                if (self.type_defs.get(dep.base)) |typedef| {
+                    return self.llvmType(typedef);
+                }
+                return "ptr"; // Default fallback
+            },
+            else => return "ptr", // Default for non-primitives
+        }
+    }
+
+    /// Generate mangled type name for dependent types: Vec$$Int$5$$
+    fn mangledTypeName(self: *Codegen, typ: Type) ![]const u8 {
+        switch (typ.kind) {
+            .primitive => |prim| return try self.allocator.dupe(u8, @tagName(prim)),
+            .named => |name| return try self.allocator.dupe(u8, name),
+            .dependent => |dep| {
+                var result = std.ArrayList(u8).empty;
+                errdefer result.deinit(self.allocator);
+
+                // Start with base type name
+                try result.appendSlice(self.allocator, dep.base);
+                try result.appendSlice(self.allocator, "$$");
+
+                // Add type parameters
+                for (dep.type_params, 0..) |type_param, i| {
+                    if (i > 0) try result.append(self.allocator, '$');
+
+                    switch (type_param) {
+                        .variable => |v| try result.appendSlice(self.allocator, v),
+                        .concrete => |t| {
+                            const type_name = try self.mangledTypeName(t.*);
+                            defer self.allocator.free(type_name);
+                            try result.appendSlice(self.allocator, type_name);
+                        },
+                    }
+                }
+
+                // Add value parameters (as compile-time constants for now)
+                for (dep.value_params) |value_param| {
+                    try result.append(self.allocator, '$');
+
+                    // For now, just handle integer literals
+                    // TODO: evaluate constant expressions
+                    switch (value_param) {
+                        .integer_literal => |lit| {
+                            const val_str = try std.fmt.allocPrint(self.allocator, "{d}", .{lit.value});
+                            defer self.allocator.free(val_str);
+                            try result.appendSlice(self.allocator, val_str);
+                        },
+                        else => {
+                            // For non-literal expressions, use placeholder for now
+                            try result.appendSlice(self.allocator, "expr");
+                        },
+                    }
+                }
+
+                try result.appendSlice(self.allocator, "$$");
+                return try result.toOwnedSlice(self.allocator);
+            },
+            else => return try self.allocator.dupe(u8, "unknown"),
+        }
     }
 
     fn llvmTypeString(self: *Codegen, typ: Type) ![]const u8 {
@@ -1600,6 +1654,15 @@ pub const Codegen = struct {
             },
             .named => |name| {
                 const typedef = self.type_defs.get(name) orelse unreachable;
+                return try self.llvmTypeString(typedef);
+            },
+            .dependent => |dep| {
+                // Dependent types resolve to their underlying type definition
+                // Look up the type definition and get its LLVM type
+                const typedef = self.type_defs.get(dep.base) orelse {
+                    // If not found, default to ptr
+                    return try self.allocator.dupe(u8, "ptr");
+                };
                 return try self.llvmTypeString(typedef);
             },
         }
@@ -1695,11 +1758,8 @@ pub const Codegen = struct {
             .method_call => |method_call| {
                 // Look up method return type from instance_methods
                 const object_type = self.inferExprType(method_call.object);
-                const type_name = switch (object_type.kind) {
-                    .named => |name| name,
-                    .primitive => |prim| @tagName(prim),
-                    else => "unknown",
-                };
+                const type_name = self.mangledTypeName(object_type) catch unreachable;
+                defer self.allocator.free(type_name);
 
                 const mangled_name = std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method_call.method_name }) catch unreachable;
                 defer self.allocator.free(mangled_name);

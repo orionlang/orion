@@ -305,18 +305,19 @@ pub const TypeChecker = struct {
             .integer_literal => |*lit| {
                 // Check if the value fits in the expected type
                 const value = lit.value;
-                const min = expected_type.minValue();
-                const max = expected_type.maxValue();
+                const resolved_type = self.resolveType(expected_type);
+                const min = resolved_type.minValue();
+                const max = resolved_type.maxValue();
 
                 if (value < min or value > max) {
                     // Get type name for error message
-                    const type_name = switch (expected_type.kind) {
+                    const type_name = switch (resolved_type.kind) {
                         .primitive => |prim| @tagName(prim),
-                        else => @tagName(expected_type.kind),
+                        else => @tagName(resolved_type.kind),
                     };
 
                     // Provide clear error messages for common cases
-                    if (!expected_type.isSigned() and value < 0) {
+                    if (!resolved_type.isSigned() and value < 0) {
                         std.debug.print("Integer literal {d} is negative but type {s} is unsigned\n", .{
                             value,
                             type_name,
@@ -919,12 +920,75 @@ pub const TypeChecker = struct {
         return false;
     }
 
-    fn typesMatch(_: *TypeChecker, a: Type, b: Type) bool {
-        return a.eql(b);
+    /// Resolve dependent types to their underlying type definition
+    fn resolveType(self: *TypeChecker, typ: Type) Type {
+        switch (typ.kind) {
+            .dependent => |dep| {
+                // Look up the type definition and return its underlying type
+                if (self.type_defs.get(dep.base)) |typedef| {
+                    return typedef;
+                }
+                return typ;
+            },
+            else => return typ,
+        }
     }
 
-    fn isIntegerType(_: *TypeChecker, typ: Type) bool {
-        return typ.isInteger();
+    fn typesMatch(self: *TypeChecker, a: Type, b: Type) bool {
+        const resolved_a = self.resolveType(a);
+        const resolved_b = self.resolveType(b);
+        return resolved_a.eql(resolved_b);
+    }
+
+    fn isIntegerType(self: *TypeChecker, typ: Type) bool {
+        const resolved = self.resolveType(typ);
+        return resolved.isInteger();
+    }
+
+    const type_name_map = std.StaticStringMap(parser.PrimitiveType).initComptime(.{
+        .{ "Bool", .bool },
+        .{ "I8", .i8 },
+        .{ "I16", .i16 },
+        .{ "I32", .i32 },
+        .{ "I64", .i64 },
+        .{ "ptr", .ptr },
+        .{ "str", .str },
+        .{ "Type", .type },
+        .{ "U8", .u8 },
+        .{ "U16", .u16 },
+        .{ "U32", .u32 },
+        .{ "U64", .u64 },
+    });
+
+    /// Evaluate @type(TypeName) expression at compile time to extract the Type
+    pub fn evaluateTypeExpr(self: *TypeChecker, expr: *const Expr) ?Type {
+        switch (expr.*) {
+            .intrinsic_call => |call| {
+                if (std.mem.eql(u8, call.name, "@type")) {
+                    // @type(TypeName) -> extract TypeName
+                    const type_name_expr = call.args[0];
+                    const type_name = switch (type_name_expr.*) {
+                        .variable => |v| v,
+                        .constructor_call => |c| c.name,
+                        else => return null,
+                    };
+
+                    // Check primitive types
+                    if (type_name_map.get(type_name)) |prim| {
+                        return Type{ .kind = .{ .primitive = prim }, .usage = .once };
+                    }
+
+                    // Check if it's a named type
+                    if (self.type_defs.get(type_name)) |typedef| {
+                        return typedef;
+                    }
+
+                    return null;
+                }
+                return null;
+            },
+            else => return null,
+        }
     }
 };
 
