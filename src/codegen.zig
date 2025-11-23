@@ -12,6 +12,8 @@ const TargetInfo = target_module.TargetInfo;
 pub const CodegenError = error{
     OutOfMemory,
     UndefinedVariable,
+    UndefinedConstructor,
+    UndefinedType,
     TupleNotImplemented,
     TupleDestructuringNotImplemented,
 };
@@ -35,6 +37,7 @@ pub const Codegen = struct {
     functions: std.StringHashMap(FunctionInfo),
     type_defs: std.StringHashMap(Type),
     current_block: ?[]const u8,
+    block_terminated: bool,
     inferred_types: std.ArrayList(Type),
     instance_methods: std.StringHashMap(Type),
     target: TargetTriple,
@@ -52,6 +55,7 @@ pub const Codegen = struct {
             .functions = std.StringHashMap(FunctionInfo).init(allocator),
             .type_defs = std.StringHashMap(Type).init(allocator),
             .current_block = null,
+            .block_terminated = false,
             .inferred_types = .empty,
             .instance_methods = std.StringHashMap(Type).init(allocator),
             .target = target,
@@ -169,6 +173,7 @@ pub const Codegen = struct {
     fn setCurrentBlock(self: *Codegen, label: []const u8) !void {
         if (self.current_block) |old_block| self.allocator.free(old_block);
         self.current_block = try self.allocator.dupe(u8, label);
+        self.block_terminated = false;
     }
 
     fn convertConditionToBool(self: *Codegen, condition_val: []const u8, condition_type: Type) ![]const u8 {
@@ -653,6 +658,7 @@ pub const Codegen = struct {
                 const converted = try self.convertIfNeeded(value, expr_type, return_type);
                 defer self.allocator.free(converted);
                 try self.output.writer(self.allocator).print("  ret {s} {s}\n", .{ return_type_str, converted });
+                self.block_terminated = true;
             },
             .expr => |expr| {
                 const value = try self.generateExpression(expr);
@@ -709,9 +715,63 @@ pub const Codegen = struct {
         if (from_type.eql(to_type)) {
             return try self.allocator.dupe(u8, value);
         }
-        // Only convert primitive types
+        // Convert primitive types
         if (from_type.kind == .primitive and to_type.kind == .primitive) {
             return try self.convertType(value, from_type, to_type);
+        }
+        // Convert tuples
+        if (from_type.kind == .tuple and to_type.kind == .tuple) {
+            const from_elems = from_type.kind.tuple;
+            const to_elems = to_type.kind.tuple;
+            if (from_elems.len != to_elems.len) {
+                return try self.allocator.dupe(u8, value);
+            }
+
+            // Extract, convert, and rebuild tuple
+            const from_type_str = try self.llvmTypeString(from_type);
+            defer self.allocator.free(from_type_str);
+            const to_type_str = try self.llvmTypeString(to_type);
+            defer self.allocator.free(to_type_str);
+
+            var current_val: []const u8 = try std.fmt.allocPrint(self.allocator, "undef", .{});
+
+            for (0..from_elems.len) |i| {
+                // Extract element from source tuple
+                const extract_temp = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = extractvalue {s} {s}, {d}\n", .{
+                    extract_temp,
+                    from_type_str,
+                    value,
+                    i,
+                });
+                defer self.allocator.free(extract_temp);
+
+                // Convert element type if needed
+                const elem_converted = try self.convertIfNeeded(extract_temp, from_elems[i].*, to_elems[i].*);
+                defer self.allocator.free(elem_converted);
+
+                const elem_type_str = try self.llvmTypeString(to_elems[i].*);
+                defer self.allocator.free(elem_type_str);
+
+                // Insert into new tuple
+                const insert_temp = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = insertvalue {s} {s}, {s} {s}, {d}\n", .{
+                    insert_temp,
+                    to_type_str,
+                    current_val,
+                    elem_type_str,
+                    elem_converted,
+                    i,
+                });
+
+                self.allocator.free(current_val);
+                if (i < from_elems.len - 1) {
+                    current_val = try self.allocator.dupe(u8, insert_temp);
+                    self.allocator.free(insert_temp);
+                } else {
+                    return insert_temp;
+                }
+            }
         }
         // For non-primitives, just return the value if kind matches
         return try self.allocator.dupe(u8, value);
@@ -1124,6 +1184,11 @@ pub const Codegen = struct {
                     }
                 }
 
+                if (found_typedef == null) {
+                    std.debug.print("Undefined constructor: {s}\n", .{call.name});
+                    return error.UndefinedConstructor;
+                }
+
                 const sum_type = found_typedef.?;
                 const sum_type_str = try self.llvmTypeString(sum_type);
                 defer self.allocator.free(sum_type_str);
@@ -1239,6 +1304,13 @@ pub const Codegen = struct {
                     self.allocator.free(arm_end_blocks);
                 }
 
+                // Determine the match result type first (before generating arms)
+                const result_type = self.inferExprType(expr);
+
+                // Track which arms terminated early (returned)
+                var arm_terminated = try self.allocator.alloc(bool, match_expr.arms.len);
+                defer self.allocator.free(arm_terminated);
+
                 for (match_expr.arms, 0..) |arm, i| {
                     try self.output.writer(self.allocator).print("{s}:\n", .{arm_labels[i]});
                     try self.setCurrentBlock(arm_labels[i]);
@@ -1273,9 +1345,21 @@ pub const Codegen = struct {
                         },
                     }
 
-                    arm_vals[i] = try self.generateExpression(arm.body);
-                    arm_end_blocks[i] = try self.allocator.dupe(u8, self.current_block.?);
-                    try self.output.writer(self.allocator).print("  br label %{s}\n", .{merge_label});
+                    const arm_val = try self.generateExpression(arm.body);
+                    defer self.allocator.free(arm_val);
+
+                    // Convert arm value to match result type if needed (before branch)
+                    if (!self.block_terminated) {
+                        const arm_type = self.inferExprType(arm.body);
+                        arm_vals[i] = try self.convertIfNeeded(arm_val, arm_type, result_type);
+                        arm_end_blocks[i] = try self.allocator.dupe(u8, self.current_block.?);
+                        try self.output.writer(self.allocator).print("  br label %{s}\n", .{merge_label});
+                        arm_terminated[i] = false;
+                    } else {
+                        arm_vals[i] = try self.allocator.dupe(u8, arm_val);
+                        arm_end_blocks[i] = try self.allocator.dupe(u8, self.current_block.?);
+                        arm_terminated[i] = true;
+                    }
 
                     // Remove pattern bindings from variable scope
                     switch (arm.pattern) {
@@ -1295,16 +1379,20 @@ pub const Codegen = struct {
                 try self.output.writer(self.allocator).print("{s}:\n", .{merge_label});
                 try self.setCurrentBlock(merge_label);
 
-                const result_type = self.inferExprType(expr);
                 const result_type_str = try self.llvmTypeString(result_type);
                 defer self.allocator.free(result_type_str);
 
                 const result_temp = try self.allocTempName();
                 try self.output.writer(self.allocator).print("  {s} = phi {s}", .{ result_temp, result_type_str });
 
-                for (arm_vals, arm_end_blocks, 0..) |val, block, i| {
-                    if (i > 0) try self.output.appendSlice(self.allocator, ",");
-                    try self.output.writer(self.allocator).print(" [ {s}, %{s} ]", .{ val, block });
+                // Only include non-terminated arms in phi node
+                var first = true;
+                for (arm_vals, arm_end_blocks, arm_terminated) |val, block, terminated| {
+                    if (!terminated) {
+                        if (!first) try self.output.appendSlice(self.allocator, ",");
+                        try self.output.writer(self.allocator).print(" [ {s}, %{s} ]", .{ val, block });
+                        first = false;
+                    }
                 }
                 try self.output.appendSlice(self.allocator, "\n");
 
@@ -1822,7 +1910,15 @@ pub const Codegen = struct {
                 return try std.fmt.allocPrint(self.allocator, "{{ i64, [{d} x i8] }}", .{max_size});
             },
             .named => |name| {
-                const typedef = self.type_defs.get(name) orelse unreachable;
+                const typedef = self.type_defs.get(name) orelse {
+                    std.debug.print("Type not found in type_defs: {s}\n", .{name});
+                    std.debug.print("Available types:\n", .{});
+                    var iter = self.type_defs.iterator();
+                    while (iter.next()) |entry| {
+                        std.debug.print("  - {s}\n", .{entry.key_ptr.*});
+                    }
+                    return error.UndefinedType;
+                };
                 return try self.llvmTypeString(typedef);
             },
             .dependent => |dep| {
@@ -1834,6 +1930,43 @@ pub const Codegen = struct {
                 };
                 return try self.llvmTypeString(typedef);
             },
+        }
+    }
+
+    fn exprReturns(expr: *const Expr) bool {
+        switch (expr.*) {
+            .block_expr => |block| {
+                // Check statements for return
+                for (block.statements) |stmt| {
+                    if (stmt == .return_stmt) return true;
+                }
+                // Check result expression
+                if (block.result) |result| {
+                    return exprReturns(result);
+                }
+                return false;
+            },
+            .unsafe_block => |block| {
+                // Check statements for return
+                for (block.statements) |stmt| {
+                    if (stmt == .return_stmt) return true;
+                }
+                // Check result expression
+                if (block.result) |result| {
+                    return exprReturns(result);
+                }
+                return false;
+            },
+            .if_expr => |if_expr| {
+                // If both branches return, the if returns
+                const then_returns = exprReturns(if_expr.then_branch);
+                if (if_expr.else_branch) |else_branch| {
+                    const else_returns = exprReturns(else_branch);
+                    return then_returns and else_returns;
+                }
+                return false;
+            },
+            else => return false,
         }
     }
 
@@ -1923,10 +2056,32 @@ pub const Codegen = struct {
                         }
                     }
                 }
-                unreachable;
+                std.debug.print("Cannot infer type for constructor: {s} (type not found in current module)\n", .{call.name});
+                // Return a dummy type to avoid panic
+                return .{ .kind = .{ .primitive = .i32 }, .usage = .once };
             },
             .match_expr => |match_expr| {
-                // Match result type is the type of the first arm
+                // If we're in a function and all arms return, use the function return type
+                if (self.current_function_return_type) |ret_type| {
+                    var all_return = true;
+                    for (match_expr.arms) |arm| {
+                        if (!exprReturns(arm.body)) {
+                            all_return = false;
+                            break;
+                        }
+                    }
+                    if (all_return) {
+                        return ret_type;
+                    }
+                }
+
+                // Match result type is the type of the first non-returning arm
+                for (match_expr.arms) |arm| {
+                    if (!exprReturns(arm.body)) {
+                        return self.inferExprType(arm.body);
+                    }
+                }
+                // If all arms return, use the first arm's type (shouldn't happen in practice)
                 return self.inferExprType(match_expr.arms[0].body);
             },
             .method_call => |method_call| {
@@ -2023,7 +2178,8 @@ pub const Codegen = struct {
                 } else if (std.mem.eql(u8, call.name, "@ptr_to_int")) {
                     return .{ .kind = .{ .primitive = .u64 }, .usage = .once };
                 } else {
-                    unreachable;
+                    std.debug.print("Unknown intrinsic in inferExprType: {s}\n", .{call.name});
+                    return .{ .kind = .{ .primitive = .i32 }, .usage = .once };
                 }
             },
             .dependent_type_ref => {

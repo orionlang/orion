@@ -1,0 +1,181 @@
+// File I/O module for Orion standard library
+// Uses ADT to track file state and prevent operations on closed files
+
+import std.alloc
+
+// File ADT with state variants
+type File = | Open(I32) | Closed
+
+// C file operations
+extern "C" {
+  fn open(path: str, flags: I32, mode: I32) I32;
+  fn read(fd: I32, buf: ptr, count: U64) I64;
+  fn write(fd: I32, buf: str, count: U64) I64;
+  fn close(fd: I32) I32;
+  fn lseek(fd: I32, offset: I64, whence: I32) I64;
+}
+
+// File open flags (from fcntl.h) - inlined as constants
+// O_RDONLY = 0
+// O_WRONLY = 1
+// O_RDWR = 2
+// O_CREAT = 64
+// O_TRUNC = 512
+
+// lseek whence values - inlined as constants
+// SEEK_SET = 0
+// SEEK_CUR = 1
+// SEEK_END = 2
+
+// File operations typeclass
+class FileOps {
+  open_read: fn(str) File;
+  open_write: fn(str) File;
+  read: fn(File, ptr, U64) (I64, File);
+  read_all: fn(File, Arena) (str, File, Arena);
+  write: fn(File, str) (I64, File);
+  close: fn(File) File;
+  size: fn(File) (I64, File);
+}
+
+instance FileOps[File] {
+  // Open file for reading
+  open_read = fn(path: str) File {
+    unsafe {
+      var fd: I32 = open(path, 0, 0)  // O_RDONLY = 0
+
+      // Check if open failed (returns -1 on error)
+      var failed: Bool = fd == -1
+
+      // Work around: can't use ADT constructors in if-expression yet
+      var result: File = Closed
+      if failed {
+        result = Closed
+      } else {
+        result = Open(fd)
+      }
+
+      return result
+    }
+  }
+
+  // Open file for writing (create if doesn't exist, truncate if exists)
+  open_write = fn(path: str) File {
+    unsafe {
+      var flags: I32 = 1  // O_WRONLY
+      flags = flags | 64  // O_CREAT
+      flags = flags | 512  // O_TRUNC
+      var mode: I32 = 420  // 0644 in octal (rw-r--r--)
+
+      var fd: I32 = open(path, flags, mode)
+
+      var failed: Bool = fd == -1
+
+      var result: File = Closed
+      if failed {
+        result = Closed
+      } else {
+        result = Open(fd)
+      }
+
+      return result
+    }
+  }
+
+  // Read up to count bytes into buffer
+  read = fn(file: File, buf: ptr, count: U64) (I64, File) {
+    return match file {
+      Open(fd) => {
+        unsafe {
+          var bytes: I64 = read(fd, buf, count)
+
+          // If read failed or EOF, keep file open
+          return (bytes, Open(fd))
+        }
+      },
+      Closed => (0, Closed)
+    }
+  }
+
+  // Read entire file contents into arena-allocated string
+  read_all = fn(file: File, arena: Arena) (str, File, Arena) {
+    return match file {
+      Open(fd) => {
+        unsafe {
+          // Get file size first
+          var file_size: I64 = lseek(fd, 0, 2)  // SEEK_END
+          var _: I64 = lseek(fd, 0, 0)  // SEEK_SET - reset to beginning
+
+          // Handle empty file or error
+          let is_empty: Bool = file_size <= 0
+
+          return if is_empty {
+            ("", Open(fd), arena)
+          } else {
+            // Allocate buffer for file contents + null terminator
+            // Cast I64 to U64 via ptr (hacky but works)
+            let size_ptr: ptr = @int_to_ptr(file_size)
+            let size_u64: U64 = @ptr_to_int(size_ptr)
+            let alloc_size: U64 = size_u64 + 1
+            let alloc_result: (ptr, Arena) = arena.alloc(alloc_size)
+            let buffer: ptr = alloc_result.0
+            let arena2: Arena = alloc_result.1
+            let bytes_read: I64 = read(fd, buffer, size_u64)
+            let null_offset: ptr = @ptr_offset(buffer, size_u64)
+            let zero: U8 = 0
+            let _write: () = @ptr_write(null_offset, zero)
+            (buffer, Open(fd), arena2)
+          }
+        }
+      },
+      Closed => ("", Closed, arena)
+    }
+  }
+
+  // Write string data to file
+  write = fn(file: File, data: str) (I64, File) {
+    return match file {
+      Open(fd) => {
+        unsafe {
+          var len: I64 = data.len()
+          // Cast I64 to U64 via ptr
+          var len_ptr: ptr = @int_to_ptr(len)
+          var len_u64: U64 = @ptr_to_int(len_ptr)
+          var bytes: I64 = write(fd, data, len_u64)
+
+          return (bytes, Open(fd))
+        }
+      },
+      Closed => (0, Closed)
+    }
+  }
+
+  // Close file (transitions to Closed state)
+  close = fn(file: File) File {
+    return match file {
+      Open(fd) => {
+        unsafe {
+          var _: I32 = close(fd)
+          return Closed
+        }
+      },
+      Closed => Closed
+    }
+  }
+
+  // Get file size in bytes
+  size = fn(file: File) (I64, File) {
+    return match file {
+      Open(fd) => {
+        unsafe {
+          var current_pos: I64 = lseek(fd, 0, 1)  // SEEK_CUR - save position
+          var file_size: I64 = lseek(fd, 0, 2)    // SEEK_END - seek to end
+          var _: I64 = lseek(fd, current_pos, 0)  // SEEK_SET - restore position
+
+          return (file_size, Open(fd))
+        }
+      },
+      Closed => (0, Closed)
+    }
+  }
+}
