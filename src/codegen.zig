@@ -599,6 +599,49 @@ pub const Codegen = struct {
                 self.allocator.free(body_label);
                 self.allocator.free(exit_label);
             },
+            .if_stmt => |if_stmt| {
+                const then_label = try self.allocLabel("if_then");
+                const else_label = try self.allocLabel("if_else");
+                const end_label = try self.allocLabel("if_end");
+
+                // Evaluate condition
+                const cond_bool = try self.generateConditionAsBool(if_stmt.condition);
+                defer self.allocator.free(cond_bool);
+
+                // Branch based on condition
+                if (if_stmt.else_stmts) |_| {
+                    try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n", .{ cond_bool, then_label, else_label });
+                } else {
+                    try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n", .{ cond_bool, then_label, end_label });
+                }
+
+                // Then block
+                try self.output.writer(self.allocator).print("{s}:\n", .{then_label});
+                try self.setCurrentBlock(then_label);
+                for (if_stmt.then_stmts) |*then_stmt| {
+                    try self.generateStatement(then_stmt, return_type);
+                }
+                try self.output.writer(self.allocator).print("  br label %{s}\n", .{end_label});
+
+                // Else block (if present)
+                if (if_stmt.else_stmts) |else_stmts| {
+                    try self.output.writer(self.allocator).print("{s}:\n", .{else_label});
+                    try self.setCurrentBlock(else_label);
+                    for (else_stmts) |*else_stmt| {
+                        try self.generateStatement(else_stmt, return_type);
+                    }
+                    try self.output.writer(self.allocator).print("  br label %{s}\n", .{end_label});
+                }
+
+                // End block
+                try self.output.writer(self.allocator).print("{s}:\n", .{end_label});
+                try self.setCurrentBlock(end_label);
+
+                // Clean up labels
+                self.allocator.free(then_label);
+                self.allocator.free(else_label);
+                self.allocator.free(end_label);
+            },
             .return_stmt => |expr| {
                 const value = try self.generateExpression(expr);
                 defer self.allocator.free(value);
@@ -1548,6 +1591,9 @@ pub const Codegen = struct {
                     // Infer the type of the value to determine if conversion is needed
                     const value_type = self.inferExprType(call.args[1]);
 
+                    // Determine the LLVM type string for the value
+                    const value_llvm_type = self.llvmType(value_type);
+
                     // If value is ptr type, convert to i64 before storing
                     // Otherwise, store the value directly
                     const store_val: []const u8 = if (value_type.kind == .primitive and value_type.kind.primitive == .ptr) blk: {
@@ -1559,7 +1605,9 @@ pub const Codegen = struct {
                     };
                     defer if (value_type.kind == .primitive and value_type.kind.primitive == .ptr) self.allocator.free(store_val);
 
-                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ self.target_info.native_int_type, store_val, ptr_val });
+                    // Use the actual value type for the store, not always native_int_type
+                    const store_type = if (value_type.kind == .primitive and value_type.kind.primitive == .ptr) self.target_info.native_int_type else value_llvm_type;
+                    try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ store_type, store_val, ptr_val });
 
                     // Return unit value (undef for empty tuple)
                     return try std.fmt.allocPrint(self.allocator, "undef", .{});
@@ -1673,9 +1721,12 @@ pub const Codegen = struct {
                 // Start with base type name
                 try result.appendSlice(self.allocator, dep.base);
 
+                // Start dependent type parameters section with $$
+                try result.appendSlice(self.allocator, "$$");
+
                 // Add type parameters
-                for (dep.type_params) |type_param| {
-                    try result.append(self.allocator, '$');
+                for (dep.type_params, 0..) |type_param, i| {
+                    if (i > 0) try result.append(self.allocator, '$');
 
                     switch (type_param) {
                         .variable => |v| try result.appendSlice(self.allocator, v),
@@ -1705,6 +1756,9 @@ pub const Codegen = struct {
                         },
                     }
                 }
+
+                // End dependent type parameters section with $$
+                try result.appendSlice(self.allocator, "$$");
 
                 return try result.toOwnedSlice(self.allocator);
             },

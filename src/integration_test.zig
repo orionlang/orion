@@ -2482,7 +2482,7 @@ test "stdlib Pointer.write stores value to pointer" {
         \\  let x: U64@* = 0
         \\  let p: ptr@* = @ptr_of(x)
         \\  let value: U64@* = 42
-        \\  let unit: ()@* = p.write(value)
+        \\  let unit: ()@* = @ptr_write(p, value)
         \\  let val: ptr@* = p.read(@type(U64))
         \\  return 42
         \\}
@@ -2523,7 +2523,7 @@ test "stdlib Pointer methods can be chained" {
         \\  let x: U64@* = 100
         \\  let p: ptr@* = @ptr_of(x)
         \\  let val: U64@* = 150
-        \\  let _: ()@* = p.write(val)
+        \\  let _: ()@* = @ptr_write(p, val)
         \\  let value: ptr@* = p.read(@type(U64))
         \\  return 42
         \\}

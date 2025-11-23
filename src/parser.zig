@@ -512,6 +512,11 @@ pub const Stmt = union(enum) {
         condition: *Expr,
         body: *Expr,
     },
+    if_stmt: struct {
+        condition: *Expr,
+        then_stmts: []Stmt,
+        else_stmts: ?[]Stmt,
+    },
     return_stmt: *Expr,
     expr: *Expr,
 };
@@ -679,6 +684,20 @@ pub const FunctionDecl = struct {
                 allocator.destroy(while_stmt.condition);
                 deinitExpr(allocator, while_stmt.body);
                 allocator.destroy(while_stmt.body);
+            },
+            .if_stmt => |if_stmt| {
+                deinitExpr(allocator, if_stmt.condition);
+                allocator.destroy(if_stmt.condition);
+                for (if_stmt.then_stmts) |*s| {
+                    deinitStmt(allocator, s);
+                }
+                allocator.free(if_stmt.then_stmts);
+                if (if_stmt.else_stmts) |else_stmts| {
+                    for (else_stmts) |*s| {
+                        deinitStmt(allocator, s);
+                    }
+                    allocator.free(else_stmts);
+                }
             },
             .return_stmt => |expr| {
                 deinitExpr(allocator, expr);
@@ -1515,10 +1534,11 @@ pub const Parser = struct {
                self.check(.var_keyword) or
                self.check(.return_keyword) or
                self.check(.while_keyword) or
+               self.check(.if_keyword) or
                (self.check(.identifier) and self.peekAhead(1).kind == .equal);
     }
 
-    fn parseStatement(self: *Parser) !Stmt {
+    fn parseStatement(self: *Parser) ParseError!Stmt {
         if (self.check(.let_keyword)) {
             return try self.parseLetBinding(false);
         }
@@ -1530,6 +1550,9 @@ pub const Parser = struct {
         }
         if (self.check(.while_keyword)) {
             return try self.parseWhileStatement();
+        }
+        if (self.check(.if_keyword)) {
+            return try self.parseIfStatement();
         }
         // Check for assignment: identifier = expr;
         if (self.check(.identifier) and self.peekAhead(1).kind == .equal) {
@@ -1648,6 +1671,61 @@ pub const Parser = struct {
             .while_stmt = .{
                 .condition = condition,
                 .body = body,
+            },
+        };
+    }
+
+    fn parseIfStatement(self: *Parser) ParseError!Stmt {
+        _ = try self.expect(.if_keyword);
+
+        // Parse condition
+        const condition = try self.parseExpressionPtr(&.{});
+
+        // Parse then branch (block with statements)
+        _ = try self.expect(.left_brace);
+        var then_list = std.ArrayList(Stmt).empty;
+        errdefer then_list.deinit(self.allocator);
+
+        while (!self.check(.right_brace) and !self.isAtEnd()) {
+            const stmt = try self.parseStatement();
+            try then_list.append(self.allocator, stmt);
+        }
+        _ = try self.expect(.right_brace);
+        const then_stmts = try then_list.toOwnedSlice(self.allocator);
+
+        // Parse optional else/elseif
+        var else_statements: ?[]Stmt = null;
+        if (self.check(.else_keyword)) {
+            _ = try self.expect(.else_keyword);
+
+            if (self.check(.if_keyword)) {
+                // elseif - parse as nested if statement
+                const nested_if = try self.parseIfStatement();
+                var else_list = std.ArrayList(Stmt).empty;
+                try else_list.append(self.allocator, nested_if);
+                else_statements = try else_list.toOwnedSlice(self.allocator);
+            } else {
+                // else block
+                _ = try self.expect(.left_brace);
+                var else_list = std.ArrayList(Stmt).empty;
+                errdefer else_list.deinit(self.allocator);
+
+                while (!self.check(.right_brace) and !self.isAtEnd()) {
+                    const stmt = try self.parseStatement();
+                    try else_list.append(self.allocator, stmt);
+                }
+                _ = try self.expect(.right_brace);
+                else_statements = try else_list.toOwnedSlice(self.allocator);
+            }
+        }
+
+        self.skipOptionalSemicolon();
+
+        return .{
+            .if_stmt = .{
+                .condition = condition,
+                .then_stmts = then_stmts,
+                .else_stmts = else_statements,
             },
         };
     }
@@ -2344,11 +2422,20 @@ pub const Parser = struct {
 
         // Parse statements until we hit right_brace or final expression
         while (!self.check(.right_brace)) {
-            if (self.isStatementStart()) {
+            // Check if this looks like a final expression:
+            // - It's an if expression (no let/var/return/while before it)
+            // - OR it doesn't start with a statement keyword
+            const looks_like_statement = self.check(.let_keyword) or
+                                         self.check(.var_keyword) or
+                                         self.check(.return_keyword) or
+                                         self.check(.while_keyword) or
+                                         (self.check(.identifier) and self.peekAhead(1).kind == .equal);
+
+            if (looks_like_statement) {
                 const stmt = try self.parseStatement();
                 try stmts.append(self.allocator, stmt);
             } else {
-                // It's a final expression (no semicolon)
+                // It's a final expression (could be if-expr or other expr)
                 const result_ptr = try self.allocator.create(Expr);
                 errdefer self.allocator.destroy(result_ptr);
                 result_ptr.* = try self.parseExpression();
@@ -2934,14 +3021,18 @@ test "parser: simple if expression" {
     try testing.expect(if_expr.condition.* == .bool_literal);
     try testing.expectEqual(true, if_expr.condition.bool_literal);
 
-    // Check then branch
-    try testing.expect(if_expr.then_branch.* == .integer_literal);
-    try testing.expectEqual(@as(i64, 1), if_expr.then_branch.integer_literal.value);
+    // Check then branch - now a block_expr with result
+    try testing.expect(if_expr.then_branch.* == .block_expr);
+    try testing.expect(if_expr.then_branch.block_expr.result != null);
+    try testing.expect(if_expr.then_branch.block_expr.result.?.* == .integer_literal);
+    try testing.expectEqual(@as(i64, 1), if_expr.then_branch.block_expr.result.?.integer_literal.value);
 
-    // Check else branch
+    // Check else branch - now a block_expr with result
     try testing.expect(if_expr.else_branch != null);
-    try testing.expect(if_expr.else_branch.?.* == .integer_literal);
-    try testing.expectEqual(@as(i64, 2), if_expr.else_branch.?.integer_literal.value);
+    try testing.expect(if_expr.else_branch.?.* == .block_expr);
+    try testing.expect(if_expr.else_branch.?.block_expr.result != null);
+    try testing.expect(if_expr.else_branch.?.block_expr.result.?.* == .integer_literal);
+    try testing.expectEqual(@as(i64, 2), if_expr.else_branch.?.block_expr.result.?.integer_literal.value);
 }
 
 test "parser: if expression with comparison condition" {
@@ -2987,8 +3078,9 @@ test "parser: elseif chain" {
     try testing.expect(if_expr.condition.* == .bool_literal);
     try testing.expectEqual(false, if_expr.condition.bool_literal);
 
-    // Then branch
-    try testing.expectEqual(@as(i64, 1), if_expr.then_branch.integer_literal.value);
+    // Then branch - now a block_expr with result
+    try testing.expect(if_expr.then_branch.* == .block_expr);
+    try testing.expectEqual(@as(i64, 1), if_expr.then_branch.block_expr.result.?.integer_literal.value);
 
     // Else branch should be another if_expr (the elseif)
     try testing.expect(if_expr.else_branch != null);
@@ -2997,8 +3089,10 @@ test "parser: elseif chain" {
     const nested_if = if_expr.else_branch.?.if_expr;
     try testing.expect(nested_if.condition.* == .bool_literal);
     try testing.expectEqual(true, nested_if.condition.bool_literal);
-    try testing.expectEqual(@as(i64, 2), nested_if.then_branch.integer_literal.value);
-    try testing.expectEqual(@as(i64, 3), nested_if.else_branch.?.integer_literal.value);
+    try testing.expect(nested_if.then_branch.* == .block_expr);
+    try testing.expectEqual(@as(i64, 2), nested_if.then_branch.block_expr.result.?.integer_literal.value);
+    try testing.expect(nested_if.else_branch.?.* == .block_expr);
+    try testing.expectEqual(@as(i64, 3), nested_if.else_branch.?.block_expr.result.?.integer_literal.value);
 }
 
 test "parser: multiple elseif chain" {
@@ -3019,20 +3113,24 @@ test "parser: multiple elseif chain" {
 
     // Should create deeply nested if expressions
     const if1 = stmt.return_stmt.if_expr;
-    try testing.expectEqual(@as(i64, 1), if1.then_branch.integer_literal.value);
+    try testing.expect(if1.then_branch.* == .block_expr);
+    try testing.expectEqual(@as(i64, 1), if1.then_branch.block_expr.result.?.integer_literal.value);
 
     // First elseif
     try testing.expect(if1.else_branch.?.* == .if_expr);
     const if2 = if1.else_branch.?.if_expr;
-    try testing.expectEqual(@as(i64, 2), if2.then_branch.integer_literal.value);
+    try testing.expect(if2.then_branch.* == .block_expr);
+    try testing.expectEqual(@as(i64, 2), if2.then_branch.block_expr.result.?.integer_literal.value);
 
     // Second elseif
     try testing.expect(if2.else_branch.?.* == .if_expr);
     const if3 = if2.else_branch.?.if_expr;
-    try testing.expectEqual(@as(i64, 3), if3.then_branch.integer_literal.value);
+    try testing.expect(if3.then_branch.* == .block_expr);
+    try testing.expectEqual(@as(i64, 3), if3.then_branch.block_expr.result.?.integer_literal.value);
 
     // Final else
-    try testing.expectEqual(@as(i64, 4), if3.else_branch.?.integer_literal.value);
+    try testing.expect(if3.else_branch.?.* == .block_expr);
+    try testing.expectEqual(@as(i64, 4), if3.else_branch.?.block_expr.result.?.integer_literal.value);
 }
 
 test "parser: nested if expressions" {
@@ -3052,15 +3150,19 @@ test "parser: nested if expressions" {
     try testing.expect(stmt.return_stmt.* == .if_expr);
 
     const outer_if = stmt.return_stmt.if_expr;
-    // Then branch should be another if_expr
-    try testing.expect(outer_if.then_branch.* == .if_expr);
+    // Then branch should be a block_expr containing an if_expr
+    try testing.expect(outer_if.then_branch.* == .block_expr);
+    try testing.expect(outer_if.then_branch.block_expr.result.?.* == .if_expr);
 
-    const inner_if = outer_if.then_branch.if_expr;
-    try testing.expectEqual(@as(i64, 1), inner_if.then_branch.integer_literal.value);
-    try testing.expectEqual(@as(i64, 2), inner_if.else_branch.?.integer_literal.value);
+    const inner_if = outer_if.then_branch.block_expr.result.?.if_expr;
+    try testing.expect(inner_if.then_branch.* == .block_expr);
+    try testing.expectEqual(@as(i64, 1), inner_if.then_branch.block_expr.result.?.integer_literal.value);
+    try testing.expect(inner_if.else_branch.?.* == .block_expr);
+    try testing.expectEqual(@as(i64, 2), inner_if.else_branch.?.block_expr.result.?.integer_literal.value);
 
     // Outer else
-    try testing.expectEqual(@as(i64, 3), outer_if.else_branch.?.integer_literal.value);
+    try testing.expect(outer_if.else_branch.?.* == .block_expr);
+    try testing.expectEqual(@as(i64, 3), outer_if.else_branch.?.block_expr.result.?.integer_literal.value);
 }
 
 test "parser: simple while loop" {

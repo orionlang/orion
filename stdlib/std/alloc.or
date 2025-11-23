@@ -1,5 +1,9 @@
+import std.mem
+
 // Allocator interface
 // All allocators must implement this class
+// Note: Actual implementations may have additional parameters or return types
+// depending on their specific semantics (e.g., returning updated state)
 
 class Allocator {
   alloc: fn(Self, U64) ptr;
@@ -66,10 +70,12 @@ instance Allocator[PageAllocator] {
 
   remap = fn(self: PageAllocator, ptr: ptr, old_pages: U64, new_pages: U64) ptr {
     unsafe {
-      var pa: PageAllocator = self
+      let pa: PageAllocator = self
       // Allocate new mapping
-      var new_ptr: ptr = pa.alloc(new_pages)
-      // TODO: copy old data to new_ptr (need memcpy)
+      let new_ptr: ptr = pa.alloc(new_pages)
+      // Copy old data to new_ptr
+      let old_size: U64 = old_pages * pa.page_size
+      memcpy(new_ptr, ptr, old_size)
       // Free old mapping
       pa.free(ptr, old_pages)
       return new_ptr
@@ -84,6 +90,7 @@ type Arena = {
   buffer: ptr,
   capacity: U64,
   used: U64,
+  allocated_pages: U64,  // Number of pages allocated for buffer
 }
 
 instance Allocator[Arena] {
@@ -95,26 +102,34 @@ instance Allocator[Arena] {
       var new_used: U64 = arena.used + size
       var needs_grow: Bool = new_used > arena.capacity
 
-      var arena_updated: Arena = if needs_grow {
+      // Handle arena growth
+      var arena_updated: Arena = arena
+      if needs_grow {
         // Allocate more pages from parent
-        // Calculate how many pages we need
-        var page_size: U64 = arena.parent.page_size
-        var bytes_needed: U64 = new_used - arena.capacity
-        var pages_needed: U64 = (bytes_needed + page_size - 1) / page_size  // Round up
+        // Calculate how many pages we need for new total capacity
+        let page_size: U64 = arena.parent.page_size
+        let total_pages_needed: U64 = (new_used + page_size - 1) / page_size  // Round up
 
         // Allocate from parent
-        var new_buffer: ptr = arena.parent.alloc(pages_needed)
-        var new_capacity: U64 = arena.capacity + (pages_needed * page_size)
+        let new_buffer: ptr = arena.parent.alloc(total_pages_needed)
+        let new_capacity: U64 = total_pages_needed * page_size
 
-        // For simplicity, just use new buffer (TODO: copy old data)
-        Arena {
+        // Copy old data to new buffer if we had data
+        let has_old_data: Bool = arena.used > 0
+        if has_old_data {
+          let copy_result: () = memcpy(new_buffer, arena.buffer, arena.used)
+          // Free old buffer
+          let free_result: () = arena.parent.free(arena.buffer, arena.allocated_pages)
+        }
+
+        let new_arena: Arena = Arena {
           parent: arena.parent,
           buffer: new_buffer,
           capacity: new_capacity,
-          used: 0,
+          used: arena.used,
+          allocated_pages: total_pages_needed,
         }
-      } else {
-        arena
+        arena_updated = new_arena
       }
 
       // Allocate from arena
@@ -126,6 +141,7 @@ instance Allocator[Arena] {
         buffer: arena_updated.buffer,
         capacity: arena_updated.capacity,
         used: new_used,
+        allocated_pages: arena_updated.allocated_pages,
       }
 
       return (alloc_ptr, final_arena)
@@ -174,8 +190,8 @@ instance Allocator[GeneralPurposeAllocator] {
       var total_size: U64 = size + header_size
 
       // Search free list for first-fit block
-      var null_addr: U64 = 0
-      var null_ptr: ptr = @int_to_ptr(null_addr)
+      let null_addr: U64 = 0
+      let null_ptr: ptr = @int_to_ptr(null_addr)
       var current: ptr = gpa.free_list
       var prev: ptr = null_ptr
 
@@ -183,67 +199,40 @@ instance Allocator[GeneralPurposeAllocator] {
       var found_block: ptr = null_ptr
       var found_prev: ptr = null_ptr
 
-      var searching: Bool = current != null_ptr
-      var continue_search: Bool = searching
-
-      // Simple linear search through free list
-      var search_result: (ptr, ptr, Bool) = if searching {
-        // Read first block
-        var block_size: U64 = @ptr_read(current, @type(U64))
-        var fits: Bool = block_size >= total_size
+      // Linear search through entire free list
+      while current != null_ptr {
+        let block_size: U64 = @ptr_read(current, @type(U64))
+        let fits: Bool = block_size >= total_size
 
         if fits {
-          (current, null_ptr, false)  // found, prev, continue
+          found_block = current
+          found_prev = prev
+          current = null_ptr  // Break out of loop
         } else {
-          var next_offset1: ptr = @ptr_offset(current, 8)
-          var next: ptr = @ptr_read(next_offset1, @type(ptr))
-          (next, current, next != null_ptr)
+          let current_next_offset: ptr = @ptr_offset(current, 8)
+          let next: ptr = @ptr_read(current_next_offset, @type(ptr))
+          prev = current
+          current = next
         }
-      } else {
-        (null_ptr, null_ptr, false)
       }
-
-      found_block = search_result.0
-      found_prev = search_result.1
-      continue_search = search_result.2
-
-      // Continue searching if needed (simplified - only checks one more block)
-      var final_result: (ptr, ptr) = if continue_search {
-        var curr: ptr = found_block
-        var pr: ptr = found_prev
-
-        var block_size2: U64 = @ptr_read(curr, @type(U64))
-        var fits2: Bool = block_size2 >= total_size
-
-        if fits2 {
-          (curr, pr)
-        } else {
-          (null_ptr, null_ptr)
-        }
-      } else {
-        (found_block, found_prev)
-      }
-
-      found_block = final_result.0
-      found_prev = final_result.1
 
       // If found a free block, use it
-      var allocated_ptr: ptr = if found_block != null_ptr {
+      let allocated_ptr: ptr = if found_block != null_ptr {
         // Remove from free list
-        var next_offset2: ptr = @ptr_offset(found_block, 8)
-        var next_block: ptr = @ptr_read(next_offset2, @type(ptr))
+        let next_offset2: ptr = @ptr_offset(found_block, 8)
+        let next_block: ptr = @ptr_read(next_offset2, @type(ptr))
 
-        var new_free_list: ptr = if found_prev == null_ptr {
+        let new_free_list: ptr = if found_prev == null_ptr {
           // Removing head of list
           next_block
         } else {
           // Removing from middle
-          var prev_next_offset: ptr = @ptr_offset(found_prev, 8)
-          var _w3: () = @ptr_write(prev_next_offset, next_block)
+          let prev_next_offset: ptr = @ptr_offset(found_prev, 8)
+          let _w3: () = @ptr_write(prev_next_offset, next_block)
           gpa.free_list
         }
 
-        var updated_gpa: GeneralPurposeAllocator = GeneralPurposeAllocator {
+        let updated_gpa: GeneralPurposeAllocator = GeneralPurposeAllocator {
           parent: gpa.parent,
           free_list: new_free_list,
           heap_start: gpa.heap_start,
@@ -255,20 +244,20 @@ instance Allocator[GeneralPurposeAllocator] {
       } else {
         // No free block found, allocate from parent
         // Calculate how many pages we need
-        var page_size: U64 = gpa.parent.page_size
-        var pages_needed: U64 = (total_size + page_size - 1) / page_size  // Round up
+        let page_size: U64 = gpa.parent.page_size
+        let pages_needed: U64 = (total_size + page_size - 1) / page_size  // Round up
 
-        var new_block: ptr = gpa.parent.alloc(pages_needed)
+        let new_block: ptr = gpa.parent.alloc(pages_needed)
 
         // Write block header
-        var _w1: () = @ptr_write(new_block, total_size)
-        var next_offset: ptr = @ptr_offset(new_block, 8)
-        var _w2: () = @ptr_write(next_offset, null_ptr)
+        let _w1: () = @ptr_write(new_block, total_size)
+        let new_block_next_offset: ptr = @ptr_offset(new_block, 8)
+        let _w2: () = @ptr_write(new_block_next_offset, null_ptr)
 
         @ptr_offset(new_block, header_size)
       }
 
-      var final_gpa: GeneralPurposeAllocator = gpa
+      let final_gpa: GeneralPurposeAllocator = gpa
       return (allocated_ptr, final_gpa)
     }
   }
@@ -310,19 +299,27 @@ instance Allocator[GeneralPurposeAllocator] {
 
   remap = fn(self: GeneralPurposeAllocator, ptr: ptr, new_size: U64) (ptr, GeneralPurposeAllocator) {
     unsafe {
-      var gpa: GeneralPurposeAllocator = self
+      let gpa: GeneralPurposeAllocator = self
+
+      // Get old block size from header
+      let ptr_as_int: U64 = @ptr_to_int(ptr)
+      let header_size: U64 = 16
+      let block_start_int: U64 = ptr_as_int - header_size
+      let block_start: ptr = @int_to_ptr(block_start_int)
+      let old_total_size: U64 = @ptr_read(block_start, @type(U64))
+      let old_size: U64 = old_total_size - header_size
 
       // Allocate new block
-      var alloc_result: (ptr, GeneralPurposeAllocator) = gpa.alloc(new_size)
-      var new_ptr: ptr = alloc_result.0
-      var gpa2: GeneralPurposeAllocator = alloc_result.1
+      let alloc_result: (ptr, GeneralPurposeAllocator) = gpa.alloc(new_size)
+      let new_ptr: ptr = alloc_result.0
+      let gpa2: GeneralPurposeAllocator = alloc_result.1
 
       // Copy old data to new location
-      // TODO: Need memcpy or manual copy loop
-      // For now, just return new pointer without copying
+      let copy_size: U64 = if old_size < new_size { old_size } else { new_size }
+      memcpy(new_ptr, ptr, copy_size)
 
       // Free old block
-      var gpa3: GeneralPurposeAllocator = gpa2.free(ptr)
+      let gpa3: GeneralPurposeAllocator = gpa2.free(ptr)
 
       return (new_ptr, gpa3)
     }
@@ -344,23 +341,31 @@ fn arena_create(parent_alloc: PageAllocator) Arena {
     buffer: null_ptr,
     capacity: 0,
     used: 0,
+    allocated_pages: 0,
   }
 }
 
 // Reset arena (free all allocations, reset used counter)
-fn arena_reset(arena: Arena@3) Arena {
+fn arena_reset(arena: Arena@4) Arena {
   return Arena {
     parent: arena.parent,
     buffer: arena.buffer,
     capacity: arena.capacity,
     used: 0,
+    allocated_pages: arena.allocated_pages,
   }
 }
 
-// Destroy arena (currently no-op, memory stays allocated)
+// Destroy arena (free all memory)
 fn arena_destroy(arena: Arena@?) () {
-  // TODO: Could use brk to shrink heap back
-  return ()
+  unsafe {
+    // Free the arena buffer if it was allocated
+    var has_buffer: Bool = arena.allocated_pages > 0
+    if has_buffer {
+      arena.parent.free(arena.buffer, arena.allocated_pages)
+    }
+    return ()
+  }
 }
 
 // Helper functions for allocator creation

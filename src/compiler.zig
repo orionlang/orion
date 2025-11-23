@@ -10,6 +10,7 @@ const TargetTriple = @import("target.zig").TargetTriple;
 
 const AST = parser_module.AST;
 const ImportDecl = parser_module.ImportDecl;
+const ExternFunctionDecl = parser_module.ExternFunctionDecl;
 const TypeDef = parser_module.TypeDef;
 const ClassDef = parser_module.ClassDef;
 const InstanceDecl = parser_module.InstanceDecl;
@@ -138,6 +139,7 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
     defer {
         // Shallow cleanup - items are transferred to merged ast
         user_ast.imports.deinit(allocator);
+        user_ast.extern_functions.deinit(allocator);
         user_ast.type_defs.deinit(allocator);
         user_ast.class_defs.deinit(allocator);
         user_ast.instances.deinit(allocator);
@@ -147,6 +149,7 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
     // Merge all ASTs: prelude + modules + user
     var ast = AST{
         .imports = std.ArrayList(ImportDecl).empty,
+        .extern_functions = std.ArrayList(ExternFunctionDecl).empty,
         .type_defs = std.ArrayList(TypeDef).empty,
         .class_defs = std.ArrayList(ClassDef).empty,
         .instances = std.ArrayList(InstanceDecl).empty,
@@ -156,6 +159,7 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
 
     // Add stdlib items first
     try ast.imports.appendSlice(allocator, prelude_ast.imports.items);
+    try ast.extern_functions.appendSlice(allocator, prelude_ast.extern_functions.items);
     try ast.type_defs.appendSlice(allocator, prelude_ast.type_defs.items);
     try ast.class_defs.appendSlice(allocator, prelude_ast.class_defs.items);
     try ast.instances.appendSlice(allocator, prelude_ast.instances.items);
@@ -164,6 +168,7 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
     // Add discovered modules
     for (module_asts.items) |mod_ast| {
         try ast.imports.appendSlice(allocator, mod_ast.imports.items);
+        try ast.extern_functions.appendSlice(allocator, mod_ast.extern_functions.items);
         try ast.type_defs.appendSlice(allocator, mod_ast.type_defs.items);
         try ast.class_defs.appendSlice(allocator, mod_ast.class_defs.items);
         try ast.instances.appendSlice(allocator, mod_ast.instances.items);
@@ -172,6 +177,7 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
 
     // Add user's main file
     try ast.imports.appendSlice(allocator, user_ast.imports.items);
+    try ast.extern_functions.appendSlice(allocator, user_ast.extern_functions.items);
     try ast.type_defs.appendSlice(allocator, user_ast.type_defs.items);
     try ast.class_defs.appendSlice(allocator, user_ast.class_defs.items);
     try ast.instances.appendSlice(allocator, user_ast.instances.items);

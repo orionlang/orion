@@ -35,7 +35,7 @@ pub const TypeChecker = struct {
     variables: std.StringHashMap(VariableInfo),
     functions: std.StringHashMap(FunctionSignature),
     type_defs: std.StringHashMap(Type),
-    instance_methods: std.StringHashMap(Type),
+    instance_methods: std.StringHashMap(FunctionSignature),
     allocated_tuple_types: std.ArrayList(Type),
     in_unsafe_block: bool,
 
@@ -45,7 +45,7 @@ pub const TypeChecker = struct {
             .variables = std.StringHashMap(VariableInfo).init(allocator),
             .functions = std.StringHashMap(FunctionSignature).init(allocator),
             .type_defs = std.StringHashMap(Type).init(allocator),
-            .instance_methods = std.StringHashMap(Type).init(allocator),
+            .instance_methods = std.StringHashMap(FunctionSignature).init(allocator),
             .allocated_tuple_types = .empty,
             .in_unsafe_block = false,
         };
@@ -62,10 +62,11 @@ pub const TypeChecker = struct {
         }
         self.allocated_tuple_types.deinit(self.allocator);
 
-        // Free instance method keys
-        var method_iter = self.instance_methods.keyIterator();
-        while (method_iter.next()) |key| {
-            self.allocator.free(key.*);
+        // Free instance method signatures
+        var method_iter = self.instance_methods.iterator();
+        while (method_iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.params);
         }
 
         self.variables.deinit();
@@ -123,7 +124,15 @@ pub const TypeChecker = struct {
 
             for (instance.methods) |method| {
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{type_name, method.name});
-                try self.instance_methods.put(mangled_name, method.return_type);
+                const param_types = try self.allocator.alloc(Type, method.params.len);
+                for (method.params, 0..) |param, i| {
+                    param_types[i] = param.param_type;
+                }
+                try self.instance_methods.put(mangled_name, .{
+                    .params = param_types,
+                    .return_type = method.return_type,
+                    .is_unsafe = false, // Methods inherit safety from context
+                });
             }
         }
 
@@ -280,6 +289,21 @@ pub const TypeChecker = struct {
                     return error.TypeMismatch;
                 }
                 _ = try self.inferExprType(while_stmt.body);
+            },
+            .if_stmt => |if_stmt| {
+                const condition_type = try self.inferExprType(if_stmt.condition);
+                if (condition_type.kind != .primitive or condition_type.kind.primitive != .bool) {
+                    std.debug.print("If condition must be bool, got {any}\n", .{condition_type});
+                    return error.TypeMismatch;
+                }
+                for (if_stmt.then_stmts) |*then_stmt| {
+                    try self.checkStatement(then_stmt.*, func_return_type);
+                }
+                if (if_stmt.else_stmts) |else_stmts| {
+                    for (else_stmts) |*else_stmt| {
+                        try self.checkStatement(else_stmt.*, func_return_type);
+                    }
+                }
             },
             .return_stmt => |ret_expr| {
                 const expr_type = try self.inferExprType(ret_expr);
@@ -556,15 +580,27 @@ pub const TypeChecker = struct {
 
                 // Check argument types
                 for (call.args, 0..) |arg, i| {
-                    const arg_type = try self.inferExprType(arg);
                     const expected_type = sig.params[i];
 
+                    // Use checkExprWithExpectedType to allow integer literals to coerce
+                    try self.checkExprWithExpectedType(arg, expected_type);
+
+                    // Now verify the actual type matches or can convert
+                    const arg_type = try self.inferExprType(arg);
                     if (!self.canImplicitlyConvert(arg_type, expected_type)) {
+                        const expected_str = switch (expected_type.kind) {
+                            .primitive => |p| @tagName(p),
+                            else => @tagName(expected_type.kind),
+                        };
+                        const got_str = switch (arg_type.kind) {
+                            .primitive => |p| @tagName(p),
+                            else => @tagName(arg_type.kind),
+                        };
                         std.debug.print("Function {s} argument {d}: expected {s}, got {s}\n", .{
                             call.name,
                             i,
-                            @tagName(expected_type.kind),
-                            @tagName(arg_type.kind),
+                            expected_str,
+                            got_str,
                         });
                         return error.TypeMismatch;
                     }
@@ -933,8 +969,52 @@ pub const TypeChecker = struct {
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{type_name, method_call.method_name});
                 defer self.allocator.free(mangled_name);
 
-                if (self.instance_methods.get(mangled_name)) |return_type| {
-                    return return_type;
+                if (self.instance_methods.get(mangled_name)) |sig| {
+                    // Check argument types (excluding self parameter which is first)
+                    // For instance methods, params[0] is self, rest are method args
+                    // For type methods (static), all params are method args
+                    const is_type_method = method_call.object.* == .dependent_type_ref;
+                    const param_offset: usize = if (is_type_method) 0 else 1;
+                    const expected_arg_count = sig.params.len - param_offset;
+
+                    if (method_call.args.len != expected_arg_count) {
+                        std.debug.print("Method {s} expects {d} arguments, got {d}\n", .{
+                            method_call.method_name,
+                            expected_arg_count,
+                            method_call.args.len,
+                        });
+                        return error.ArgumentCountMismatch;
+                    }
+
+                    // Check argument types with expected type context
+                    for (method_call.args, 0..) |arg, i| {
+                        const expected_type = sig.params[i + param_offset];
+
+                        // Use checkExprWithExpectedType to allow integer literals to coerce
+                        try self.checkExprWithExpectedType(arg, expected_type);
+
+                        // Now verify the actual type matches or can convert
+                        const arg_type = try self.inferExprType(arg);
+                        if (!self.canImplicitlyConvert(arg_type, expected_type)) {
+                            const expected_str = switch (expected_type.kind) {
+                                .primitive => |p| @tagName(p),
+                                else => @tagName(expected_type.kind),
+                            };
+                            const got_str = switch (arg_type.kind) {
+                                .primitive => |p| @tagName(p),
+                                else => @tagName(arg_type.kind),
+                            };
+                            std.debug.print("Method {s} argument {d}: expected {s}, got {s}\n", .{
+                                method_call.method_name,
+                                i,
+                                expected_str,
+                                got_str,
+                            });
+                            return error.TypeMismatch;
+                        }
+                    }
+
+                    return sig.return_type;
                 } else {
                     // Method not found
                     std.debug.print("Method {s} not found on type {s}\n", .{method_call.method_name, type_name});
