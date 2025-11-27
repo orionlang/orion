@@ -1,0 +1,68 @@
+// Task[T] - A handle to a spawned concurrent task
+// Task handles are linear: they must be joined exactly once
+// This ensures structured concurrency - no leaked tasks
+
+// Task status
+type TaskStatus =
+  | Pending
+  | Completed
+  | Cancelled
+
+// Task error type for join operations
+type TaskError =
+  | TaskCancelled
+  | TaskPanicked
+
+// Task frame layout: { status: I8, result: T }
+// Status values: 0 = pending, 1 = completed, 2 = cancelled
+type Task[T] = {
+  frame: ptr,  // Pointer to task frame allocated by spawn
+}
+
+// Joinable typeclass for task handles
+class Joinable[T] {
+  join: fn(Self) T;
+}
+
+instance Joinable[Task[T]] {
+  // Join blocks until task completes and returns the result
+  // Consumes the task handle (linear type enforcement)
+  join = fn(self: Task[T]) T {
+    unsafe {
+      let task: Task[T] = self
+
+      // Read status from frame (offset 0)
+      let status: I8 = @ptr_read(task.frame, @type(I8))
+
+      // For synchronous spawn implementation, status should always be 1 (completed)
+      // Full async implementation would wait/poll here
+
+      // Read result from frame (offset 1, after status byte)
+      // Note: In real impl, need to handle alignment properly
+      let result_offset: U64 = 8  // Aligned to 8 bytes for most types
+      let result_ptr: ptr = @ptr_offset(task.frame, result_offset)
+
+      // Return the result (type T)
+      // This is a placeholder - actual implementation depends on T's size
+      return @ptr_read(result_ptr, @type(T))
+    }
+  }
+}
+
+// Cancellation support (placeholder for full implementation)
+class Cancellable {
+  cancel: fn(Self) ();
+}
+
+instance Cancellable[Task[T]] {
+  cancel = fn(self: Task[T]) () {
+    unsafe {
+      let task: Task[T] = self
+
+      // Write cancelled status (2) to frame
+      let _w: () = @ptr_write(task.frame, 2)
+
+      return ()
+    }
+  }
+}

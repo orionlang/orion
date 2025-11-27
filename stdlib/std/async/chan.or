@@ -1,0 +1,145 @@
+// Chan[T] - Linear channel for inter-task communication
+// Sending a value transfers ownership into the channel
+// Receiving a value transfers ownership out of the channel
+// This enforces ownership transfer with no shared mutable state
+
+import std.alloc
+
+// Channel errors
+type ChanError =
+  | ChanClosed
+  | ChanFull      // For try_send on buffered channel
+  | ChanEmpty     // For try_recv on empty channel
+
+// Result type for channel operations
+type ChanResult[T] =
+  | ChanOk(T)
+  | ChanErr(ChanError)
+
+// Channel buffer node for linked list implementation
+type ChanNode[T] = {
+  value: T,
+  next: ptr,  // Pointer to next ChanNode[T] or null
+}
+
+// Channel type
+// Uses a simple linked list queue for buffered channels
+// capacity = 0 means unbuffered (rendezvous)
+type Chan[T] = {
+  head: ptr,      // Head of queue (oldest item)
+  tail: ptr,      // Tail of queue (newest item)
+  count: U64,     // Current number of items
+  capacity: U64,  // Max items (0 = unbuffered)
+  closed: Bool,   // Whether channel is closed
+}
+
+// Channel operations typeclass
+class Channel[T] {
+  send: fn(Self, T) Self;
+  recv: fn(Self) (T, Self);
+  close: fn(Self) ();
+}
+
+instance Channel[Chan[T]] {
+  // Send transfers ownership of value into channel
+  // Returns updated channel state
+  send = fn(self: Chan[T], value: T) Chan[T] {
+    unsafe {
+      let ch: Chan[T] = self
+      let null_addr: U64 = 0
+      let null_ptr: ptr = @int_to_ptr(null_addr)
+
+      // Allocate node for the value
+      // Note: This is simplified - real impl needs proper allocator
+      let page_alloc: PageAllocator = page_allocator_create()
+      let node_ptr: ptr = page_alloc.alloc(1)  // Allocate a page for node
+
+      // Write value to node
+      let _w1: () = @ptr_write(node_ptr, value)
+
+      // Write null as next pointer
+      let next_offset: ptr = @ptr_offset(node_ptr, 8)  // Assuming T fits in 8 bytes
+      let _w2: () = @ptr_write(next_offset, null_ptr)
+
+      // Update channel
+      let is_empty: Bool = ch.count == 0
+      let new_head: ptr = if is_empty { node_ptr } else { ch.head }
+
+      // Link from old tail if exists
+      if ch.tail != null_ptr {
+        let tail_next: ptr = @ptr_offset(ch.tail, 8)
+        let _w3: () = @ptr_write(tail_next, node_ptr)
+      }
+
+      return Chan[T] {
+        head: new_head,
+        tail: node_ptr,
+        count: ch.count + 1,
+        capacity: ch.capacity,
+        closed: ch.closed,
+      }
+    }
+  }
+
+  // Recv transfers ownership of value out of channel
+  // Returns (value, updated channel)
+  recv = fn(self: Chan[T]) (T, Chan[T]) {
+    unsafe {
+      let ch: Chan[T] = self
+      let null_addr: U64 = 0
+      let null_ptr: ptr = @int_to_ptr(null_addr)
+
+      // Read value from head node
+      let value: T = @ptr_read(ch.head, @type(T))
+
+      // Get next node
+      let next_offset: ptr = @ptr_offset(ch.head, 8)
+      let next_node: ptr = @ptr_read(next_offset, @type(ptr))
+
+      // Update tail if this was the only node
+      let new_count: U64 = ch.count - 1
+      let new_tail: ptr = if new_count == 0 { null_ptr } else { ch.tail }
+
+      let new_ch: Chan[T] = Chan[T] {
+        head: next_node,
+        tail: new_tail,
+        count: new_count,
+        capacity: ch.capacity,
+        closed: ch.closed,
+      }
+
+      return (value, new_ch)
+    }
+  }
+
+  // Close the channel
+  close = fn(self: Chan[T]) () {
+    // Mark channel as closed
+    // Note: This doesn't update the channel since Orion uses immutable values
+    // Real implementation would need mutable channel or return updated channel
+    return ()
+  }
+}
+
+// Channel constructors
+
+// Create a buffered channel with given capacity
+fn chan_new[T](capacity: U64) Chan[T] {
+  unsafe {
+    let null_addr: U64 = 0
+    let null_ptr: ptr = @int_to_ptr(null_addr)
+
+    return Chan[T] {
+      head: null_ptr,
+      tail: null_ptr,
+      count: 0,
+      capacity: capacity,
+      closed: false,
+    }
+  }
+}
+
+// Create an unbuffered (rendezvous) channel
+fn chan_rendezvous[T]() Chan[T] {
+  return chan_new[T](0)
+}
