@@ -325,9 +325,10 @@ pub const Type = struct {
                     }
                 }
 
-                // Note: value_params contain Expr which doesn't have eql yet
-                // For now, we'll skip comparing value params in eql
-                // This will need to be implemented when we add expression equality
+                // Compare value parameters using expression equality
+                for (dep.value_params, other_dep.value_params) |a, b| {
+                    if (!a.eql(b)) return false;
+                }
                 return true;
             },
         };
@@ -472,6 +473,26 @@ pub const Expr = union(enum) {
         name: []const u8,
         args: []*Expr,
     },
+
+    // Compare expressions for equality (used in dependent type value param comparison)
+    pub fn eql(self: Expr, other: Expr) bool {
+        const self_tag = @as(@typeInfo(Expr).@"union".tag_type.?, self);
+        const other_tag = @as(@typeInfo(Expr).@"union".tag_type.?, other);
+        if (self_tag != other_tag) return false;
+
+        return switch (self) {
+            .integer_literal => |lit| lit.value == other.integer_literal.value,
+            .bool_literal => |b| b == other.bool_literal,
+            .string_literal => |s| std.mem.eql(u8, s, other.string_literal),
+            .variable => |name| std.mem.eql(u8, name, other.variable),
+            // For complex expressions, conservatively return false
+            // This can be expanded as needed
+            .binary_op, .unary_op, .function_call, .if_expr, .block_expr,
+            .unsafe_block, .tuple_literal, .tuple_index, .struct_literal,
+            .field_access, .constructor_call, .dependent_type_ref, .match_expr,
+            .method_call, .intrinsic_call => false,
+        };
+    }
 };
 
 pub const Param = struct {

@@ -414,23 +414,30 @@ pub const TypeChecker = struct {
                 // For comparison ops, we don't propagate type (result is bool anyway)
             },
             .unary_op => |*unop| {
-                // TODO: Propagate expected type to operand for unary minus
+                // Propagate expected type to operand for unary minus
                 // Example: `let x: I64 = -42` should type the literal 42 as I64 before negating
-                _ = unop;
+                try self.checkExprWithExpectedType(unop.operand, expected_type);
             },
             .if_expr => |*if_expr| {
-                // TODO: Propagate expected type to both branches
+                // Propagate expected type to both branches
                 // Example: `let x: I64 = if cond { 42 } else { 100 }` should type both literals as I64
-                _ = if_expr;
+                try self.checkExprWithExpectedType(if_expr.then_branch, expected_type);
+                if (if_expr.else_branch) |else_branch| {
+                    try self.checkExprWithExpectedType(else_branch, expected_type);
+                }
             },
             .block_expr => |*block| {
-                // TODO: Propagate expected type to result expression
+                // Propagate expected type to result expression
                 // Example: `let x: I64 = { stmt; stmt; 42 }` should type 42 as I64
-                _ = block;
+                if (block.result) |result| {
+                    try self.checkExprWithExpectedType(result, expected_type);
+                }
             },
             .unsafe_block => |*block| {
-                // TODO: Propagate expected type to result expression
-                _ = block;
+                // Propagate expected type to result expression
+                if (block.result) |result| {
+                    try self.checkExprWithExpectedType(result, expected_type);
+                }
             },
             .struct_literal => |lit| {
                 // Propagate expected types to struct fields

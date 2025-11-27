@@ -1044,10 +1044,9 @@ test "integration: if expression returning different types" {
     const ir = try compile(source, testing.allocator);
     defer testing.allocator.free(ir);
 
-    // Check phi node uses i32 (literals are I32)
-    try testing.expect(std.mem.indexOf(u8, ir, "phi i32") != null);
-    // Check sign extension to i64
-    try testing.expect(std.mem.indexOf(u8, ir, "sext i32") != null);
+    // With bidirectional type checking, literals adopt the expected type (I64) directly
+    // Check phi node uses i64 (literals typed as I64 from return context)
+    try testing.expect(std.mem.indexOf(u8, ir, "phi i64") != null);
     // Check return type
     try testing.expect(std.mem.indexOf(u8, ir, "ret i64") != null);
 }

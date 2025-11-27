@@ -25,6 +25,7 @@ const VarInfo = struct {
 
 const FunctionInfo = struct {
     return_type: Type,
+    param_types: []const Type,
 };
 
 pub const Codegen = struct {
@@ -43,6 +44,7 @@ pub const Codegen = struct {
     target: TargetTriple,
     target_info: TargetInfo,
     current_function_return_type: ?Type,
+    ast: ?*const AST,
 
     pub fn init(allocator: std.mem.Allocator, target: TargetTriple) Codegen {
         return .{
@@ -61,6 +63,7 @@ pub const Codegen = struct {
             .target = target,
             .target_info = target.getTargetInfo(),
             .current_function_return_type = null,
+            .ast = null,
         };
     }
 
@@ -88,6 +91,12 @@ pub const Codegen = struct {
         var it = self.instance_methods.keyIterator();
         while (it.next()) |key| {
             self.allocator.free(key.*);
+        }
+
+        // Free function param_types arrays
+        var func_iter = self.functions.valueIterator();
+        while (func_iter.next()) |func_info| {
+            self.allocator.free(func_info.param_types);
         }
 
         self.output.deinit(self.allocator);
@@ -214,7 +223,7 @@ pub const Codegen = struct {
         // Store each argument sequentially in the data field
         var byte_offset: usize = 0;
         for (args) |arg| {
-            const arg_val = try self.generateExpression(arg);
+            const arg_val = try self.generateExpression(arg, null);
             defer self.allocator.free(arg_val);
 
             const arg_type = self.inferExprType(arg);
@@ -333,6 +342,9 @@ pub const Codegen = struct {
     }
 
     pub fn generate(self: *Codegen, ast: *const AST) ![]const u8 {
+        // Store AST reference for instance lookups
+        self.ast = ast;
+
         // First pass: collect type definitions
         for (ast.type_defs.items) |typedef| {
             try self.type_defs.put(typedef.name, typedef.type_value);
@@ -340,13 +352,25 @@ pub const Codegen = struct {
 
         // Second pass: collect function signatures (including extern)
         for (ast.extern_functions.items) |extern_func| {
+            // Extract parameter types
+            const param_types = try self.allocator.alloc(Type, extern_func.params.len);
+            for (extern_func.params, 0..) |param, i| {
+                param_types[i] = param.param_type;
+            }
             try self.functions.put(extern_func.name, .{
                 .return_type = extern_func.return_type,
+                .param_types = param_types,
             });
         }
         for (ast.functions.items) |func| {
+            // Extract parameter types
+            const param_types = try self.allocator.alloc(Type, func.params.len);
+            for (func.params, 0..) |param, i| {
+                param_types[i] = param.param_type;
+            }
             try self.functions.put(func.name, .{
                 .return_type = func.return_type,
+                .param_types = param_types,
             });
         }
 
@@ -461,6 +485,17 @@ pub const Codegen = struct {
         }
     }
 
+    // Find a typeclass instance by class name and target type
+    fn findInstance(self: *Codegen, class_name: []const u8, target_type: Type) ?*const parser.InstanceDecl {
+        const ast = self.ast orelse return null;
+        for (ast.instances.items) |*instance| {
+            if (std.mem.eql(u8, instance.class_name, class_name) and instance.type_name.eql(target_type)) {
+                return instance;
+            }
+        }
+        return null;
+    }
+
     fn generateExternDeclaration(self: *Codegen, extern_func: *const parser.ExternFunctionDecl) !void {
         const return_type_str = try self.llvmTypeString(extern_func.return_type);
         defer self.allocator.free(return_type_str);
@@ -528,17 +563,18 @@ pub const Codegen = struct {
     fn generateStatement(self: *Codegen, stmt: *const Stmt, return_type: Type) CodegenError!void {
         switch (stmt.*) {
             .let_binding => |binding| {
-                // Infer the type of the value
-                const value_expr_type = self.inferExprType(binding.value);
+                // If type annotation provided, use it as expected type for bidirectional checking
+                const expected_type = binding.type_annotation;
 
-                // If type annotation provided, use it; otherwise use inferred type
-                const var_type = binding.type_annotation orelse value_expr_type;
-
-                // Generate value expression
-                const value = try self.generateExpression(binding.value);
+                // Generate value expression with expected type
+                const value = try self.generateExpression(binding.value, expected_type);
                 defer self.allocator.free(value);
 
-                // Convert value type if necessary
+                // Infer actual type for variable storage
+                const value_expr_type = self.inferExprType(binding.value);
+                const var_type = expected_type orelse value_expr_type;
+
+                // Convert value type if necessary (fallback for expressions that don't use expected)
                 const final_value = try self.convertIfNeeded(value, value_expr_type, var_type);
                 defer self.allocator.free(final_value);
 
@@ -556,7 +592,7 @@ pub const Codegen = struct {
                 defer self.allocator.free(llvm_type_str);
 
                 // Generate value expression
-                const value = try self.generateExpression(assign.value);
+                const value = try self.generateExpression(assign.value, null);
                 defer self.allocator.free(value);
 
                 // Get value type and convert if needed
@@ -589,7 +625,7 @@ pub const Codegen = struct {
                 try self.output.writer(self.allocator).print("{s}:\n", .{body_label});
                 try self.setCurrentBlock(body_label);
 
-                const body_val = try self.generateExpression(while_stmt.body);
+                const body_val = try self.generateExpression(while_stmt.body, null);
                 defer self.allocator.free(body_val);
 
                 // Branch back to header
@@ -648,20 +684,21 @@ pub const Codegen = struct {
                 self.allocator.free(end_label);
             },
             .return_stmt => |expr| {
-                const value = try self.generateExpression(expr);
+                // Pass return type as expected for bidirectional checking
+                const value = try self.generateExpression(expr, return_type);
                 defer self.allocator.free(value);
                 const expr_type = self.inferExprType(expr);
                 const return_type_str = try self.llvmTypeString(return_type);
                 defer self.allocator.free(return_type_str);
 
-                // Convert type if needed
+                // Convert type if needed (fallback for expressions that don't use expected)
                 const converted = try self.convertIfNeeded(value, expr_type, return_type);
                 defer self.allocator.free(converted);
                 try self.output.writer(self.allocator).print("  ret {s} {s}\n", .{ return_type_str, converted });
                 self.block_terminated = true;
             },
             .expr => |expr| {
-                const value = try self.generateExpression(expr);
+                const value = try self.generateExpression(expr, null);
                 self.allocator.free(value);
             },
         }
@@ -830,16 +867,46 @@ pub const Codegen = struct {
         return temp;
     }
 
-    fn generateExpression(self: *Codegen, expr: *const Expr) ![]const u8 {
+    fn generateExpression(self: *Codegen, expr: *const Expr, expected: ?Type) ![]const u8 {
         switch (expr.*) {
             .integer_literal => |lit| {
+                // Integer literals just emit the value; type is determined by context
+                // The expected type will be used by convertIfNeeded at the call site
                 return try std.fmt.allocPrint(self.allocator, "{d}", .{lit.value});
             },
             .bool_literal => |value| {
                 return try std.fmt.allocPrint(self.allocator, "{d}", .{if (value) @as(i32, 1) else @as(i32, 0)});
             },
             .string_literal => |lexeme| {
-                // Generate global string constant
+                // Check if expected type has StringLike instance for conversion
+                if (expected) |exp| {
+                    // Only convert if expected is not str
+                    const is_str = exp.kind == .primitive and exp.kind.primitive == .str;
+                    if (!is_str) {
+                        if (self.findInstance("StringLike", exp)) |_| {
+                            // Generate: TypeName__from_str("literal")
+                            const str_val = try self.generateStringLiteral(lexeme);
+                            defer self.allocator.free(str_val);
+
+                            const type_name = try self.mangledTypeName(exp);
+                            defer self.allocator.free(type_name);
+
+                            const result_temp = try self.allocTempName();
+                            const result_type_str = try self.llvmTypeString(exp);
+                            defer self.allocator.free(result_type_str);
+
+                            try self.output.writer(self.allocator).print("  {s} = call {s} @{s}__from_str(ptr {s})\n", .{
+                                result_temp,
+                                result_type_str,
+                                type_name,
+                                str_val,
+                            });
+
+                            return result_temp;
+                        }
+                    }
+                }
+                // Generate global string constant (default case)
                 return try self.generateStringLiteral(lexeme);
             },
             .variable => |name| {
@@ -855,9 +922,18 @@ pub const Codegen = struct {
             },
             .tuple_literal => |elements| {
                 // Generate tuple value using insertvalue instructions
-                const tuple_type = self.inferExprType(expr);
+                // Use expected type if available for bidirectional checking
+                const tuple_type = expected orelse self.inferExprType(expr);
                 const tuple_type_str = try self.llvmTypeString(tuple_type);
                 defer self.allocator.free(tuple_type_str);
+
+                // Extract expected element types if available
+                const expected_elem_types: ?[]*Type = if (expected) |exp| blk: {
+                    if (exp.kind == .tuple) {
+                        break :blk exp.kind.tuple;
+                    }
+                    break :blk null;
+                } else null;
 
                 // Empty tuple case
                 if (elements.len == 0) {
@@ -868,7 +944,9 @@ pub const Codegen = struct {
                 var current_val: []const u8 = try std.fmt.allocPrint(self.allocator, "undef", .{});
 
                 for (elements, 0..) |elem, i| {
-                    const elem_val = try self.generateExpression(elem);
+                    // Pass expected element type if available
+                    const elem_expected: ?Type = if (expected_elem_types) |types| types[i].* else null;
+                    const elem_val = try self.generateExpression(elem, elem_expected);
                     defer self.allocator.free(elem_val);
 
                     const elem_type = self.inferExprType(elem);
@@ -898,7 +976,7 @@ pub const Codegen = struct {
                 unreachable;
             },
             .tuple_index => |index| {
-                const tuple_val = try self.generateExpression(index.tuple);
+                const tuple_val = try self.generateExpression(index.tuple, null);
                 defer self.allocator.free(tuple_val);
 
                 const tuple_type = self.inferExprType(index.tuple);
@@ -916,9 +994,9 @@ pub const Codegen = struct {
                 return temp;
             },
             .binary_op => |binop| {
-                const left_val = try self.generateExpression(binop.left);
+                const left_val = try self.generateExpression(binop.left, null);
                 defer self.allocator.free(left_val);
-                const right_val = try self.generateExpression(binop.right);
+                const right_val = try self.generateExpression(binop.right, null);
                 defer self.allocator.free(right_val);
 
                 const temp_name = try self.allocTempName();
@@ -940,7 +1018,7 @@ pub const Codegen = struct {
                 }
             },
             .unary_op => |unop| {
-                const operand_val = try self.generateExpression(unop.operand);
+                const operand_val = try self.generateExpression(unop.operand, null);
                 defer self.allocator.free(operand_val);
 
                 const temp_name = try self.allocTempName();
@@ -954,7 +1032,10 @@ pub const Codegen = struct {
                 return try self.allocator.dupe(u8, temp_name);
             },
             .function_call => |call| {
-                // Evaluate arguments
+                // Look up function info for parameter types (bidirectional checking)
+                const func_info = self.functions.get(call.name);
+
+                // Evaluate arguments with expected parameter types
                 var arg_values = try self.allocator.alloc([]const u8, call.args.len);
                 defer {
                     for (arg_values) |val| {
@@ -964,7 +1045,12 @@ pub const Codegen = struct {
                 }
 
                 for (call.args, 0..) |arg, i| {
-                    arg_values[i] = try self.generateExpression(arg);
+                    // Pass parameter type as expected if available
+                    const param_expected: ?Type = if (func_info) |info|
+                        if (i < info.param_types.len) info.param_types[i] else null
+                    else
+                        null;
+                    arg_values[i] = try self.generateExpression(arg, param_expected);
                 }
 
                 // Get function return type from the function we're calling
@@ -1010,7 +1096,7 @@ pub const Codegen = struct {
                 try self.output.writer(self.allocator).print("{s}:\n", .{then_label});
                 try self.setCurrentBlock(then_label);
 
-                const then_val = try self.generateExpression(if_expr.then_branch);
+                const then_val = try self.generateExpression(if_expr.then_branch, null);
 
                 // After generating then_branch, current_block tells us where we are
                 const then_end_block = try self.allocator.dupe(u8, self.current_block.?);
@@ -1021,7 +1107,7 @@ pub const Codegen = struct {
                 try self.setCurrentBlock(else_label);
 
                 // Else branch is guaranteed to exist by typechecker
-                const else_val = try self.generateExpression(if_expr.else_branch.?);
+                const else_val = try self.generateExpression(if_expr.else_branch.?, null);
 
                 // After generating else_branch, current_block tells us where we are
                 const else_end_block = try self.allocator.dupe(u8, self.current_block.?);
@@ -1064,7 +1150,7 @@ pub const Codegen = struct {
 
                 // Generate result expression or unit value
                 if (block.result) |result| {
-                    return try self.generateExpression(result);
+                    return try self.generateExpression(result, null);
                 } else {
                     return try self.unitValue();
                 }
@@ -1078,7 +1164,7 @@ pub const Codegen = struct {
 
                 // Generate result expression or unit value
                 if (block.result) |result| {
-                    return try self.generateExpression(result);
+                    return try self.generateExpression(result, null);
                 } else {
                     return try self.unitValue();
                 }
@@ -1096,7 +1182,7 @@ pub const Codegen = struct {
                     var field_value: ?[]const u8 = null;
                     for (lit.fields) |lit_field| {
                         if (std.mem.eql(u8, lit_field.name, type_field.name)) {
-                            field_value = try self.generateExpression(lit_field.value);
+                            field_value = try self.generateExpression(lit_field.value, null);
                             break;
                         }
                     }
@@ -1131,7 +1217,7 @@ pub const Codegen = struct {
                 return try std.fmt.allocPrint(self.allocator, "undef", .{});
             },
             .field_access => |access| {
-                const object_val = try self.generateExpression(access.object);
+                const object_val = try self.generateExpression(access.object, null);
                 defer self.allocator.free(object_val);
 
                 const object_type = self.inferExprType(access.object);
@@ -1220,7 +1306,7 @@ pub const Codegen = struct {
                 return current_val;
             },
             .match_expr => |match_expr| {
-                const scrutinee_val = try self.generateExpression(match_expr.scrutinee);
+                const scrutinee_val = try self.generateExpression(match_expr.scrutinee, null);
                 defer self.allocator.free(scrutinee_val);
 
                 const scrutinee_type = self.inferExprType(match_expr.scrutinee);
@@ -1345,10 +1431,11 @@ pub const Codegen = struct {
                         },
                     }
 
-                    const arm_val = try self.generateExpression(arm.body);
+                    // Pass match result type as expected for bidirectional checking
+                    const arm_val = try self.generateExpression(arm.body, result_type);
                     defer self.allocator.free(arm_val);
 
-                    // Convert arm value to match result type if needed (before branch)
+                    // Convert arm value to match result type if needed (fallback)
                     if (!self.block_terminated) {
                         const arm_type = self.inferExprType(arm.body);
                         arm_vals[i] = try self.convertIfNeeded(arm_val, arm_type, result_type);
@@ -1445,7 +1532,7 @@ pub const Codegen = struct {
                 defer self.allocator.free(mangled_name);
 
                 // Generate arguments: object is the first arg (unless it's a type method)
-                const object_val = if (!is_type_method) try self.generateExpression(method_call.object) else null;
+                const object_val = if (!is_type_method) try self.generateExpression(method_call.object, null) else null;
                 defer if (object_val) |val| self.allocator.free(val);
 
                 var arg_vals: std.ArrayList([]const u8) = .empty;
@@ -1463,7 +1550,7 @@ pub const Codegen = struct {
 
                 // Then the rest of the arguments
                 for (method_call.args) |arg| {
-                    const val = try self.generateExpression(arg);
+                    const val = try self.generateExpression(arg, null);
                     try arg_vals.append(self.allocator, val);
                 }
 
@@ -1498,7 +1585,7 @@ pub const Codegen = struct {
                 // Generate LLVM IR for intrinsic calls
                 if (std.mem.eql(u8, call.name, "@ptr_of")) {
                     // @ptr_of(value) -> alloca + store
-                    const value_val = try self.generateExpression(call.args[0]);
+                    const value_val = try self.generateExpression(call.args[0], null);
                     defer self.allocator.free(value_val);
 
                     const value_type = self.inferExprType(call.args[0]);
@@ -1539,7 +1626,7 @@ pub const Codegen = struct {
                     return try std.fmt.allocPrint(self.allocator, "{d}", .{type_id});
                 } else if (std.mem.eql(u8, call.name, "@ptr_read")) {
                     // @ptr_read(ptr, type_val) -> load based on type
-                    const ptr_val = try self.generateExpression(call.args[0]);
+                    const ptr_val = try self.generateExpression(call.args[0], null);
                     defer self.allocator.free(ptr_val);
 
                     const type_arg = call.args[1];
@@ -1593,7 +1680,7 @@ pub const Codegen = struct {
                         return i64_val;
                     } else {
                         // Runtime Type variable - generate runtime dispatch based on type ID
-                        const type_val = try self.generateExpression(type_arg);
+                        const type_val = try self.generateExpression(type_arg, null);
                         defer self.allocator.free(type_val);
 
                         // Generate switch on type ID
@@ -1670,10 +1757,10 @@ pub const Codegen = struct {
                     }
                 } else if (std.mem.eql(u8, call.name, "@ptr_write")) {
                     // @ptr_write(ptr, value) -> store
-                    const ptr_val = try self.generateExpression(call.args[0]);
+                    const ptr_val = try self.generateExpression(call.args[0], null);
                     defer self.allocator.free(ptr_val);
 
-                    const value_val = try self.generateExpression(call.args[1]);
+                    const value_val = try self.generateExpression(call.args[1], null);
                     defer self.allocator.free(value_val);
 
                     // Infer the type of the value to determine if conversion is needed
@@ -1701,10 +1788,10 @@ pub const Codegen = struct {
                     return try std.fmt.allocPrint(self.allocator, "undef", .{});
                 } else if (std.mem.eql(u8, call.name, "@ptr_offset")) {
                     // @ptr_offset(ptr, offset) -> getelementptr
-                    const ptr_val = try self.generateExpression(call.args[0]);
+                    const ptr_val = try self.generateExpression(call.args[0], null);
                     defer self.allocator.free(ptr_val);
 
-                    const offset_val = try self.generateExpression(call.args[1]);
+                    const offset_val = try self.generateExpression(call.args[1], null);
                     defer self.allocator.free(offset_val);
 
                     const result_temp = try self.allocTempName();
@@ -1714,7 +1801,7 @@ pub const Codegen = struct {
                     return result_temp;
                 } else if (std.mem.eql(u8, call.name, "@int_to_ptr")) {
                     // @int_to_ptr(int_val) -> inttoptr
-                    const int_val = try self.generateExpression(call.args[0]);
+                    const int_val = try self.generateExpression(call.args[0], null);
                     defer self.allocator.free(int_val);
 
                     const result_temp = try self.allocTempName();
@@ -1724,7 +1811,7 @@ pub const Codegen = struct {
                     return result_temp;
                 } else if (std.mem.eql(u8, call.name, "@ptr_to_int")) {
                     // @ptr_to_int(ptr_val) -> ptrtoint
-                    const ptr_val = try self.generateExpression(call.args[0]);
+                    const ptr_val = try self.generateExpression(call.args[0], null);
                     defer self.allocator.free(ptr_val);
 
                     const result_temp = try self.allocTempName();
@@ -1745,7 +1832,7 @@ pub const Codegen = struct {
     }
 
     fn generateConditionAsBool(self: *Codegen, condition: *const Expr) CodegenError![]const u8 {
-        const condition_val = try self.generateExpression(condition);
+        const condition_val = try self.generateExpression(condition, null);
         defer self.allocator.free(condition_val);
         const condition_type = self.inferExprType(condition);
         return try self.convertConditionToBool(condition_val, condition_type);
