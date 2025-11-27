@@ -56,7 +56,9 @@ pub const Codegen = struct {
     // Concurrency: track coroutines
     needs_coro_intrinsics: bool,
     next_coro: usize,
+    next_suspend: usize,
     deferred_coros: std.ArrayList(u8), // Buffer for outlined coroutine functions
+    current_coro_handle: ?[]const u8, // Handle for current coroutine (used by @yield)
 
     pub fn init(allocator: std.mem.Allocator, target: TargetTriple) Codegen {
         return .{
@@ -80,7 +82,9 @@ pub const Codegen = struct {
             .substituted_fields = .empty,
             .needs_coro_intrinsics = false,
             .next_coro = 0,
+            .next_suspend = 0,
             .deferred_coros = .empty,
+            .current_coro_handle = null,
         };
     }
 
@@ -673,6 +677,7 @@ pub const Codegen = struct {
             \\declare token @llvm.coro.id(i32, ptr, ptr, ptr)
             \\declare i64 @llvm.coro.size.i64()
             \\declare ptr @llvm.coro.begin(token, ptr)
+            \\declare token @llvm.coro.save(ptr)
             \\declare i8 @llvm.coro.suspend(token, i1)
             \\declare i1 @llvm.coro.end(ptr, i1, token)
             \\declare ptr @llvm.coro.free(token, ptr)
@@ -720,9 +725,16 @@ pub const Codegen = struct {
         const saved_output = self.output;
         self.output = .empty;
 
+        // Set coroutine handle for @yield to use
+        const saved_coro_handle = self.current_coro_handle;
+        self.current_coro_handle = "%coro.hdl";
+
         // Generate the body expression
         const body_val = try self.generateExpression(body, null);
         defer self.allocator.free(body_val);
+
+        // Restore coroutine handle
+        self.current_coro_handle = saved_coro_handle;
 
         // Get the generated body code
         const body_code = try self.allocator.dupe(u8, self.output.items);
@@ -960,6 +972,11 @@ pub const Codegen = struct {
     fn bindPattern(self: *Codegen, pattern: Pattern, value_type: Type, value_llvm: []const u8, mutable: bool) !void {
         switch (pattern) {
             .identifier => |name| {
+                // Skip binding for underscore pattern - value is discarded
+                if (std.mem.eql(u8, name, "_")) {
+                    return;
+                }
+
                 const llvm_type_str = try self.llvmTypeString(value_type);
                 defer self.allocator.free(llvm_type_str);
 
@@ -2149,6 +2166,20 @@ pub const Codegen = struct {
                     });
                     const result_type_str = llvm_type_map.get(type_name) orelse unreachable;
 
+                    // Generate unique labels for join loop
+                    const join_id = self.next_suspend;
+                    self.next_suspend += 1;
+
+                    // Resume coroutine until done
+                    try self.output.writer(self.allocator).print("  br label %join.loop.{d}\n", .{join_id});
+                    try self.output.writer(self.allocator).print("join.loop.{d}:\n", .{join_id});
+                    try self.output.writer(self.allocator).print("  %join.done.{d} = call i1 @llvm.coro.done(ptr {s})\n", .{ join_id, task_handle });
+                    try self.output.writer(self.allocator).print("  br i1 %join.done.{d}, label %join.exit.{d}, label %join.resume.{d}\n", .{ join_id, join_id, join_id });
+                    try self.output.writer(self.allocator).print("join.resume.{d}:\n", .{join_id});
+                    try self.output.writer(self.allocator).print("  call void @llvm.coro.resume(ptr {s})\n", .{task_handle});
+                    try self.output.writer(self.allocator).print("  br label %join.loop.{d}\n", .{join_id});
+                    try self.output.writer(self.allocator).print("join.exit.{d}:\n", .{join_id});
+
                     // Get promise pointer (where result is stored)
                     // Alignment is 8 bytes for i64 results
                     const promise_ptr = try self.allocTempName();
@@ -2163,6 +2194,32 @@ pub const Codegen = struct {
                     try self.output.writer(self.allocator).print("  call void @llvm.coro.destroy(ptr {s})\n", .{task_handle});
 
                     return result_val;
+                } else if (std.mem.eql(u8, call.name, "@yield")) {
+                    // @yield() - suspend coroutine, return control to scheduler
+                    // Must be inside a coroutine (spawn body)
+                    const coro_hdl = self.current_coro_handle orelse {
+                        std.debug.print("@yield called outside coroutine context\n", .{});
+                        unreachable;
+                    };
+
+                    const suspend_id = self.next_suspend;
+                    self.next_suspend += 1;
+
+                    // Generate suspension point with correct LLVM coroutine switch pattern:
+                    // - default: suspend (branch to coro.ret for single return point)
+                    // - i8 0: resume (continue execution after yield)
+                    // - i8 1: cleanup (destroy path)
+                    try self.output.writer(self.allocator).print("  %save.{d} = call token @llvm.coro.save(ptr {s})\n", .{ suspend_id, coro_hdl });
+                    try self.output.writer(self.allocator).print("  %suspend.{d} = call i8 @llvm.coro.suspend(token %save.{d}, i1 false)\n", .{ suspend_id, suspend_id });
+                    try self.output.writer(self.allocator).print("  switch i8 %suspend.{d}, label %coro.ret [\n", .{suspend_id});
+                    try self.output.writer(self.allocator).print("    i8 0, label %suspend.{d}.resume\n", .{suspend_id});
+                    try self.output.writer(self.allocator).print("    i8 1, label %coro.final.cleanup\n", .{});
+                    try self.output.writer(self.allocator).print("  ]\n", .{});
+                    // Resume block - continue execution after yield
+                    try self.output.writer(self.allocator).print("suspend.{d}.resume:\n", .{suspend_id});
+
+                    // @yield returns unit (empty struct in LLVM)
+                    return try self.allocator.dupe(u8, "zeroinitializer");
                 } else {
                     // Unknown intrinsic
                     unreachable;
@@ -2745,6 +2802,9 @@ pub const Codegen = struct {
                     // For now, assume it's determined by the @type() argument
                     // The actual type inference is handled by the call site
                     return .{ .kind = .{ .primitive = .i32 }, .usage = .once }; // Default, overridden by context
+                } else if (std.mem.eql(u8, call.name, "@yield")) {
+                    // @yield returns unit (empty tuple)
+                    return .{ .kind = .{ .tuple = &[_]*parser.Type{} }, .usage = .once };
                 } else {
                     std.debug.print("Unknown intrinsic in inferExprType: {s}\n", .{call.name});
                     return .{ .kind = .{ .primitive = .i32 }, .usage = .once };

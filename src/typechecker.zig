@@ -1283,6 +1283,18 @@ pub const TypeChecker = struct {
                         std.debug.print("Unknown type in @join: {s}\n", .{type_name});
                         return error.UndefinedType;
                     }
+                } else if (std.mem.eql(u8, call.name, "@yield")) {
+                    // @yield() - suspend coroutine, return control to scheduler
+                    if (call.args.len != 0) {
+                        std.debug.print("@yield expects no arguments\n", .{});
+                        return error.ArgumentCountMismatch;
+                    }
+                    if (self.async_scope_depth == 0) {
+                        std.debug.print("@yield can only be called within async scope\n", .{});
+                        return error.TypeMismatch;
+                    }
+                    // Returns unit type
+                    return .{ .kind = .{ .tuple = &[_]*parser.Type{} }, .usage = .once };
                 } else {
                     std.debug.print("Unknown intrinsic: {s}\n", .{call.name});
                     return error.UndefinedFunction;
