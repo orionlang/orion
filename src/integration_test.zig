@@ -3043,3 +3043,104 @@ test "dependent types: full chain test" {
     try testing.expect(std.mem.indexOf(u8, result, "Vec$$i32$5$$__add_ten") != null);
     try testing.expect(std.mem.indexOf(u8, result, "make_vec") != null);
 }
+
+// Generic struct tests
+test "integration: basic generic struct" {
+    const testing = std.testing;
+
+    const source =
+        \\type Box[T] = { value: T }
+        \\fn main() I32 {
+        \\  let b: Box[I32] = Box[I32] { value: 42 }
+        \\  return b.value
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check struct type with i32 field (T substituted with I32)
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32 }") != null);
+    // Check insertvalue for struct creation
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i32 } undef, i32 42, 0") != null);
+    // Check extractvalue for field access
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32 }") != null);
+}
+
+test "integration: generic struct with I64" {
+    const testing = std.testing;
+
+    const source =
+        \\type Box[T] = { value: T }
+        \\fn main() I64 {
+        \\  let b: Box[I64] = Box[I64] { value: 100 }
+        \\  return b.value
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check struct type with i64 field (T substituted with I64)
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i64 }") != null);
+    try testing.expect(std.mem.indexOf(u8, ir, "insertvalue { i64 } undef, i64 100, 0") != null);
+}
+
+test "integration: generic struct with multiple fields" {
+    const testing = std.testing;
+
+    const source =
+        \\type Pair[A, B] = { first: A, second: B }
+        \\fn main() I32 {
+        \\  let p: Pair[I32, I64] = Pair[I32, I64] { first: 1, second: 2 }
+        \\  return p.first
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check struct type with i32 and i64 fields
+    try testing.expect(std.mem.indexOf(u8, ir, "{ i32, i64 }") != null);
+    // Check field access
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32, i64 }") != null);
+}
+
+test "integration: generic struct field access returns correct type" {
+    const testing = std.testing;
+
+    const source =
+        \\type Box[T] = { value: T }
+        \\fn get_value(b: Box[I32]) I32 {
+        \\  return b.value
+        \\}
+        \\fn main() I32 {
+        \\  let b: Box[I32] = Box[I32] { value: 99 }
+        \\  return get_value(b)
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function takes struct parameter
+    try testing.expect(std.mem.indexOf(u8, ir, "define i32 @get_value({ i32 } %b)") != null);
+    // Check extractvalue returns i32
+    try testing.expect(std.mem.indexOf(u8, ir, "extractvalue { i32 }") != null);
+}
+
+test "integration: generic struct as function return type" {
+    const testing = std.testing;
+
+    const source =
+        \\type Box[T] = { value: T }
+        \\fn make_box() Box[I32] {
+        \\  return Box[I32] { value: 42 }
+        \\}
+        \\fn main() I32 {
+        \\  let b: Box[I32] = make_box()
+        \\  return b.value
+        \\}
+    ;
+    const ir = try compile(source, testing.allocator);
+    defer testing.allocator.free(ir);
+
+    // Check function returns struct type
+    try testing.expect(std.mem.indexOf(u8, ir, "define { i32 } @make_box()") != null);
+}

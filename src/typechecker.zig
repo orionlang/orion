@@ -30,24 +30,34 @@ const VariableInfo = struct {
     use_count: u32,
 };
 
+const TypeDefInfo = struct {
+    params: []const parser.TypeParameter,
+    type_value: Type,
+};
+
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     variables: std.StringHashMap(VariableInfo),
     functions: std.StringHashMap(FunctionSignature),
-    type_defs: std.StringHashMap(Type),
+    type_defs: std.StringHashMap(TypeDefInfo),
     instance_methods: std.StringHashMap(FunctionSignature),
     allocated_tuple_types: std.ArrayList(Type),
     in_unsafe_block: bool,
+    // Track allocations from substituteTypeParams for cleanup
+    substituted_types: std.ArrayList(*Type),
+    substituted_fields: std.ArrayList([]parser.StructField),
 
     pub fn init(allocator: std.mem.Allocator) TypeChecker {
         return .{
             .allocator = allocator,
             .variables = std.StringHashMap(VariableInfo).init(allocator),
             .functions = std.StringHashMap(FunctionSignature).init(allocator),
-            .type_defs = std.StringHashMap(Type).init(allocator),
+            .type_defs = std.StringHashMap(TypeDefInfo).init(allocator),
             .instance_methods = std.StringHashMap(FunctionSignature).init(allocator),
             .allocated_tuple_types = .empty,
             .in_unsafe_block = false,
+            .substituted_types = .empty,
+            .substituted_fields = .empty,
         };
     }
 
@@ -69,6 +79,17 @@ pub const TypeChecker = struct {
             self.allocator.free(entry.value_ptr.params);
         }
 
+        // Free substituted types from generic type parameter substitution
+        for (self.substituted_types.items) |typ| {
+            self.allocator.destroy(typ);
+        }
+        self.substituted_types.deinit(self.allocator);
+
+        for (self.substituted_fields.items) |fields| {
+            self.allocator.free(fields);
+        }
+        self.substituted_fields.deinit(self.allocator);
+
         self.variables.deinit();
         self.functions.deinit();
         self.type_defs.deinit();
@@ -76,9 +97,12 @@ pub const TypeChecker = struct {
     }
 
     pub fn check(self: *TypeChecker, ast: *const AST) !void {
-        // First pass: collect type definitions
+        // First pass: collect type definitions (with type parameters for generics)
         for (ast.type_defs.items) |typedef| {
-            try self.type_defs.put(typedef.name, typedef.type_value);
+            try self.type_defs.put(typedef.name, .{
+                .params = typedef.params,
+                .type_value = typedef.type_value,
+            });
         }
 
         // Second pass: collect instance methods
@@ -441,18 +465,13 @@ pub const TypeChecker = struct {
             },
             .struct_literal => |lit| {
                 // Propagate expected types to struct fields
-                const type_name = switch (expected_type.kind) {
-                    .named => |name| name,
-                    .dependent => |dep| dep.base,
-                    else => return,  // Can't propagate if expected type isn't a struct
-                };
-
-                const typedef = self.type_defs.get(type_name) orelse return;
-                if (typedef.kind != .struct_type) return;
+                // For generic types, resolve with substitution first
+                const resolved = self.resolveType(expected_type);
+                if (resolved.kind != .struct_type) return;
 
                 // Propagate expected types to each field
                 for (lit.fields) |field| {
-                    for (typedef.kind.struct_type) |type_field| {
+                    for (resolved.kind.struct_type) |type_field| {
                         if (std.mem.eql(u8, field.name, type_field.name)) {
                             try self.checkExprWithExpectedType(field.value, type_field.field_type.*);
                             break;
@@ -687,10 +706,35 @@ pub const TypeChecker = struct {
                 }
             },
             .struct_literal => |lit| {
-                const typedef = self.type_defs.get(lit.type_name) orelse {
+                const typedef_info = self.type_defs.get(lit.type_name) orelse {
                     std.debug.print("Undefined type: {s}\n", .{lit.type_name});
                     return error.UndefinedVariable;
                 };
+
+                // Build substitution map if type has type parameters
+                var substitutions = std.StringHashMap(Type).init(self.allocator);
+                defer substitutions.deinit();
+
+                if (lit.type_params) |type_params| {
+                    for (typedef_info.params, 0..) |param, i| {
+                        if (param.kind == .type_param) {
+                            if (i < type_params.len) {
+                                switch (type_params[i]) {
+                                    .concrete => |t| {
+                                        substitutions.put(param.name, t.*) catch continue;
+                                    },
+                                    .variable => {},
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Apply substitutions to get resolved typedef
+                const typedef = if (substitutions.count() > 0)
+                    self.substituteTypeParams(typedef_info.type_value, substitutions)
+                else
+                    typedef_info.type_value;
 
                 if (typedef.kind != .struct_type) {
                     std.debug.print("Type {s} is not a struct\n", .{lit.type_name});
@@ -725,6 +769,17 @@ pub const TypeChecker = struct {
                     }
                 }
 
+                // Return dependent type if we had type params
+                if (lit.type_params != null) {
+                    return .{
+                        .kind = .{ .dependent = .{
+                            .base = lit.type_name,
+                            .type_params = lit.type_params.?,
+                            .value_params = lit.value_params orelse &[_]Expr{},
+                        } },
+                        .usage = .once,
+                    };
+                }
                 return .{ .kind = .{ .named = lit.type_name  }, .usage = .once };
             },
             .field_access => |access| {
@@ -740,10 +795,36 @@ pub const TypeChecker = struct {
                     },
                 };
 
-                const typedef = self.type_defs.get(type_name) orelse {
+                const typedef_info = self.type_defs.get(type_name) orelse {
                     std.debug.print("Undefined type: {s}\n", .{type_name});
                     return error.UndefinedVariable;
                 };
+
+                // Build substitution map if object is a dependent type
+                var substitutions = std.StringHashMap(Type).init(self.allocator);
+                defer substitutions.deinit();
+
+                if (object_type.kind == .dependent) {
+                    const dep = object_type.kind.dependent;
+                    for (typedef_info.params, 0..) |param, i| {
+                        if (param.kind == .type_param) {
+                            if (i < dep.type_params.len) {
+                                switch (dep.type_params[i]) {
+                                    .concrete => |t| {
+                                        substitutions.put(param.name, t.*) catch continue;
+                                    },
+                                    .variable => {},
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Apply substitutions to get resolved typedef
+                const typedef = if (substitutions.count() > 0)
+                    self.substituteTypeParams(typedef_info.type_value, substitutions)
+                else
+                    typedef_info.type_value;
 
                 if (typedef.kind != .struct_type) {
                     std.debug.print("Type {s} is not a struct\n", .{type_name});
@@ -756,7 +837,7 @@ pub const TypeChecker = struct {
                     }
                 }
 
-                std.debug.print("Struct {s} has no field named {s}\n", .{ object_type.kind.named, access.field_name });
+                std.debug.print("Struct {s} has no field named {s}\n", .{ type_name, access.field_name });
                 return error.TypeMismatch;
             },
             .constructor_call => |call| {
@@ -766,8 +847,8 @@ pub const TypeChecker = struct {
 
                 var iter = self.type_defs.iterator();
                 while (iter.next()) |entry| {
-                    if (entry.value_ptr.*.kind == .sum_type) {
-                        for (entry.value_ptr.*.kind.sum_type) |variant| {
+                    if (entry.value_ptr.*.type_value.kind == .sum_type) {
+                        for (entry.value_ptr.*.type_value.kind.sum_type) |variant| {
                             if (std.mem.eql(u8, variant.name, call.name)) {
                                 found_type = entry.key_ptr.*;
                                 found_variant = variant;
@@ -811,10 +892,11 @@ pub const TypeChecker = struct {
                     return error.TypeMismatch;
                 }
 
-                const typedef = self.type_defs.get(scrutinee_type.kind.named) orelse {
+                const typedef_info = self.type_defs.get(scrutinee_type.kind.named) orelse {
                     std.debug.print("Undefined type: {s}\n", .{scrutinee_type.kind.named});
                     return error.UndefinedVariable;
                 };
+                const typedef = typedef_info.type_value;
 
                 if (typedef.kind != .sum_type) {
                     std.debug.print("Match expression requires a sum type\n", .{});
@@ -1178,23 +1260,138 @@ pub const TypeChecker = struct {
     }
 
     /// Resolve dependent and named types to their underlying type definition
+    /// For generic types like Box[I32], substitutes type parameters
     fn resolveType(self: *TypeChecker, typ: Type) Type {
         switch (typ.kind) {
             .dependent => |dep| {
-                // Look up the type definition and return its underlying type
-                if (self.type_defs.get(dep.base)) |typedef| {
-                    return typedef;
+                // Look up the type definition
+                if (self.type_defs.get(dep.base)) |typedef_info| {
+                    // Build substitution map from type parameters
+                    var substitutions = std.StringHashMap(Type).init(self.allocator);
+                    defer substitutions.deinit();
+
+                    for (typedef_info.params, 0..) |param, i| {
+                        if (param.kind == .type_param) {
+                            if (i < dep.type_params.len) {
+                                switch (dep.type_params[i]) {
+                                    .concrete => |t| {
+                                        substitutions.put(param.name, t.*) catch continue;
+                                    },
+                                    .variable => {}, // Type variable, don't substitute
+                                }
+                            }
+                        }
+                    }
+
+                    // Apply substitutions to the type definition
+                    if (substitutions.count() > 0) {
+                        return self.substituteTypeParams(typedef_info.type_value, substitutions);
+                    }
+                    return typedef_info.type_value;
                 }
                 return typ;
             },
             .named => |name| {
                 // Look up the type definition and return its underlying type
-                if (self.type_defs.get(name)) |typedef| {
-                    return typedef;
+                if (self.type_defs.get(name)) |typedef_info| {
+                    return typedef_info.type_value;
                 }
                 return typ;
             },
             else => return typ,
+        }
+    }
+
+    /// Substitute type parameters in a type with concrete types
+    /// Used for generic struct instantiation: Box[T] with T=I32 -> Box[I32]
+    fn substituteTypeParams(self: *TypeChecker, typ: Type, substitutions: std.StringHashMap(Type)) Type {
+        switch (typ.kind) {
+            .named => |name| {
+                // If this name is a type parameter, substitute it
+                if (substitutions.get(name)) |replacement| {
+                    return replacement;
+                }
+                return typ;
+            },
+            .struct_type => |fields| {
+                // Recursively substitute in each field type
+                const new_fields = self.allocator.alloc(parser.StructField, fields.len) catch return typ;
+                self.substituted_fields.append(self.allocator, new_fields) catch {};
+                for (fields, 0..) |field, i| {
+                    const new_field_type = self.allocator.create(Type) catch return typ;
+                    self.substituted_types.append(self.allocator, new_field_type) catch {};
+                    new_field_type.* = self.substituteTypeParams(field.field_type.*, substitutions);
+                    new_fields[i] = .{
+                        .name = field.name,
+                        .field_type = new_field_type,
+                    };
+                }
+                return Type{ .kind = .{ .struct_type = new_fields }, .usage = typ.usage };
+            },
+            .tuple => |elems| {
+                // Recursively substitute in each element type
+                const new_elems = self.allocator.alloc(*Type, elems.len) catch return typ;
+                for (elems, 0..) |elem, i| {
+                    const new_type = self.allocator.create(Type) catch return typ;
+                    self.substituted_types.append(self.allocator, new_type) catch {};
+                    new_type.* = self.substituteTypeParams(elem.*, substitutions);
+                    new_elems[i] = new_type;
+                }
+                return Type{ .kind = .{ .tuple = new_elems }, .usage = typ.usage };
+            },
+            .sum_type => |variants| {
+                // Recursively substitute in variant payload types
+                const new_variants = self.allocator.alloc(parser.SumTypeVariant, variants.len) catch return typ;
+                for (variants, 0..) |variant, i| {
+                    const new_payloads = self.allocator.alloc(*Type, variant.payload_types.len) catch return typ;
+                    for (variant.payload_types, 0..) |payload, j| {
+                        const new_type = self.allocator.create(Type) catch return typ;
+                        self.substituted_types.append(self.allocator, new_type) catch {};
+                        new_type.* = self.substituteTypeParams(payload.*, substitutions);
+                        new_payloads[j] = new_type;
+                    }
+                    new_variants[i] = .{
+                        .name = variant.name,
+                        .payload_types = new_payloads,
+                    };
+                }
+                return Type{ .kind = .{ .sum_type = new_variants }, .usage = typ.usage };
+            },
+            .dependent => |dep| {
+                // Recursively substitute in type_params
+                const new_type_params = self.allocator.alloc(parser.TypeParam, dep.type_params.len) catch return typ;
+                for (dep.type_params, 0..) |param, i| {
+                    switch (param) {
+                        .concrete => |t| {
+                            const new_t = self.allocator.create(Type) catch return typ;
+                            self.substituted_types.append(self.allocator, new_t) catch {};
+                            new_t.* = self.substituteTypeParams(t.*, substitutions);
+                            new_type_params[i] = .{ .concrete = new_t };
+                        },
+                        .variable => |v| {
+                            // Check if variable should be substituted
+                            if (substitutions.get(v)) |replacement| {
+                                const new_t = self.allocator.create(Type) catch return typ;
+                                self.substituted_types.append(self.allocator, new_t) catch {};
+                                new_t.* = replacement;
+                                new_type_params[i] = .{ .concrete = new_t };
+                            } else {
+                                new_type_params[i] = param;
+                            }
+                        },
+                    }
+                }
+                return Type{
+                    .kind = .{ .dependent = .{
+                        .base = dep.base,
+                        .type_params = new_type_params,
+                        .value_params = dep.value_params,
+                    } },
+                    .usage = typ.usage,
+                };
+            },
+            // Primitives don't need substitution
+            .primitive => return typ,
         }
     }
 
@@ -1243,8 +1440,8 @@ pub const TypeChecker = struct {
                     }
 
                     // Check if it's a named type
-                    if (self.type_defs.get(type_name)) |typedef| {
-                        return typedef;
+                    if (self.type_defs.get(type_name)) |typedef_info| {
+                        return typedef_info.type_value;
                     }
 
                     return null;

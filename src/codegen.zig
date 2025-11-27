@@ -28,6 +28,11 @@ const FunctionInfo = struct {
     param_types: []const Type,
 };
 
+const TypeDefInfo = struct {
+    params: []const parser.TypeParameter,
+    type_value: Type,
+};
+
 pub const Codegen = struct {
     allocator: std.mem.Allocator,
     output: std.ArrayList(u8),
@@ -36,7 +41,7 @@ pub const Codegen = struct {
     string_literals: std.ArrayList(u8), // Global string constants
     variables: std.StringHashMap(VarInfo),
     functions: std.StringHashMap(FunctionInfo),
-    type_defs: std.StringHashMap(Type),
+    type_defs: std.StringHashMap(TypeDefInfo),
     current_block: ?[]const u8,
     block_terminated: bool,
     inferred_types: std.ArrayList(Type),
@@ -45,6 +50,9 @@ pub const Codegen = struct {
     target_info: TargetInfo,
     current_function_return_type: ?Type,
     ast: ?*const AST,
+    // Track allocations from substituteTypeParams for cleanup
+    substituted_types: std.ArrayList(*Type),
+    substituted_fields: std.ArrayList([]parser.StructField),
 
     pub fn init(allocator: std.mem.Allocator, target: TargetTriple) Codegen {
         return .{
@@ -55,7 +63,7 @@ pub const Codegen = struct {
             .string_literals = .empty,
             .variables = std.StringHashMap(VarInfo).init(allocator),
             .functions = std.StringHashMap(FunctionInfo).init(allocator),
-            .type_defs = std.StringHashMap(Type).init(allocator),
+            .type_defs = std.StringHashMap(TypeDefInfo).init(allocator),
             .current_block = null,
             .block_terminated = false,
             .inferred_types = .empty,
@@ -64,6 +72,8 @@ pub const Codegen = struct {
             .target_info = target.getTargetInfo(),
             .current_function_return_type = null,
             .ast = null,
+            .substituted_types = .empty,
+            .substituted_fields = .empty,
         };
     }
 
@@ -98,6 +108,17 @@ pub const Codegen = struct {
         while (func_iter.next()) |func_info| {
             self.allocator.free(func_info.param_types);
         }
+
+        // Free substituted types from generic type parameter substitution
+        for (self.substituted_types.items) |typ| {
+            self.allocator.destroy(typ);
+        }
+        self.substituted_types.deinit(self.allocator);
+
+        for (self.substituted_fields.items) |fields| {
+            self.allocator.free(fields);
+        }
+        self.substituted_fields.deinit(self.allocator);
 
         self.output.deinit(self.allocator);
         self.variables.deinit();
@@ -345,9 +366,12 @@ pub const Codegen = struct {
         // Store AST reference for instance lookups
         self.ast = ast;
 
-        // First pass: collect type definitions
+        // First pass: collect type definitions (with type parameters for generics)
         for (ast.type_defs.items) |typedef| {
-            try self.type_defs.put(typedef.name, typedef.type_value);
+            try self.type_defs.put(typedef.name, .{
+                .params = typedef.params,
+                .type_value = typedef.type_value,
+            });
         }
 
         // Second pass: collect function signatures (including extern)
@@ -494,6 +518,117 @@ pub const Codegen = struct {
             }
         }
         return null;
+    }
+
+    /// Substitute type parameters in a type with concrete types
+    /// Used for generic struct instantiation: Box[T] with T=I32 -> Box[I32]
+    fn substituteTypeParams(self: *Codegen, typ: Type, substitutions: std.StringHashMap(Type)) Type {
+        switch (typ.kind) {
+            .named => |name| {
+                // If this name is a type parameter, substitute it
+                if (substitutions.get(name)) |replacement| {
+                    return replacement;
+                }
+                return typ;
+            },
+            .struct_type => |fields| {
+                // Recursively substitute in each field type
+                const new_fields = self.allocator.alloc(parser.StructField, fields.len) catch return typ;
+                self.substituted_fields.append(self.allocator, new_fields) catch {};
+                for (fields, 0..) |field, i| {
+                    const new_field_type = self.allocator.create(Type) catch return typ;
+                    self.substituted_types.append(self.allocator, new_field_type) catch {};
+                    new_field_type.* = self.substituteTypeParams(field.field_type.*, substitutions);
+                    new_fields[i] = .{
+                        .name = field.name,
+                        .field_type = new_field_type,
+                    };
+                }
+                return Type{ .kind = .{ .struct_type = new_fields }, .usage = typ.usage };
+            },
+            .tuple => |elems| {
+                // Recursively substitute in each element type
+                const new_elems = self.allocator.alloc(*Type, elems.len) catch return typ;
+                for (elems, 0..) |elem, i| {
+                    const new_type = self.allocator.create(Type) catch return typ;
+                    self.substituted_types.append(self.allocator, new_type) catch {};
+                    new_type.* = self.substituteTypeParams(elem.*, substitutions);
+                    new_elems[i] = new_type;
+                }
+                return Type{ .kind = .{ .tuple = new_elems }, .usage = typ.usage };
+            },
+            .sum_type => |variants| {
+                // Recursively substitute in variant payload types
+                const new_variants = self.allocator.alloc(parser.SumTypeVariant, variants.len) catch return typ;
+                for (variants, 0..) |variant, i| {
+                    const new_payloads = self.allocator.alloc(*Type, variant.payload_types.len) catch return typ;
+                    for (variant.payload_types, 0..) |payload, j| {
+                        const new_type = self.allocator.create(Type) catch return typ;
+                        self.substituted_types.append(self.allocator, new_type) catch {};
+                        new_type.* = self.substituteTypeParams(payload.*, substitutions);
+                        new_payloads[j] = new_type;
+                    }
+                    new_variants[i] = .{
+                        .name = variant.name,
+                        .payload_types = new_payloads,
+                    };
+                }
+                return Type{ .kind = .{ .sum_type = new_variants }, .usage = typ.usage };
+            },
+            .dependent => |dep| {
+                // Recursively substitute in type_params
+                const new_type_params = self.allocator.alloc(parser.TypeParam, dep.type_params.len) catch return typ;
+                for (dep.type_params, 0..) |param, i| {
+                    switch (param) {
+                        .concrete => |t| {
+                            const new_t = self.allocator.create(Type) catch return typ;
+                            self.substituted_types.append(self.allocator, new_t) catch {};
+                            new_t.* = self.substituteTypeParams(t.*, substitutions);
+                            new_type_params[i] = .{ .concrete = new_t };
+                        },
+                        .variable => |v| {
+                            // Check if variable should be substituted
+                            if (substitutions.get(v)) |replacement| {
+                                const new_t = self.allocator.create(Type) catch return typ;
+                                self.substituted_types.append(self.allocator, new_t) catch {};
+                                new_t.* = replacement;
+                                new_type_params[i] = .{ .concrete = new_t };
+                            } else {
+                                new_type_params[i] = param;
+                            }
+                        },
+                    }
+                }
+                return Type{
+                    .kind = .{ .dependent = .{
+                        .base = dep.base,
+                        .type_params = new_type_params,
+                        .value_params = dep.value_params,
+                    } },
+                    .usage = typ.usage,
+                };
+            },
+            // Primitives don't need substitution
+            .primitive => return typ,
+        }
+    }
+
+    /// Build substitution map for a dependent type from its typedef
+    fn buildSubstitutionMap(self: *Codegen, typedef_info: TypeDefInfo, dep: parser.DependentType) std.StringHashMap(Type) {
+        var substitutions = std.StringHashMap(Type).init(self.allocator);
+        for (typedef_info.params, 0..) |param, i| {
+            if (param.kind == .type_param) {
+                if (i < dep.type_params.len) {
+                    switch (dep.type_params[i]) {
+                        .concrete => |t| {
+                            substitutions.put(param.name, t.*) catch continue;
+                        },
+                        .variable => {}, // Type variable, don't substitute
+                    }
+                }
+            }
+        }
+        return substitutions;
     }
 
     fn generateExternDeclaration(self: *Codegen, extern_func: *const parser.ExternFunctionDecl) !void {
@@ -1174,11 +1309,33 @@ pub const Codegen = struct {
                 const struct_type_str = try self.llvmTypeString(struct_type);
                 defer self.allocator.free(struct_type_str);
 
-                const typedef = self.type_defs.get(lit.type_name) orelse unreachable;
+                const typedef_info = self.type_defs.get(lit.type_name) orelse unreachable;
+
+                // Build substitution map from type_params
+                var substitutions = std.StringHashMap(Type).init(self.allocator);
+                defer substitutions.deinit();
+                if (lit.type_params) |type_params| {
+                    for (typedef_info.params, 0..) |param, i| {
+                        if (param.kind == .type_param) {
+                            if (i < type_params.len) {
+                                switch (type_params[i]) {
+                                    .concrete => |t| {
+                                        substitutions.put(param.name, t.*) catch continue;
+                                    },
+                                    .variable => {},
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Apply substitutions to get the resolved type
+                const resolved_type = self.substituteTypeParams(typedef_info.type_value, substitutions);
+                const struct_fields = resolved_type.kind.struct_type;
 
                 var current_val: []const u8 = try std.fmt.allocPrint(self.allocator, "undef", .{});
 
-                for (typedef.kind.struct_type, 0..) |type_field, field_idx| {
+                for (struct_fields, 0..) |type_field, field_idx| {
                     var field_value: ?[]const u8 = null;
                     for (lit.fields) |lit_field| {
                         if (std.mem.eql(u8, lit_field.name, type_field.name)) {
@@ -1203,7 +1360,7 @@ pub const Codegen = struct {
                         field_idx,
                     });
 
-                    if (field_idx < typedef.kind.struct_type.len - 1) {
+                    if (field_idx < struct_fields.len - 1) {
                         self.allocator.free(current_val);
                         current_val = try self.allocator.dupe(u8, temp);
                         self.allocator.free(temp);
@@ -1229,10 +1386,33 @@ pub const Codegen = struct {
                     .dependent => |dep| dep.base,
                     else => unreachable,
                 };
-                const typedef = self.type_defs.get(type_name) orelse unreachable;
+                const typedef_info = self.type_defs.get(type_name) orelse unreachable;
+
+                // Build substitution map if object_type is dependent
+                var substitutions = std.StringHashMap(Type).init(self.allocator);
+                defer substitutions.deinit();
+                if (object_type.kind == .dependent) {
+                    const dep = object_type.kind.dependent;
+                    for (typedef_info.params, 0..) |param, i| {
+                        if (param.kind == .type_param) {
+                            if (i < dep.type_params.len) {
+                                switch (dep.type_params[i]) {
+                                    .concrete => |t| {
+                                        substitutions.put(param.name, t.*) catch continue;
+                                    },
+                                    .variable => {},
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Apply substitutions to get the resolved type
+                const resolved_type = self.substituteTypeParams(typedef_info.type_value, substitutions);
+                const struct_fields = resolved_type.kind.struct_type;
 
                 var field_idx: usize = 0;
-                for (typedef.kind.struct_type, 0..) |field, idx| {
+                for (struct_fields, 0..) |field, idx| {
                     if (std.mem.eql(u8, field.name, access.field_name)) {
                         field_idx = idx;
                         break;
@@ -1257,11 +1437,11 @@ pub const Codegen = struct {
 
                 var iter = self.type_defs.iterator();
                 while (iter.next()) |entry| {
-                    if (entry.value_ptr.*.kind == .sum_type) {
-                        for (entry.value_ptr.*.kind.sum_type, 0..) |variant, idx| {
+                    if (entry.value_ptr.*.type_value.kind == .sum_type) {
+                        for (entry.value_ptr.*.type_value.kind.sum_type, 0..) |variant, idx| {
                             if (std.mem.eql(u8, variant.name, call.name)) {
                                 found_type_name = entry.key_ptr.*;
-                                found_typedef = entry.value_ptr.*;
+                                found_typedef = entry.value_ptr.*.type_value;
                                 variant_index = idx;
                                 break;
                             }
@@ -1318,7 +1498,7 @@ pub const Codegen = struct {
                     .dependent => |dep| dep.base,
                     else => unreachable,
                 };
-                const typedef = self.type_defs.get(type_name) orelse unreachable;
+                const typedef_info = self.type_defs.get(type_name) orelse unreachable;
 
                 // Extract tag
                 const tag_temp = try self.allocTempName();
@@ -1358,7 +1538,7 @@ pub const Codegen = struct {
                         .identifier => {},
                         .constructor => |constructor| {
                             // Find the variant index
-                            for (typedef.kind.sum_type, 0..) |variant, variant_idx| {
+                            for (typedef_info.type_value.kind.sum_type, 0..) |variant, variant_idx| {
                                 if (std.mem.eql(u8, variant.name, constructor.name)) {
                                     if (i > 0) try self.output.appendSlice(self.allocator, ", ");
                                     try self.output.writer(self.allocator).print("\n    i64 {d}, label %{s}", .{
@@ -1407,7 +1587,7 @@ pub const Codegen = struct {
                         .constructor => |constructor| {
                             // Find the variant to get payload types
                             var found_variant: ?parser.SumTypeVariant = null;
-                            for (typedef.kind.sum_type) |variant| {
+                            for (typedef_info.type_value.kind.sum_type) |variant| {
                                 if (std.mem.eql(u8, variant.name, constructor.name)) {
                                     found_variant = variant;
                                     break;
@@ -1875,8 +2055,11 @@ pub const Codegen = struct {
             .primitive => return typ.llvmTypeName(),
             .dependent => |dep| {
                 // Look up underlying type
-                if (self.type_defs.get(dep.base)) |typedef| {
-                    return self.llvmType(typedef);
+                if (self.type_defs.get(dep.base)) |typedef_info| {
+                    var substitutions = self.buildSubstitutionMap(typedef_info, dep);
+                    defer substitutions.deinit();
+                    const resolved = self.substituteTypeParams(typedef_info.type_value, substitutions);
+                    return self.llvmType(resolved);
                 }
                 return "ptr"; // Default fallback
             },
@@ -1997,7 +2180,7 @@ pub const Codegen = struct {
                 return try std.fmt.allocPrint(self.allocator, "{{ i64, [{d} x i8] }}", .{max_size});
             },
             .named => |name| {
-                const typedef = self.type_defs.get(name) orelse {
+                const typedef_info = self.type_defs.get(name) orelse {
                     std.debug.print("Type not found in type_defs: {s}\n", .{name});
                     std.debug.print("Available types:\n", .{});
                     var iter = self.type_defs.iterator();
@@ -2006,16 +2189,20 @@ pub const Codegen = struct {
                     }
                     return error.UndefinedType;
                 };
-                return try self.llvmTypeString(typedef);
+                return try self.llvmTypeString(typedef_info.type_value);
             },
             .dependent => |dep| {
                 // Dependent types resolve to their underlying type definition
                 // Look up the type definition and get its LLVM type
-                const typedef = self.type_defs.get(dep.base) orelse {
+                const typedef_info = self.type_defs.get(dep.base) orelse {
                     // If not found, default to ptr
                     return try self.allocator.dupe(u8, "ptr");
                 };
-                return try self.llvmTypeString(typedef);
+                // Build substitution map and apply
+                var substitutions = self.buildSubstitutionMap(typedef_info, dep);
+                defer substitutions.deinit();
+                const resolved = self.substituteTypeParams(typedef_info.type_value, substitutions);
+                return try self.llvmTypeString(resolved);
             },
         }
     }
@@ -2114,6 +2301,17 @@ pub const Codegen = struct {
                 }
             },
             .struct_literal => |lit| {
+                // Return dependent type if type_params present
+                if (lit.type_params) |type_params| {
+                    return Type{
+                        .kind = .{ .dependent = .{
+                            .base = lit.type_name,
+                            .type_params = type_params,
+                            .value_params = &.{},
+                        } },
+                        .usage = .once,
+                    };
+                }
                 return .{ .kind = .{ .named = lit.type_name  }, .usage = .once };
             },
             .field_access => |access| {
@@ -2123,8 +2321,30 @@ pub const Codegen = struct {
                     .dependent => |dep| dep.base,
                     else => unreachable,
                 };
-                const typedef = self.type_defs.get(type_name) orelse unreachable;
-                for (typedef.kind.struct_type) |field| {
+                const typedef_info = self.type_defs.get(type_name) orelse unreachable;
+
+                // Build substitution map if object_type is dependent
+                var substitutions = std.StringHashMap(Type).init(self.allocator);
+                defer substitutions.deinit();
+                if (object_type.kind == .dependent) {
+                    const dep = object_type.kind.dependent;
+                    for (typedef_info.params, 0..) |param, i| {
+                        if (param.kind == .type_param) {
+                            if (i < dep.type_params.len) {
+                                switch (dep.type_params[i]) {
+                                    .concrete => |t| {
+                                        substitutions.put(param.name, t.*) catch continue;
+                                    },
+                                    .variable => {},
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Apply substitutions and look up field
+                const resolved = self.substituteTypeParams(typedef_info.type_value, substitutions);
+                for (resolved.kind.struct_type) |field| {
                     if (std.mem.eql(u8, field.name, access.field_name)) {
                         return field.field_type.*;
                     }
@@ -2135,8 +2355,8 @@ pub const Codegen = struct {
                 // Find which sum type this constructor belongs to
                 var iter = self.type_defs.iterator();
                 while (iter.next()) |entry| {
-                    if (entry.value_ptr.*.kind == .sum_type) {
-                        for (entry.value_ptr.*.kind.sum_type) |variant| {
+                    if (entry.value_ptr.*.type_value.kind == .sum_type) {
+                        for (entry.value_ptr.*.type_value.kind.sum_type) |variant| {
                             if (std.mem.eql(u8, variant.name, call.name)) {
                                 return .{ .kind = .{ .named = entry.key_ptr.*  }, .usage = .once };
                             }
