@@ -16,6 +16,7 @@ const TypeCheckError = error{
     TypeMismatch,
     UndefinedVariable,
     UndefinedFunction,
+    UndefinedType,
     ArgumentCountMismatch,
     EmptyFunctionBody,
     OutOfMemory,
@@ -1234,6 +1235,54 @@ pub const TypeChecker = struct {
                         return error.TypeMismatch;
                     }
                     return .{ .kind = .{ .primitive = .u64 }, .usage = .once };
+                } else if (std.mem.eql(u8, call.name, "@join")) {
+                    // @join(task, @type(T)) - wait for task and return result of type T
+                    if (call.args.len != 2) {
+                        std.debug.print("@join expects 2 arguments (task, @type(T))\n", .{});
+                        return error.ArgumentCountMismatch;
+                    }
+                    // First arg is task handle (consumes the linear Task)
+                    const task_type = try self.inferExprType(call.args[0]);
+                    _ = task_type; // Task is consumed here
+
+                    // Second arg is @type(T) - determines return type
+                    const type_arg = call.args[1];
+                    if (type_arg.* != .intrinsic_call or !std.mem.eql(u8, type_arg.intrinsic_call.name, "@type")) {
+                        std.debug.print("@join second argument must be @type(T)\n", .{});
+                        return error.TypeMismatch;
+                    }
+
+                    // Extract the type from @type(T)
+                    const type_name_expr = type_arg.intrinsic_call.args[0];
+                    const type_name = switch (type_name_expr.*) {
+                        .variable => |v| v,
+                        .constructor_call => |c| c.name,
+                        else => {
+                            std.debug.print("Invalid type in @type\n", .{});
+                            return error.TypeMismatch;
+                        },
+                    };
+
+                    // Map type names to primitives
+                    const type_map = std.StaticStringMap(parser.PrimitiveType).initComptime(.{
+                        .{ "I8", .i8 },
+                        .{ "I16", .i16 },
+                        .{ "I32", .i32 },
+                        .{ "I64", .i64 },
+                        .{ "U8", .u8 },
+                        .{ "U16", .u16 },
+                        .{ "U32", .u32 },
+                        .{ "U64", .u64 },
+                        .{ "Bool", .bool },
+                        .{ "ptr", .ptr },
+                    });
+
+                    if (type_map.get(type_name)) |prim| {
+                        return .{ .kind = .{ .primitive = prim }, .usage = .once };
+                    } else {
+                        std.debug.print("Unknown type in @join: {s}\n", .{type_name});
+                        return error.UndefinedType;
+                    }
                 } else {
                     std.debug.print("Unknown intrinsic: {s}\n", .{call.name});
                     return error.UndefinedFunction;
