@@ -1,3 +1,10 @@
+// StringLike type class for types that can be constructed from strings
+// Used by bidirectional type checking for automatic string literal conversion
+// Example: let r: Rope = "hello" desugars to Rope.from_str("hello")
+class StringLike {
+  from_str: fn(str) Self;
+}
+
 // String type class for string operations
 class String {
   len: fn(str) I64;
