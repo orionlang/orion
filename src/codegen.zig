@@ -2008,6 +2008,12 @@ pub const Codegen = struct {
                 // Dependent type references should only appear in method call context
                 unreachable;
             },
+            .async_expr, .spawn_expr, .select_expr => {
+                // Concurrency expressions require LLVM coroutine codegen (Phase 3)
+                // Placeholder: generate error for now
+                std.debug.print("Concurrency expressions not yet implemented in codegen\n", .{});
+                unreachable;
+            },
         }
     }
 
@@ -2492,6 +2498,24 @@ pub const Codegen = struct {
             .dependent_type_ref => {
                 // Dependent type references should only appear in method call context
                 unreachable;
+            },
+            .async_expr => |async_expr| {
+                // async { body } returns the type of body
+                return self.inferExprType(async_expr.body);
+            },
+            .spawn_expr => {
+                // spawn { body } returns Task[T] - placeholder returns named type
+                return .{ .kind = .{ .named = "Task" }, .usage = .once };
+            },
+            .select_expr => |select_expr| {
+                // Select returns the type of the first arm body
+                if (select_expr.arms.len > 0) {
+                    return self.inferExprType(select_expr.arms[0].body);
+                }
+                if (select_expr.default_arm) |default| {
+                    return self.inferExprType(default);
+                }
+                return .{ .kind = .{ .tuple = &[_]*parser.Type{} }, .usage = .once };
             },
         }
     }

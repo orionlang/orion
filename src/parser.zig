@@ -402,6 +402,20 @@ pub const MatchPattern = union(enum) {
     },
 };
 
+pub const SelectOperation = union(enum) {
+    recv: *Expr,
+    send: struct {
+        channel: *Expr,
+        value: *Expr,
+    },
+};
+
+pub const SelectArm = struct {
+    operation: SelectOperation,
+    binding: ?[]const u8,
+    body: *Expr,
+};
+
 pub const Expr = union(enum) {
     integer_literal: struct {
         value: i64,
@@ -473,6 +487,16 @@ pub const Expr = union(enum) {
         name: []const u8,
         args: []*Expr,
     },
+    async_expr: struct {
+        body: *Expr,
+    },
+    spawn_expr: struct {
+        body: *Expr,
+    },
+    select_expr: struct {
+        arms: []SelectArm,
+        default_arm: ?*Expr,
+    },
 
     // Compare expressions for equality (used in dependent type value param comparison)
     pub fn eql(self: Expr, other: Expr) bool {
@@ -490,7 +514,7 @@ pub const Expr = union(enum) {
             .binary_op, .unary_op, .function_call, .if_expr, .block_expr,
             .unsafe_block, .tuple_literal, .tuple_index, .struct_literal,
             .field_access, .constructor_call, .dependent_type_ref, .match_expr,
-            .method_call, .intrinsic_call => false,
+            .method_call, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => false,
         };
     }
 };
@@ -875,6 +899,37 @@ pub const FunctionDecl = struct {
                     allocator.destroy(arg);
                 }
                 allocator.free(call.args);
+            },
+            .async_expr => |async_expr| {
+                deinitExpr(allocator, async_expr.body);
+                allocator.destroy(async_expr.body);
+            },
+            .spawn_expr => |spawn_expr| {
+                deinitExpr(allocator, spawn_expr.body);
+                allocator.destroy(spawn_expr.body);
+            },
+            .select_expr => |select_expr| {
+                for (select_expr.arms) |arm| {
+                    switch (arm.operation) {
+                        .recv => |ch| {
+                            deinitExpr(allocator, ch);
+                            allocator.destroy(ch);
+                        },
+                        .send => |s| {
+                            deinitExpr(allocator, s.channel);
+                            allocator.destroy(s.channel);
+                            deinitExpr(allocator, s.value);
+                            allocator.destroy(s.value);
+                        },
+                    }
+                    deinitExpr(allocator, arm.body);
+                    allocator.destroy(arm.body);
+                }
+                allocator.free(select_expr.arms);
+                if (select_expr.default_arm) |def| {
+                    deinitExpr(allocator, def);
+                    allocator.destroy(def);
+                }
             },
         }
     }
@@ -1975,6 +2030,18 @@ pub const Parser = struct {
             return try self.parseUnsafeBlock();
         }
 
+        if (self.check(.async_keyword)) {
+            return try self.parseAsyncExpression();
+        }
+
+        if (self.check(.spawn_keyword)) {
+            return try self.parseSpawnExpression();
+        }
+
+        if (self.check(.select_keyword)) {
+            return try self.parseSelectExpression();
+        }
+
         if (self.check(.left_brace)) {
             return try self.parseBlockExpression();
         }
@@ -2394,6 +2461,116 @@ pub const Parser = struct {
             .match_expr = .{
                 .scrutinee = scrutinee,
                 .arms = try arms.toOwnedSlice(self.allocator),
+            },
+        };
+    }
+
+    fn parseAsyncExpression(self: *Parser) ParseError!Expr {
+        _ = try self.expect(.async_keyword);
+        const body = try self.parseBlockExpression();
+        const body_ptr = try self.allocator.create(Expr);
+        body_ptr.* = body;
+        return .{ .async_expr = .{ .body = body_ptr } };
+    }
+
+    fn parseSpawnExpression(self: *Parser) ParseError!Expr {
+        _ = try self.expect(.spawn_keyword);
+        const body = try self.parseBlockExpression();
+        const body_ptr = try self.allocator.create(Expr);
+        body_ptr.* = body;
+        return .{ .spawn_expr = .{ .body = body_ptr } };
+    }
+
+    fn parseSelectExpression(self: *Parser) ParseError!Expr {
+        _ = try self.expect(.select_keyword);
+        _ = try self.expect(.left_brace);
+
+        var arms: std.ArrayList(SelectArm) = .empty;
+        errdefer {
+            for (arms.items) |arm| {
+                switch (arm.operation) {
+                    .recv => |ch| {
+                        FunctionDecl.deinitExpr(self.allocator, ch);
+                        self.allocator.destroy(ch);
+                    },
+                    .send => |s| {
+                        FunctionDecl.deinitExpr(self.allocator, s.channel);
+                        self.allocator.destroy(s.channel);
+                        FunctionDecl.deinitExpr(self.allocator, s.value);
+                        self.allocator.destroy(s.value);
+                    },
+                }
+                FunctionDecl.deinitExpr(self.allocator, arm.body);
+                self.allocator.destroy(arm.body);
+            }
+            arms.deinit(self.allocator);
+        }
+
+        var default_arm: ?*Expr = null;
+        errdefer if (default_arm) |def| {
+            FunctionDecl.deinitExpr(self.allocator, def);
+            self.allocator.destroy(def);
+        };
+
+        while (!self.check(.right_brace)) {
+            if (self.check(.default_keyword)) {
+                // default { body }
+                _ = try self.expect(.default_keyword);
+                const body = try self.parseBlockExpression();
+                const body_ptr = try self.allocator.create(Expr);
+                body_ptr.* = body;
+                default_arm = body_ptr;
+            } else if (self.check(.recv_keyword)) {
+                // recv(channel) -> binding { body }
+                _ = try self.expect(.recv_keyword);
+                _ = try self.expect(.left_paren);
+                const channel = try self.parseExpressionPtr(&.{});
+                _ = try self.expect(.right_paren);
+                _ = try self.expect(.arrow);
+                const binding_token = try self.expect(.identifier);
+                const body = try self.parseBlockExpression();
+                const body_ptr = try self.allocator.create(Expr);
+                body_ptr.* = body;
+                try arms.append(self.allocator, SelectArm{
+                    .operation = .{ .recv = channel },
+                    .binding = binding_token.lexeme,
+                    .body = body_ptr,
+                });
+            } else if (self.check(.send_keyword)) {
+                // send(channel, value) -> () { body }
+                _ = try self.expect(.send_keyword);
+                _ = try self.expect(.left_paren);
+                const channel = try self.parseExpressionPtr(&.{});
+                _ = try self.expect(.comma);
+                const value = try self.parseExpressionPtr(&.{});
+                _ = try self.expect(.right_paren);
+                _ = try self.expect(.arrow);
+                _ = try self.expect(.left_paren);
+                _ = try self.expect(.right_paren);
+                const body = try self.parseBlockExpression();
+                const body_ptr = try self.allocator.create(Expr);
+                body_ptr.* = body;
+                try arms.append(self.allocator, SelectArm{
+                    .operation = .{ .send = .{ .channel = channel, .value = value } },
+                    .binding = null,
+                    .body = body_ptr,
+                });
+            } else {
+                return error.UnexpectedToken;
+            }
+
+            // Optional comma between arms
+            if (self.check(.comma)) {
+                _ = try self.expect(.comma);
+            }
+        }
+
+        _ = try self.expect(.right_brace);
+
+        return .{
+            .select_expr = .{
+                .arms = try arms.toOwnedSlice(self.allocator),
+                .default_arm = default_arm,
             },
         };
     }

@@ -479,7 +479,7 @@ pub const TypeChecker = struct {
                     }
                 }
             },
-            .bool_literal, .variable, .function_call, .field_access, .constructor_call, .dependent_type_ref, .match_expr, .method_call, .intrinsic_call => {
+            .bool_literal, .variable, .function_call, .field_access, .constructor_call, .dependent_type_ref, .match_expr, .method_call, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
                 // These expressions have fixed types that can't be influenced by context:
                 // - bool_literal: always Bool
                 // - variable: type determined at declaration
@@ -488,6 +488,7 @@ pub const TypeChecker = struct {
                 // - constructor_call: type determined by sum type definition
                 // - dependent_type_ref: type reference for method calls on dependent types
                 // - match_expr: type is the unified type of all arms
+                // - async_expr/spawn_expr/select_expr: concurrency types determined by body/arms
             },
         }
     }
@@ -1230,6 +1231,28 @@ pub const TypeChecker = struct {
                 // e.g., Vec[ptr, 8].new() - the reference itself doesn't have a type
                 std.debug.print("Dependent type reference cannot be used as a value\n", .{});
                 return error.TypeMismatch;
+            },
+            .async_expr => |async_expr| {
+                // async { body } returns the type of body
+                return try self.inferExprType(async_expr.body);
+            },
+            .spawn_expr => |spawn_expr| {
+                // spawn { body } returns Task[T] where T is body's type
+                // For now, return a named type "Task" - full implementation in Phase 2
+                const body_type = try self.inferExprType(spawn_expr.body);
+                _ = body_type;
+                return .{ .kind = .{ .named = "Task" }, .usage = .once };
+            },
+            .select_expr => |select_expr| {
+                // Select returns unified type of all arms (similar to match)
+                if (select_expr.arms.len == 0) {
+                    if (select_expr.default_arm) |default| {
+                        return try self.inferExprType(default);
+                    }
+                    std.debug.print("Select expression must have at least one arm or default\n", .{});
+                    return error.TypeMismatch;
+                }
+                return try self.inferExprType(select_expr.arms[0].body);
             },
         }
     }

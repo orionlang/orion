@@ -20,6 +20,12 @@ pub const TokenKind = enum {
     import_keyword,
     pub_keyword,
     extern_keyword,
+    async_keyword,
+    spawn_keyword,
+    select_keyword,
+    recv_keyword,
+    send_keyword,
+    default_keyword,
 
     // Literals
     integer,
@@ -273,6 +279,12 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, lexeme, "import")) return .import_keyword;
         if (std.mem.eql(u8, lexeme, "pub")) return .pub_keyword;
         if (std.mem.eql(u8, lexeme, "extern")) return .extern_keyword;
+        if (std.mem.eql(u8, lexeme, "async")) return .async_keyword;
+        if (std.mem.eql(u8, lexeme, "spawn")) return .spawn_keyword;
+        if (std.mem.eql(u8, lexeme, "select")) return .select_keyword;
+        if (std.mem.eql(u8, lexeme, "recv")) return .recv_keyword;
+        if (std.mem.eql(u8, lexeme, "send")) return .send_keyword;
+        if (std.mem.eql(u8, lexeme, "default")) return .default_keyword;
         return .identifier;
     }
 
