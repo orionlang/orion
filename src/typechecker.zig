@@ -22,6 +22,7 @@ const TypeCheckError = error{
     AssignmentToImmutable,
     LinearityViolation,
     UnsafeCallOutsideUnsafeContext,
+    SpawnOutsideAsyncScope,
 };
 
 const VariableInfo = struct {
@@ -46,6 +47,10 @@ pub const TypeChecker = struct {
     // Track allocations from substituteTypeParams for cleanup
     substituted_types: std.ArrayList(*Type),
     substituted_fields: std.ArrayList([]parser.StructField),
+    // Track type_params allocations for Task[T] cleanup
+    allocated_type_params: std.ArrayList([]parser.TypeParam),
+    // Concurrency: track async scope depth for structured concurrency
+    async_scope_depth: u32,
 
     pub fn init(allocator: std.mem.Allocator) TypeChecker {
         return .{
@@ -58,6 +63,8 @@ pub const TypeChecker = struct {
             .in_unsafe_block = false,
             .substituted_types = .empty,
             .substituted_fields = .empty,
+            .allocated_type_params = .empty,
+            .async_scope_depth = 0,
         };
     }
 
@@ -89,6 +96,12 @@ pub const TypeChecker = struct {
             self.allocator.free(fields);
         }
         self.substituted_fields.deinit(self.allocator);
+
+        // Free type_params allocated for Task[T] dependent types
+        for (self.allocated_type_params.items) |type_params| {
+            self.allocator.free(type_params);
+        }
+        self.allocated_type_params.deinit(self.allocator);
 
         self.variables.deinit();
         self.functions.deinit();
@@ -1234,14 +1247,38 @@ pub const TypeChecker = struct {
             },
             .async_expr => |async_expr| {
                 // async { body } returns the type of body
+                // Increment scope depth to allow spawn inside
+                self.async_scope_depth += 1;
+                defer self.async_scope_depth -= 1;
                 return try self.inferExprType(async_expr.body);
             },
             .spawn_expr => |spawn_expr| {
                 // spawn { body } returns Task[T] where T is body's type
-                // For now, return a named type "Task" - full implementation in Phase 2
+                // spawn must be inside an async block (structured concurrency)
+                if (self.async_scope_depth == 0) {
+                    std.debug.print("spawn must be inside async block\n", .{});
+                    return error.SpawnOutsideAsyncScope;
+                }
+
                 const body_type = try self.inferExprType(spawn_expr.body);
-                _ = body_type;
-                return .{ .kind = .{ .named = "Task" }, .usage = .once };
+
+                // Create Task[T] dependent type
+                // Allocate type param for the body type and track for cleanup
+                const body_type_ptr = try self.allocator.create(Type);
+                body_type_ptr.* = body_type;
+                try self.substituted_types.append(self.allocator, body_type_ptr);
+
+                var type_params = try self.allocator.alloc(parser.TypeParam, 1);
+                type_params[0] = .{ .concrete = body_type_ptr };
+
+                return .{
+                    .kind = .{ .dependent = .{
+                        .base = "Task",
+                        .type_params = type_params,
+                        .value_params = &[_]Expr{},
+                    } },
+                    .usage = .once, // Task handles are linear - must be joined exactly once
+                };
             },
             .select_expr => |select_expr| {
                 // Select returns unified type of all arms (similar to match)
