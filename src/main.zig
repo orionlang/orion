@@ -258,11 +258,17 @@ pub fn main() !void {
         return;
     }
 
+    // Run LLVM opt passes for coroutine lowering
+    const opt_ir_path = try std.fmt.allocPrint(allocator, "{s}.opt.ll", .{input_path});
+    defer allocator.free(opt_ir_path);
+
+    try runCoroutinePasses(allocator, ir_path, opt_ir_path);
+
     // Generate object file using llc
     const obj_path = try std.fmt.allocPrint(allocator, "{s}.o", .{input_path});
     defer allocator.free(obj_path);
 
-    try generateObjectFile(allocator, ir_path, obj_path, target_triple);
+    try generateObjectFile(allocator, opt_ir_path, obj_path, target_triple);
 
     if (stop_at_object) {
         std.debug.print("Generated object file: {s}\n", .{obj_path});
@@ -290,6 +296,24 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8, tool_name:
         std.debug.print("{s} failed:\n{s}\n", .{ tool_name, result.stderr });
         return err;
     }
+}
+
+fn runCoroutinePasses(allocator: std.mem.Allocator, ir_path: []const u8, opt_ir_path: []const u8) !void {
+    // Run LLVM opt with coroutine passes: coro-early, coro-split, coro-elide, coro-cleanup
+    // These transform presplitcoroutine functions into state machines
+    try runCommand(
+        allocator,
+        &[_][]const u8{
+            "opt",
+            "-S", // Output as text IR for debugging
+            "-passes=coro-early,coro-split,coro-elide,coro-cleanup",
+            ir_path,
+            "-o",
+            opt_ir_path,
+        },
+        "opt",
+        error.CoroutinePassesFailed,
+    );
 }
 
 fn generateObjectFile(allocator: std.mem.Allocator, ir_path: []const u8, obj_path: []const u8, target: TargetTriple) !void {

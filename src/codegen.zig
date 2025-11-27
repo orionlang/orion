@@ -2118,8 +2118,8 @@ pub const Codegen = struct {
 
                     return result_temp;
                 } else if (std.mem.eql(u8, call.name, "@join")) {
-                    // @join(task, @type(T)) - wait for task completion and get result
-                    // task is a ptr to task frame { i8 status, T result }
+                    // @join(task, @type(T)) - wait for coroutine completion and get result
+                    // task is a coroutine handle (ptr)
                     const task_handle = try self.generateExpression(call.args[0], null);
                     defer self.allocator.free(task_handle);
 
@@ -2149,16 +2149,18 @@ pub const Codegen = struct {
                     });
                     const result_type_str = llvm_type_map.get(type_name) orelse unreachable;
 
-                    // Read result from task frame (offset 8 for result)
-                    const result_ptr = try self.allocTempName();
-                    defer self.allocator.free(result_ptr);
-                    try self.output.writer(self.allocator).print("  {s} = getelementptr i8, ptr {s}, i64 8\n", .{ result_ptr, task_handle });
+                    // Get promise pointer (where result is stored)
+                    // Alignment is 8 bytes for i64 results
+                    const promise_ptr = try self.allocTempName();
+                    defer self.allocator.free(promise_ptr);
+                    try self.output.writer(self.allocator).print("  {s} = call ptr @llvm.coro.promise(ptr {s}, i32 8, i1 false)\n", .{ promise_ptr, task_handle });
 
+                    // Load result from promise
                     const result_val = try self.allocTempName();
-                    try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ result_val, result_type_str, result_ptr });
+                    try self.output.writer(self.allocator).print("  {s} = load {s}, ptr {s}\n", .{ result_val, result_type_str, promise_ptr });
 
-                    // Free the task frame
-                    try self.output.writer(self.allocator).print("  call void @free(ptr {s})\n", .{task_handle});
+                    // Destroy the coroutine (cleanup)
+                    try self.output.writer(self.allocator).print("  call void @llvm.coro.destroy(ptr {s})\n", .{task_handle});
 
                     return result_val;
                 } else {
@@ -2177,47 +2179,90 @@ pub const Codegen = struct {
                 return try self.generateExpression(async_expr.body, expected);
             },
             .spawn_expr => |spawn_expr| {
-                // spawn { body } - creates a Task[T]
-                // For now, use eager evaluation with task frame
-                // Full coroutine support requires opt -passes=coro-split before llc
+                // spawn { body } - creates a Task[T] using LLVM coroutines
+                // The body is outlined into a separate coroutine function
 
                 // Get the body result type
                 const body_type = self.inferExprType(spawn_expr.body);
                 const body_type_str = try self.llvmTypeString(body_type);
                 defer self.allocator.free(body_type_str);
 
-                // Allocate task frame: { i8 status, T result }
-                // status: 0 = pending, 1 = completed, 2 = cancelled
-                const frame_ptr = try self.allocTempName();
-                const frame_type = try std.fmt.allocPrint(self.allocator, "{{ i8, {s} }}", .{body_type_str});
-                defer self.allocator.free(frame_type);
+                // Generate unique coroutine function name
+                const coro_name = try std.fmt.allocPrint(self.allocator, "orion_coro_{d}", .{self.next_coro});
+                defer self.allocator.free(coro_name);
+                self.next_coro += 1;
+                self.needs_coro_intrinsics = true;
 
-                try self.output.writer(self.allocator).print("  {s} = call ptr @malloc(i64 16)\n", .{frame_ptr});
+                // Outline the body into a coroutine function
+                try self.generateCoroutineFunction(coro_name, spawn_expr.body, body_type_str);
 
-                // Initialize status to pending (0)
-                try self.output.writer(self.allocator).print("  store i8 0, ptr {s}\n", .{frame_ptr});
+                // Call the coroutine to get the handle
+                const coro_handle = try self.allocTempName();
+                try self.output.writer(self.allocator).print("  {s} = call ptr @{s}()\n", .{ coro_handle, coro_name });
 
-                // Evaluate the body (eager for now - real impl would defer)
-                const body_val = try self.generateExpression(spawn_expr.body, null);
-                defer self.allocator.free(body_val);
-
-                // Store result in task frame (offset 8 for alignment)
-                const result_ptr = try self.allocTempName();
-                defer self.allocator.free(result_ptr);
-                try self.output.writer(self.allocator).print("  {s} = getelementptr i8, ptr {s}, i64 8\n", .{ result_ptr, frame_ptr });
-                try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ body_type_str, body_val, result_ptr });
-
-                // Mark as completed (1)
-                try self.output.writer(self.allocator).print("  store i8 1, ptr {s}\n", .{frame_ptr});
-
-                // Return the task frame pointer
-                return frame_ptr;
+                // Return the coroutine handle (Task[T])
+                return coro_handle;
             },
-            .select_expr => {
-                // select { ... } - multi-channel wait
-                // Full implementation in Phase 5
-                std.debug.print("select expressions not yet implemented in codegen\n", .{});
-                unreachable;
+            .select_expr => |select_expr| {
+                // select { arms... default? } - multi-channel wait
+                // Eager evaluation: for now, execute default or first arm immediately
+                // Full async select requires scheduler integration in Phase 5d
+
+                if (select_expr.default_arm) |default_body| {
+                    // Non-blocking select: execute default immediately
+                    return try self.generateExpression(default_body, expected);
+                }
+
+                if (select_expr.arms.len == 0) {
+                    // Empty select with no default - return unit
+                    return try self.allocator.dupe(u8, "void");
+                }
+
+                // Execute first arm (placeholder for real channel polling)
+                const first_arm = select_expr.arms[0];
+
+                // Handle binding for recv operations
+                if (first_arm.binding) |binding_name| {
+                    switch (first_arm.operation) {
+                        .recv => |channel_expr| {
+                            // Generate channel expression (to evaluate side effects)
+                            const channel_val = try self.generateExpression(channel_expr, null);
+                            defer self.allocator.free(channel_val);
+
+                            // Recv binding: allocate local and store placeholder value
+                            // Full impl would call channel_recv() and store actual value
+                            const binding_ptr = try self.allocTempName();
+                            try self.output.writer(self.allocator).print("  {s} = alloca i64\n", .{binding_ptr});
+                            try self.output.writer(self.allocator).print("  store i64 0, ptr {s} ; placeholder recv\n", .{binding_ptr});
+
+                            // Register binding in scope (I64 placeholder type)
+                            const binding_ptr_dupe = try self.allocator.dupe(u8, binding_ptr);
+                            try self.variables.put(binding_name, .{
+                                .llvm_ptr = binding_ptr_dupe,
+                                .var_type = .{ .kind = .{ .primitive = .i64 }, .usage = .unlimited },
+                            });
+                        },
+                        .send => {},
+                    }
+                } else {
+                    // No binding - still evaluate channel for side effects
+                    switch (first_arm.operation) {
+                        .recv => |channel_expr| {
+                            const channel_val = try self.generateExpression(channel_expr, null);
+                            self.allocator.free(channel_val);
+                        },
+                        .send => |send_op| {
+                            const channel_val = try self.generateExpression(send_op.channel, null);
+                            defer self.allocator.free(channel_val);
+                            const value_val = try self.generateExpression(send_op.value, null);
+                            self.allocator.free(value_val);
+                            // Full impl would call channel_send(channel, value)
+                        },
+                    }
+                }
+
+                // Execute arm body
+                return try self.generateExpression(first_arm.body, expected);
             },
         }
     }
