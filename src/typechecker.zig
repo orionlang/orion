@@ -1270,6 +1270,7 @@ pub const TypeChecker = struct {
 
                 var type_params = try self.allocator.alloc(parser.TypeParam, 1);
                 type_params[0] = .{ .concrete = body_type_ptr };
+                try self.allocated_type_params.append(self.allocator, type_params);
 
                 return .{
                     .kind = .{ .dependent = .{

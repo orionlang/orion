@@ -53,6 +53,9 @@ pub const Codegen = struct {
     // Track allocations from substituteTypeParams for cleanup
     substituted_types: std.ArrayList(*Type),
     substituted_fields: std.ArrayList([]parser.StructField),
+    // Concurrency: track if we need coroutine intrinsics
+    needs_coro_intrinsics: bool,
+    next_coro: usize,
 
     pub fn init(allocator: std.mem.Allocator, target: TargetTriple) Codegen {
         return .{
@@ -74,6 +77,8 @@ pub const Codegen = struct {
             .ast = null,
             .substituted_types = .empty,
             .substituted_fields = .empty,
+            .needs_coro_intrinsics = false,
+            .next_coro = 0,
         };
     }
 
@@ -426,6 +431,10 @@ pub const Codegen = struct {
             try self.output.appendSlice(self.allocator, "\n");
         }
 
+        // Generate LLVM coroutine intrinsic declarations for concurrency
+        // Always emit since these are only used if async/spawn appear
+        try self.generateCoroIntrinsicDeclarations();
+
         // Generate each function
         for (ast.functions.items) |func| {
             try self.generateFunction(&func);
@@ -644,6 +653,24 @@ pub const Codegen = struct {
         }
 
         try self.output.appendSlice(self.allocator, ")\n");
+    }
+
+    fn generateCoroIntrinsicDeclarations(self: *Codegen) !void {
+        // LLVM coroutine intrinsics for concurrency
+        try self.output.appendSlice(self.allocator,
+            \\; Coroutine intrinsics for structured concurrency
+            \\declare token @llvm.coro.id(i32, ptr, ptr, ptr)
+            \\declare i64 @llvm.coro.size.i64()
+            \\declare ptr @llvm.coro.begin(token, ptr)
+            \\declare i8 @llvm.coro.suspend(token, i1)
+            \\declare i1 @llvm.coro.end(ptr, i1, token)
+            \\declare ptr @llvm.coro.free(token, ptr)
+            \\declare void @llvm.coro.resume(ptr)
+            \\declare void @llvm.coro.destroy(ptr)
+            \\declare ptr @llvm.coro.promise(ptr, i32, i1)
+            \\
+        );
+        try self.output.appendSlice(self.allocator, "\n");
     }
 
     fn generateFunction(self: *Codegen, func: *const parser.FunctionDecl) !void {
@@ -2008,10 +2035,56 @@ pub const Codegen = struct {
                 // Dependent type references should only appear in method call context
                 unreachable;
             },
-            .async_expr, .spawn_expr, .select_expr => {
-                // Concurrency expressions require LLVM coroutine codegen (Phase 3)
-                // Placeholder: generate error for now
-                std.debug.print("Concurrency expressions not yet implemented in codegen\n", .{});
+            .async_expr => |async_expr| {
+                // async { body } - creates a scope for structured concurrency
+                // At codegen level, just evaluate the body synchronously
+                // The async scope tracking is handled by the typechecker
+                return try self.generateExpression(async_expr.body, expected);
+            },
+            .spawn_expr => |spawn_expr| {
+                // spawn { body } - creates a Task[T] coroutine
+                // For now, generate a simple task frame that stores the result
+                // Full coroutine support will be added incrementally
+
+                // Get the body result type
+                const body_type = self.inferExprType(spawn_expr.body);
+                const body_type_str = try self.llvmTypeString(body_type);
+                defer self.allocator.free(body_type_str);
+
+                // Allocate task frame: { i8 status, T result }
+                // status: 0 = pending, 1 = completed, 2 = cancelled
+                const frame_ptr = try self.allocTempName();
+                const frame_type = try std.fmt.allocPrint(self.allocator, "{{ i8, {s} }}", .{body_type_str});
+                defer self.allocator.free(frame_type);
+
+                try self.output.writer(self.allocator).print("  {s} = alloca {s}\n", .{ frame_ptr, frame_type });
+
+                // Initialize status to pending (0)
+                const status_ptr = try self.allocTempName();
+                defer self.allocator.free(status_ptr);
+                try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds {s}, ptr {s}, i32 0, i32 0\n", .{ status_ptr, frame_type, frame_ptr });
+                try self.output.writer(self.allocator).print("  store i8 0, ptr {s}\n", .{status_ptr});
+
+                // Evaluate the body synchronously (simplified - no actual coroutine yet)
+                const body_val = try self.generateExpression(spawn_expr.body, null);
+                defer self.allocator.free(body_val);
+
+                // Store result in task frame
+                const result_ptr = try self.allocTempName();
+                defer self.allocator.free(result_ptr);
+                try self.output.writer(self.allocator).print("  {s} = getelementptr inbounds {s}, ptr {s}, i32 0, i32 1\n", .{ result_ptr, frame_type, frame_ptr });
+                try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ body_type_str, body_val, result_ptr });
+
+                // Mark as completed (1)
+                try self.output.writer(self.allocator).print("  store i8 1, ptr {s}\n", .{status_ptr});
+
+                // Return the task frame pointer (Task handle)
+                return frame_ptr;
+            },
+            .select_expr => {
+                // select { ... } - multi-channel wait
+                // Full implementation in Phase 5
+                std.debug.print("select expressions not yet implemented in codegen\n", .{});
                 unreachable;
             },
         }
