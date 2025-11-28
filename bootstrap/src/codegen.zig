@@ -1794,32 +1794,53 @@ pub const Codegen = struct {
                     arm_labels[i] = try self.allocLabel("match_arm");
                 }
 
+                // Find if there's a catch-all (identifier) pattern
+                var default_label: ?[]const u8 = null;
+                var catch_all_idx: ?usize = null;
+                for (match_expr.arms, 0..) |arm, i| {
+                    if (arm.pattern == .identifier) {
+                        default_label = arm_labels[i];
+                        catch_all_idx = i;
+                        break;
+                    }
+                }
+
+                // If no catch-all, create a default unreachable label
+                const actual_default = default_label orelse blk: {
+                    const unreachable_label = try self.allocLabel("match_unreachable");
+                    break :blk unreachable_label;
+                };
+                defer if (default_label == null) self.allocator.free(actual_default);
+
                 // Generate switch instruction
                 try self.output.writer(self.allocator).print("  switch i64 {s}, label %{s} [", .{
                     tag_temp,
-                    arm_labels[0],
+                    actual_default,
                 });
 
                 // Add cases for each constructor pattern
+                var first_case = true;
                 for (match_expr.arms, 0..) |arm, i| {
                     switch (arm.pattern) {
-                        .identifier => {},
+                        .identifier => {}, // Skip catch-all, it's the default
                         .constructor => |constructor| {
                             // Find the variant index
                             for (typedef_info.type_value.kind.sum_type, 0..) |variant, variant_idx| {
                                 if (std.mem.eql(u8, variant.name, constructor.name)) {
-                                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-                                    try self.output.writer(self.allocator).print("\n    i64 {d}, label %{s}", .{
+                                    // Add comma and space separator between cases
+                                    if (!first_case) try self.output.appendSlice(self.allocator, ", ");
+                                    try self.output.writer(self.allocator).print("i64 {d}, label %{s}", .{
                                         variant_idx,
                                         arm_labels[i],
                                     });
+                                    first_case = false;
                                     break;
                                 }
                             }
                         },
                     }
                 }
-                try self.output.appendSlice(self.allocator, "\n  ]\n");
+                try self.output.appendSlice(self.allocator, " ]\n");
 
                 // Generate code for each arm
                 var arm_vals = try self.allocator.alloc([]const u8, match_expr.arms.len);
@@ -1933,6 +1954,12 @@ pub const Codegen = struct {
                             }
                         },
                     }
+                }
+
+                // Emit unreachable default label if it was created
+                if (default_label == null) {
+                    try self.output.writer(self.allocator).print("{s}:\n", .{actual_default});
+                    try self.output.appendSlice(self.allocator, "  unreachable\n");
                 }
 
                 // Merge block with phi

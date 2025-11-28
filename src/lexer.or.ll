@@ -1005,64 +1005,62 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t599 = load { i64, [8 x i8] }, ptr %res.addr
   %.t600 = extractvalue { i64, [8 x i8] } %.t599, 0
-  switch i64 %.t600, label %match_arm602 [
-    i64 0, label %match_arm602, 
-    i64 1, label %match_arm603
-  ]
+  switch i64 %.t600, label %match_unreachable604 [i64 0, label %match_arm602, i64 1, label %match_arm603 ]
 match_arm602:
-  %.t604 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t599, ptr %.t604
-  %.t605 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t604, i32 0, i32 1
-  %.t606 = getelementptr inbounds i8, ptr %.t605, i32 0
-  %.t607 = alloca i64
-  %.t608 = load i64, ptr %.t606
-  store i64 %.t608, ptr %.t607
+  %.t605 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t599, ptr %.t605
+  %.t606 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t605, i32 0, i32 1
+  %.t607 = getelementptr inbounds i8, ptr %.t606, i32 0
+  %.t608 = alloca i64
+  %.t609 = load i64, ptr %.t607
+  store i64 %.t609, ptr %.t608
   br label %match_merge601
 match_arm603:
-  %.t609 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t599, ptr %.t609
-  %.t610 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t609, i32 0, i32 1
-  %.t611 = getelementptr inbounds i8, ptr %.t610, i32 0
-  %.t612 = alloca { i64, [8 x i8] }
-  %.t613 = load { i64, [8 x i8] }, ptr %.t611
-  store { i64, [8 x i8] } %.t613, ptr %.t612
+  %.t610 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t599, ptr %.t610
+  %.t611 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t610, i32 0, i32 1
+  %.t612 = getelementptr inbounds i8, ptr %.t611, i32 0
+  %.t613 = alloca { i64, [8 x i8] }
+  %.t614 = load { i64, [8 x i8] }, ptr %.t612
+  store { i64, [8 x i8] } %.t614, ptr %.t613
   br label %match_merge601
+match_unreachable604:
+  unreachable
 match_merge601:
-  %.t614 = phi i1 [ 1, %match_arm602 ], [ 0, %match_arm603 ]
-  ret i1 %.t614
+  %.t615 = phi i1 [ 1, %match_arm602 ], [ 0, %match_arm603 ]
+  ret i1 %.t615
 }
 
 define i1 @Result$$i64$Error$$__is_err({ i64, [8 x i8] } %res) {
 entry:
   %res.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %res, ptr %res.addr
-  %.t615 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t616 = extractvalue { i64, [8 x i8] } %.t615, 0
-  switch i64 %.t616, label %match_arm618 [
-    i64 0, label %match_arm618, 
-    i64 1, label %match_arm619
-  ]
-match_arm618:
-  %.t620 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t615, ptr %.t620
-  %.t621 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t620, i32 0, i32 1
-  %.t622 = getelementptr inbounds i8, ptr %.t621, i32 0
-  %.t623 = alloca i64
-  %.t624 = load i64, ptr %.t622
-  store i64 %.t624, ptr %.t623
-  br label %match_merge617
+  %.t616 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t617 = extractvalue { i64, [8 x i8] } %.t616, 0
+  switch i64 %.t617, label %match_unreachable621 [i64 0, label %match_arm619, i64 1, label %match_arm620 ]
 match_arm619:
-  %.t625 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t615, ptr %.t625
-  %.t626 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t625, i32 0, i32 1
-  %.t627 = getelementptr inbounds i8, ptr %.t626, i32 0
-  %.t628 = alloca { i64, [8 x i8] }
-  %.t629 = load { i64, [8 x i8] }, ptr %.t627
-  store { i64, [8 x i8] } %.t629, ptr %.t628
-  br label %match_merge617
-match_merge617:
-  %.t630 = phi i1 [ 0, %match_arm618 ], [ 1, %match_arm619 ]
-  ret i1 %.t630
+  %.t622 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t616, ptr %.t622
+  %.t623 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t622, i32 0, i32 1
+  %.t624 = getelementptr inbounds i8, ptr %.t623, i32 0
+  %.t625 = alloca i64
+  %.t626 = load i64, ptr %.t624
+  store i64 %.t626, ptr %.t625
+  br label %match_merge618
+match_arm620:
+  %.t627 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t616, ptr %.t627
+  %.t628 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t627, i32 0, i32 1
+  %.t629 = getelementptr inbounds i8, ptr %.t628, i32 0
+  %.t630 = alloca { i64, [8 x i8] }
+  %.t631 = load { i64, [8 x i8] }, ptr %.t629
+  store { i64, [8 x i8] } %.t631, ptr %.t630
+  br label %match_merge618
+match_unreachable621:
+  unreachable
+match_merge618:
+  %.t632 = phi i1 [ 0, %match_arm619 ], [ 1, %match_arm620 ]
+  ret i1 %.t632
 }
 
 define i64 @Result$$i64$Error$$__unwrap_or({ i64, [8 x i8] } %res, i64 %fallback) {
@@ -1071,104 +1069,101 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %fallback.addr = alloca i64
   store i64 %fallback, ptr %fallback.addr
-  %.t631 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t632 = extractvalue { i64, [8 x i8] } %.t631, 0
-  switch i64 %.t632, label %match_arm634 [
-    i64 0, label %match_arm634, 
-    i64 1, label %match_arm635
-  ]
-match_arm634:
-  %.t636 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t631, ptr %.t636
-  %.t637 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t636, i32 0, i32 1
-  %.t638 = getelementptr inbounds i8, ptr %.t637, i32 0
-  %.t639 = alloca i64
-  %.t640 = load i64, ptr %.t638
-  store i64 %.t640, ptr %.t639
-  %.t641 = load i64, ptr %.t639
-  %.t642 = trunc i64 %.t641 to i32
-  br label %match_merge633
-match_arm635:
-  %.t643 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t631, ptr %.t643
-  %.t644 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t643, i32 0, i32 1
-  %.t645 = getelementptr inbounds i8, ptr %.t644, i32 0
+  %.t633 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t634 = extractvalue { i64, [8 x i8] } %.t633, 0
+  switch i64 %.t634, label %match_unreachable638 [i64 0, label %match_arm636, i64 1, label %match_arm637 ]
+match_arm636:
+  %.t639 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t633, ptr %.t639
+  %.t640 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t639, i32 0, i32 1
+  %.t641 = getelementptr inbounds i8, ptr %.t640, i32 0
+  %.t642 = alloca i64
+  %.t643 = load i64, ptr %.t641
+  store i64 %.t643, ptr %.t642
+  %.t644 = load i64, ptr %.t642
+  %.t645 = trunc i64 %.t644 to i32
+  br label %match_merge635
+match_arm637:
   %.t646 = alloca { i64, [8 x i8] }
-  %.t647 = load { i64, [8 x i8] }, ptr %.t645
-  store { i64, [8 x i8] } %.t647, ptr %.t646
-  %.t648 = load i64, ptr %fallback.addr
-  %.t649 = trunc i64 %.t648 to i32
-  br label %match_merge633
-match_merge633:
-  %.t650 = phi i32 [ %.t642, %match_arm634 ], [ %.t649, %match_arm635 ]
-  %.t651 = sext i32 %.t650 to i64
-  ret i64 %.t651
+  store { i64, [8 x i8] } %.t633, ptr %.t646
+  %.t647 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t646, i32 0, i32 1
+  %.t648 = getelementptr inbounds i8, ptr %.t647, i32 0
+  %.t649 = alloca { i64, [8 x i8] }
+  %.t650 = load { i64, [8 x i8] }, ptr %.t648
+  store { i64, [8 x i8] } %.t650, ptr %.t649
+  %.t651 = load i64, ptr %fallback.addr
+  %.t652 = trunc i64 %.t651 to i32
+  br label %match_merge635
+match_unreachable638:
+  unreachable
+match_merge635:
+  %.t653 = phi i32 [ %.t645, %match_arm636 ], [ %.t652, %match_arm637 ]
+  %.t654 = sext i32 %.t653 to i64
+  ret i64 %.t654
 }
 
 define i1 @Result$$u64$Error$$__is_ok({ i64, [8 x i8] } %res) {
 entry:
   %res.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %res, ptr %res.addr
-  %.t652 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t653 = extractvalue { i64, [8 x i8] } %.t652, 0
-  switch i64 %.t653, label %match_arm655 [
-    i64 0, label %match_arm655, 
-    i64 1, label %match_arm656
-  ]
-match_arm655:
-  %.t657 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t652, ptr %.t657
-  %.t658 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t657, i32 0, i32 1
-  %.t659 = getelementptr inbounds i8, ptr %.t658, i32 0
-  %.t660 = alloca i64
-  %.t661 = load i64, ptr %.t659
-  store i64 %.t661, ptr %.t660
-  br label %match_merge654
-match_arm656:
-  %.t662 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t652, ptr %.t662
-  %.t663 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t662, i32 0, i32 1
-  %.t664 = getelementptr inbounds i8, ptr %.t663, i32 0
-  %.t665 = alloca { i64, [8 x i8] }
-  %.t666 = load { i64, [8 x i8] }, ptr %.t664
-  store { i64, [8 x i8] } %.t666, ptr %.t665
-  br label %match_merge654
-match_merge654:
-  %.t667 = phi i1 [ 1, %match_arm655 ], [ 0, %match_arm656 ]
-  ret i1 %.t667
+  %.t655 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t656 = extractvalue { i64, [8 x i8] } %.t655, 0
+  switch i64 %.t656, label %match_unreachable660 [i64 0, label %match_arm658, i64 1, label %match_arm659 ]
+match_arm658:
+  %.t661 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t655, ptr %.t661
+  %.t662 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t661, i32 0, i32 1
+  %.t663 = getelementptr inbounds i8, ptr %.t662, i32 0
+  %.t664 = alloca i64
+  %.t665 = load i64, ptr %.t663
+  store i64 %.t665, ptr %.t664
+  br label %match_merge657
+match_arm659:
+  %.t666 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t655, ptr %.t666
+  %.t667 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t666, i32 0, i32 1
+  %.t668 = getelementptr inbounds i8, ptr %.t667, i32 0
+  %.t669 = alloca { i64, [8 x i8] }
+  %.t670 = load { i64, [8 x i8] }, ptr %.t668
+  store { i64, [8 x i8] } %.t670, ptr %.t669
+  br label %match_merge657
+match_unreachable660:
+  unreachable
+match_merge657:
+  %.t671 = phi i1 [ 1, %match_arm658 ], [ 0, %match_arm659 ]
+  ret i1 %.t671
 }
 
 define i1 @Result$$u64$Error$$__is_err({ i64, [8 x i8] } %res) {
 entry:
   %res.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %res, ptr %res.addr
-  %.t668 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t669 = extractvalue { i64, [8 x i8] } %.t668, 0
-  switch i64 %.t669, label %match_arm671 [
-    i64 0, label %match_arm671, 
-    i64 1, label %match_arm672
-  ]
-match_arm671:
-  %.t673 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t668, ptr %.t673
-  %.t674 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t673, i32 0, i32 1
-  %.t675 = getelementptr inbounds i8, ptr %.t674, i32 0
-  %.t676 = alloca i64
-  %.t677 = load i64, ptr %.t675
-  store i64 %.t677, ptr %.t676
-  br label %match_merge670
-match_arm672:
+  %.t672 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t673 = extractvalue { i64, [8 x i8] } %.t672, 0
+  switch i64 %.t673, label %match_unreachable677 [i64 0, label %match_arm675, i64 1, label %match_arm676 ]
+match_arm675:
   %.t678 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t668, ptr %.t678
+  store { i64, [8 x i8] } %.t672, ptr %.t678
   %.t679 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t678, i32 0, i32 1
   %.t680 = getelementptr inbounds i8, ptr %.t679, i32 0
-  %.t681 = alloca { i64, [8 x i8] }
-  %.t682 = load { i64, [8 x i8] }, ptr %.t680
-  store { i64, [8 x i8] } %.t682, ptr %.t681
-  br label %match_merge670
-match_merge670:
-  %.t683 = phi i1 [ 0, %match_arm671 ], [ 1, %match_arm672 ]
-  ret i1 %.t683
+  %.t681 = alloca i64
+  %.t682 = load i64, ptr %.t680
+  store i64 %.t682, ptr %.t681
+  br label %match_merge674
+match_arm676:
+  %.t683 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t672, ptr %.t683
+  %.t684 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t683, i32 0, i32 1
+  %.t685 = getelementptr inbounds i8, ptr %.t684, i32 0
+  %.t686 = alloca { i64, [8 x i8] }
+  %.t687 = load { i64, [8 x i8] }, ptr %.t685
+  store { i64, [8 x i8] } %.t687, ptr %.t686
+  br label %match_merge674
+match_unreachable677:
+  unreachable
+match_merge674:
+  %.t688 = phi i1 [ 0, %match_arm675 ], [ 1, %match_arm676 ]
+  ret i1 %.t688
 }
 
 define i64 @Result$$u64$Error$$__unwrap_or({ i64, [8 x i8] } %res, i64 %fallback) {
@@ -1177,104 +1172,101 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %fallback.addr = alloca i64
   store i64 %fallback, ptr %fallback.addr
-  %.t684 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t685 = extractvalue { i64, [8 x i8] } %.t684, 0
-  switch i64 %.t685, label %match_arm687 [
-    i64 0, label %match_arm687, 
-    i64 1, label %match_arm688
-  ]
-match_arm687:
-  %.t689 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t684, ptr %.t689
-  %.t690 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t689, i32 0, i32 1
-  %.t691 = getelementptr inbounds i8, ptr %.t690, i32 0
-  %.t692 = alloca i64
-  %.t693 = load i64, ptr %.t691
-  store i64 %.t693, ptr %.t692
-  %.t694 = load i64, ptr %.t692
-  %.t695 = trunc i64 %.t694 to i32
-  br label %match_merge686
-match_arm688:
-  %.t696 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t684, ptr %.t696
-  %.t697 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t696, i32 0, i32 1
-  %.t698 = getelementptr inbounds i8, ptr %.t697, i32 0
-  %.t699 = alloca { i64, [8 x i8] }
-  %.t700 = load { i64, [8 x i8] }, ptr %.t698
-  store { i64, [8 x i8] } %.t700, ptr %.t699
-  %.t701 = load i64, ptr %fallback.addr
-  %.t702 = trunc i64 %.t701 to i32
-  br label %match_merge686
-match_merge686:
-  %.t703 = phi i32 [ %.t695, %match_arm687 ], [ %.t702, %match_arm688 ]
-  %.t704 = sext i32 %.t703 to i64
-  ret i64 %.t704
+  %.t689 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t690 = extractvalue { i64, [8 x i8] } %.t689, 0
+  switch i64 %.t690, label %match_unreachable694 [i64 0, label %match_arm692, i64 1, label %match_arm693 ]
+match_arm692:
+  %.t695 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t689, ptr %.t695
+  %.t696 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t695, i32 0, i32 1
+  %.t697 = getelementptr inbounds i8, ptr %.t696, i32 0
+  %.t698 = alloca i64
+  %.t699 = load i64, ptr %.t697
+  store i64 %.t699, ptr %.t698
+  %.t700 = load i64, ptr %.t698
+  %.t701 = trunc i64 %.t700 to i32
+  br label %match_merge691
+match_arm693:
+  %.t702 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t689, ptr %.t702
+  %.t703 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t702, i32 0, i32 1
+  %.t704 = getelementptr inbounds i8, ptr %.t703, i32 0
+  %.t705 = alloca { i64, [8 x i8] }
+  %.t706 = load { i64, [8 x i8] }, ptr %.t704
+  store { i64, [8 x i8] } %.t706, ptr %.t705
+  %.t707 = load i64, ptr %fallback.addr
+  %.t708 = trunc i64 %.t707 to i32
+  br label %match_merge691
+match_unreachable694:
+  unreachable
+match_merge691:
+  %.t709 = phi i32 [ %.t701, %match_arm692 ], [ %.t708, %match_arm693 ]
+  %.t710 = sext i32 %.t709 to i64
+  ret i64 %.t710
 }
 
 define i1 @Result$$str$Error$$__is_ok({ i64, [8 x i8] } %res) {
 entry:
   %res.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %res, ptr %res.addr
-  %.t705 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t706 = extractvalue { i64, [8 x i8] } %.t705, 0
-  switch i64 %.t706, label %match_arm708 [
-    i64 0, label %match_arm708, 
-    i64 1, label %match_arm709
-  ]
-match_arm708:
-  %.t710 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t705, ptr %.t710
-  %.t711 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t710, i32 0, i32 1
-  %.t712 = getelementptr inbounds i8, ptr %.t711, i32 0
-  %.t713 = alloca ptr
-  %.t714 = load ptr, ptr %.t712
-  store ptr %.t714, ptr %.t713
-  br label %match_merge707
-match_arm709:
-  %.t715 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t705, ptr %.t715
-  %.t716 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t715, i32 0, i32 1
-  %.t717 = getelementptr inbounds i8, ptr %.t716, i32 0
-  %.t718 = alloca { i64, [8 x i8] }
-  %.t719 = load { i64, [8 x i8] }, ptr %.t717
-  store { i64, [8 x i8] } %.t719, ptr %.t718
-  br label %match_merge707
-match_merge707:
-  %.t720 = phi i1 [ 1, %match_arm708 ], [ 0, %match_arm709 ]
-  ret i1 %.t720
+  %.t711 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t712 = extractvalue { i64, [8 x i8] } %.t711, 0
+  switch i64 %.t712, label %match_unreachable716 [i64 0, label %match_arm714, i64 1, label %match_arm715 ]
+match_arm714:
+  %.t717 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t711, ptr %.t717
+  %.t718 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t717, i32 0, i32 1
+  %.t719 = getelementptr inbounds i8, ptr %.t718, i32 0
+  %.t720 = alloca ptr
+  %.t721 = load ptr, ptr %.t719
+  store ptr %.t721, ptr %.t720
+  br label %match_merge713
+match_arm715:
+  %.t722 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t711, ptr %.t722
+  %.t723 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t722, i32 0, i32 1
+  %.t724 = getelementptr inbounds i8, ptr %.t723, i32 0
+  %.t725 = alloca { i64, [8 x i8] }
+  %.t726 = load { i64, [8 x i8] }, ptr %.t724
+  store { i64, [8 x i8] } %.t726, ptr %.t725
+  br label %match_merge713
+match_unreachable716:
+  unreachable
+match_merge713:
+  %.t727 = phi i1 [ 1, %match_arm714 ], [ 0, %match_arm715 ]
+  ret i1 %.t727
 }
 
 define i1 @Result$$str$Error$$__is_err({ i64, [8 x i8] } %res) {
 entry:
   %res.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %res, ptr %res.addr
-  %.t721 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t722 = extractvalue { i64, [8 x i8] } %.t721, 0
-  switch i64 %.t722, label %match_arm724 [
-    i64 0, label %match_arm724, 
-    i64 1, label %match_arm725
-  ]
-match_arm724:
-  %.t726 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t721, ptr %.t726
-  %.t727 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t726, i32 0, i32 1
-  %.t728 = getelementptr inbounds i8, ptr %.t727, i32 0
-  %.t729 = alloca ptr
-  %.t730 = load ptr, ptr %.t728
-  store ptr %.t730, ptr %.t729
-  br label %match_merge723
-match_arm725:
-  %.t731 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t721, ptr %.t731
-  %.t732 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t731, i32 0, i32 1
-  %.t733 = getelementptr inbounds i8, ptr %.t732, i32 0
+  %.t728 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t729 = extractvalue { i64, [8 x i8] } %.t728, 0
+  switch i64 %.t729, label %match_unreachable733 [i64 0, label %match_arm731, i64 1, label %match_arm732 ]
+match_arm731:
   %.t734 = alloca { i64, [8 x i8] }
-  %.t735 = load { i64, [8 x i8] }, ptr %.t733
-  store { i64, [8 x i8] } %.t735, ptr %.t734
-  br label %match_merge723
-match_merge723:
-  %.t736 = phi i1 [ 0, %match_arm724 ], [ 1, %match_arm725 ]
-  ret i1 %.t736
+  store { i64, [8 x i8] } %.t728, ptr %.t734
+  %.t735 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t734, i32 0, i32 1
+  %.t736 = getelementptr inbounds i8, ptr %.t735, i32 0
+  %.t737 = alloca ptr
+  %.t738 = load ptr, ptr %.t736
+  store ptr %.t738, ptr %.t737
+  br label %match_merge730
+match_arm732:
+  %.t739 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t728, ptr %.t739
+  %.t740 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t739, i32 0, i32 1
+  %.t741 = getelementptr inbounds i8, ptr %.t740, i32 0
+  %.t742 = alloca { i64, [8 x i8] }
+  %.t743 = load { i64, [8 x i8] }, ptr %.t741
+  store { i64, [8 x i8] } %.t743, ptr %.t742
+  br label %match_merge730
+match_unreachable733:
+  unreachable
+match_merge730:
+  %.t744 = phi i1 [ 0, %match_arm731 ], [ 1, %match_arm732 ]
+  ret i1 %.t744
 }
 
 define ptr @Result$$str$Error$$__unwrap_or({ i64, [8 x i8] } %res, ptr %fallback) {
@@ -1283,104 +1275,101 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %fallback.addr = alloca ptr
   store ptr %fallback, ptr %fallback.addr
-  %.t737 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t738 = extractvalue { i64, [8 x i8] } %.t737, 0
-  switch i64 %.t738, label %match_arm740 [
-    i64 0, label %match_arm740, 
-    i64 1, label %match_arm741
-  ]
-match_arm740:
-  %.t742 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t737, ptr %.t742
-  %.t743 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t742, i32 0, i32 1
-  %.t744 = getelementptr inbounds i8, ptr %.t743, i32 0
-  %.t745 = alloca ptr
-  %.t746 = load ptr, ptr %.t744
-  store ptr %.t746, ptr %.t745
-  %.t747 = load ptr, ptr %.t745
-  %.t748 = ptrtoint ptr %.t747 to i32
-  br label %match_merge739
-match_arm741:
-  %.t749 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t737, ptr %.t749
-  %.t750 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t749, i32 0, i32 1
-  %.t751 = getelementptr inbounds i8, ptr %.t750, i32 0
-  %.t752 = alloca { i64, [8 x i8] }
-  %.t753 = load { i64, [8 x i8] }, ptr %.t751
-  store { i64, [8 x i8] } %.t753, ptr %.t752
-  %.t754 = load ptr, ptr %fallback.addr
-  %.t755 = ptrtoint ptr %.t754 to i32
-  br label %match_merge739
-match_merge739:
-  %.t756 = phi i32 [ %.t748, %match_arm740 ], [ %.t755, %match_arm741 ]
-  %.t757 = inttoptr i32 %.t756 to ptr
-  ret ptr %.t757
+  %.t745 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t746 = extractvalue { i64, [8 x i8] } %.t745, 0
+  switch i64 %.t746, label %match_unreachable750 [i64 0, label %match_arm748, i64 1, label %match_arm749 ]
+match_arm748:
+  %.t751 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t745, ptr %.t751
+  %.t752 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t751, i32 0, i32 1
+  %.t753 = getelementptr inbounds i8, ptr %.t752, i32 0
+  %.t754 = alloca ptr
+  %.t755 = load ptr, ptr %.t753
+  store ptr %.t755, ptr %.t754
+  %.t756 = load ptr, ptr %.t754
+  %.t757 = ptrtoint ptr %.t756 to i32
+  br label %match_merge747
+match_arm749:
+  %.t758 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t745, ptr %.t758
+  %.t759 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t758, i32 0, i32 1
+  %.t760 = getelementptr inbounds i8, ptr %.t759, i32 0
+  %.t761 = alloca { i64, [8 x i8] }
+  %.t762 = load { i64, [8 x i8] }, ptr %.t760
+  store { i64, [8 x i8] } %.t762, ptr %.t761
+  %.t763 = load ptr, ptr %fallback.addr
+  %.t764 = ptrtoint ptr %.t763 to i32
+  br label %match_merge747
+match_unreachable750:
+  unreachable
+match_merge747:
+  %.t765 = phi i32 [ %.t757, %match_arm748 ], [ %.t764, %match_arm749 ]
+  %.t766 = inttoptr i32 %.t765 to ptr
+  ret ptr %.t766
 }
 
 define i1 @Result$$ptr$Error$$__is_ok({ i64, [8 x i8] } %res) {
 entry:
   %res.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %res, ptr %res.addr
-  %.t758 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t759 = extractvalue { i64, [8 x i8] } %.t758, 0
-  switch i64 %.t759, label %match_arm761 [
-    i64 0, label %match_arm761, 
-    i64 1, label %match_arm762
-  ]
-match_arm761:
-  %.t763 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t758, ptr %.t763
-  %.t764 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t763, i32 0, i32 1
-  %.t765 = getelementptr inbounds i8, ptr %.t764, i32 0
-  %.t766 = alloca ptr
-  %.t767 = load ptr, ptr %.t765
-  store ptr %.t767, ptr %.t766
-  br label %match_merge760
-match_arm762:
-  %.t768 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t758, ptr %.t768
-  %.t769 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t768, i32 0, i32 1
-  %.t770 = getelementptr inbounds i8, ptr %.t769, i32 0
-  %.t771 = alloca { i64, [8 x i8] }
-  %.t772 = load { i64, [8 x i8] }, ptr %.t770
-  store { i64, [8 x i8] } %.t772, ptr %.t771
-  br label %match_merge760
-match_merge760:
-  %.t773 = phi i1 [ 1, %match_arm761 ], [ 0, %match_arm762 ]
-  ret i1 %.t773
+  %.t767 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t768 = extractvalue { i64, [8 x i8] } %.t767, 0
+  switch i64 %.t768, label %match_unreachable772 [i64 0, label %match_arm770, i64 1, label %match_arm771 ]
+match_arm770:
+  %.t773 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t767, ptr %.t773
+  %.t774 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t773, i32 0, i32 1
+  %.t775 = getelementptr inbounds i8, ptr %.t774, i32 0
+  %.t776 = alloca ptr
+  %.t777 = load ptr, ptr %.t775
+  store ptr %.t777, ptr %.t776
+  br label %match_merge769
+match_arm771:
+  %.t778 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t767, ptr %.t778
+  %.t779 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t778, i32 0, i32 1
+  %.t780 = getelementptr inbounds i8, ptr %.t779, i32 0
+  %.t781 = alloca { i64, [8 x i8] }
+  %.t782 = load { i64, [8 x i8] }, ptr %.t780
+  store { i64, [8 x i8] } %.t782, ptr %.t781
+  br label %match_merge769
+match_unreachable772:
+  unreachable
+match_merge769:
+  %.t783 = phi i1 [ 1, %match_arm770 ], [ 0, %match_arm771 ]
+  ret i1 %.t783
 }
 
 define i1 @Result$$ptr$Error$$__is_err({ i64, [8 x i8] } %res) {
 entry:
   %res.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %res, ptr %res.addr
-  %.t774 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t775 = extractvalue { i64, [8 x i8] } %.t774, 0
-  switch i64 %.t775, label %match_arm777 [
-    i64 0, label %match_arm777, 
-    i64 1, label %match_arm778
-  ]
-match_arm777:
-  %.t779 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t774, ptr %.t779
-  %.t780 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t779, i32 0, i32 1
-  %.t781 = getelementptr inbounds i8, ptr %.t780, i32 0
-  %.t782 = alloca ptr
-  %.t783 = load ptr, ptr %.t781
-  store ptr %.t783, ptr %.t782
-  br label %match_merge776
-match_arm778:
-  %.t784 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t774, ptr %.t784
-  %.t785 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t784, i32 0, i32 1
-  %.t786 = getelementptr inbounds i8, ptr %.t785, i32 0
-  %.t787 = alloca { i64, [8 x i8] }
-  %.t788 = load { i64, [8 x i8] }, ptr %.t786
-  store { i64, [8 x i8] } %.t788, ptr %.t787
-  br label %match_merge776
-match_merge776:
-  %.t789 = phi i1 [ 0, %match_arm777 ], [ 1, %match_arm778 ]
-  ret i1 %.t789
+  %.t784 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t785 = extractvalue { i64, [8 x i8] } %.t784, 0
+  switch i64 %.t785, label %match_unreachable789 [i64 0, label %match_arm787, i64 1, label %match_arm788 ]
+match_arm787:
+  %.t790 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t784, ptr %.t790
+  %.t791 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t790, i32 0, i32 1
+  %.t792 = getelementptr inbounds i8, ptr %.t791, i32 0
+  %.t793 = alloca ptr
+  %.t794 = load ptr, ptr %.t792
+  store ptr %.t794, ptr %.t793
+  br label %match_merge786
+match_arm788:
+  %.t795 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t784, ptr %.t795
+  %.t796 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t795, i32 0, i32 1
+  %.t797 = getelementptr inbounds i8, ptr %.t796, i32 0
+  %.t798 = alloca { i64, [8 x i8] }
+  %.t799 = load { i64, [8 x i8] }, ptr %.t797
+  store { i64, [8 x i8] } %.t799, ptr %.t798
+  br label %match_merge786
+match_unreachable789:
+  unreachable
+match_merge786:
+  %.t800 = phi i1 [ 0, %match_arm787 ], [ 1, %match_arm788 ]
+  ret i1 %.t800
 }
 
 define ptr @Result$$ptr$Error$$__unwrap_or({ i64, [8 x i8] } %res, ptr %fallback) {
@@ -1389,104 +1378,101 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %fallback.addr = alloca ptr
   store ptr %fallback, ptr %fallback.addr
-  %.t790 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t791 = extractvalue { i64, [8 x i8] } %.t790, 0
-  switch i64 %.t791, label %match_arm793 [
-    i64 0, label %match_arm793, 
-    i64 1, label %match_arm794
-  ]
-match_arm793:
-  %.t795 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t790, ptr %.t795
-  %.t796 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t795, i32 0, i32 1
-  %.t797 = getelementptr inbounds i8, ptr %.t796, i32 0
-  %.t798 = alloca ptr
-  %.t799 = load ptr, ptr %.t797
-  store ptr %.t799, ptr %.t798
-  %.t800 = load ptr, ptr %.t798
-  %.t801 = ptrtoint ptr %.t800 to i32
-  br label %match_merge792
-match_arm794:
-  %.t802 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t790, ptr %.t802
-  %.t803 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t802, i32 0, i32 1
-  %.t804 = getelementptr inbounds i8, ptr %.t803, i32 0
-  %.t805 = alloca { i64, [8 x i8] }
-  %.t806 = load { i64, [8 x i8] }, ptr %.t804
-  store { i64, [8 x i8] } %.t806, ptr %.t805
-  %.t807 = load ptr, ptr %fallback.addr
-  %.t808 = ptrtoint ptr %.t807 to i32
-  br label %match_merge792
-match_merge792:
-  %.t809 = phi i32 [ %.t801, %match_arm793 ], [ %.t808, %match_arm794 ]
-  %.t810 = inttoptr i32 %.t809 to ptr
-  ret ptr %.t810
+  %.t801 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t802 = extractvalue { i64, [8 x i8] } %.t801, 0
+  switch i64 %.t802, label %match_unreachable806 [i64 0, label %match_arm804, i64 1, label %match_arm805 ]
+match_arm804:
+  %.t807 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t801, ptr %.t807
+  %.t808 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t807, i32 0, i32 1
+  %.t809 = getelementptr inbounds i8, ptr %.t808, i32 0
+  %.t810 = alloca ptr
+  %.t811 = load ptr, ptr %.t809
+  store ptr %.t811, ptr %.t810
+  %.t812 = load ptr, ptr %.t810
+  %.t813 = ptrtoint ptr %.t812 to i32
+  br label %match_merge803
+match_arm805:
+  %.t814 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t801, ptr %.t814
+  %.t815 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t814, i32 0, i32 1
+  %.t816 = getelementptr inbounds i8, ptr %.t815, i32 0
+  %.t817 = alloca { i64, [8 x i8] }
+  %.t818 = load { i64, [8 x i8] }, ptr %.t816
+  store { i64, [8 x i8] } %.t818, ptr %.t817
+  %.t819 = load ptr, ptr %fallback.addr
+  %.t820 = ptrtoint ptr %.t819 to i32
+  br label %match_merge803
+match_unreachable806:
+  unreachable
+match_merge803:
+  %.t821 = phi i32 [ %.t813, %match_arm804 ], [ %.t820, %match_arm805 ]
+  %.t822 = inttoptr i32 %.t821 to ptr
+  ret ptr %.t822
 }
 
 define i1 @Result$$bool$Error$$__is_ok({ i64, [8 x i8] } %res) {
 entry:
   %res.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %res, ptr %res.addr
-  %.t811 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t812 = extractvalue { i64, [8 x i8] } %.t811, 0
-  switch i64 %.t812, label %match_arm814 [
-    i64 0, label %match_arm814, 
-    i64 1, label %match_arm815
-  ]
-match_arm814:
-  %.t816 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t811, ptr %.t816
-  %.t817 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t816, i32 0, i32 1
-  %.t818 = getelementptr inbounds i8, ptr %.t817, i32 0
-  %.t819 = alloca i1
-  %.t820 = load i1, ptr %.t818
-  store i1 %.t820, ptr %.t819
-  br label %match_merge813
-match_arm815:
-  %.t821 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t811, ptr %.t821
-  %.t822 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t821, i32 0, i32 1
-  %.t823 = getelementptr inbounds i8, ptr %.t822, i32 0
-  %.t824 = alloca { i64, [8 x i8] }
-  %.t825 = load { i64, [8 x i8] }, ptr %.t823
-  store { i64, [8 x i8] } %.t825, ptr %.t824
-  br label %match_merge813
-match_merge813:
-  %.t826 = phi i1 [ 1, %match_arm814 ], [ 0, %match_arm815 ]
-  ret i1 %.t826
+  %.t823 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t824 = extractvalue { i64, [8 x i8] } %.t823, 0
+  switch i64 %.t824, label %match_unreachable828 [i64 0, label %match_arm826, i64 1, label %match_arm827 ]
+match_arm826:
+  %.t829 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t823, ptr %.t829
+  %.t830 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t829, i32 0, i32 1
+  %.t831 = getelementptr inbounds i8, ptr %.t830, i32 0
+  %.t832 = alloca i1
+  %.t833 = load i1, ptr %.t831
+  store i1 %.t833, ptr %.t832
+  br label %match_merge825
+match_arm827:
+  %.t834 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t823, ptr %.t834
+  %.t835 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t834, i32 0, i32 1
+  %.t836 = getelementptr inbounds i8, ptr %.t835, i32 0
+  %.t837 = alloca { i64, [8 x i8] }
+  %.t838 = load { i64, [8 x i8] }, ptr %.t836
+  store { i64, [8 x i8] } %.t838, ptr %.t837
+  br label %match_merge825
+match_unreachable828:
+  unreachable
+match_merge825:
+  %.t839 = phi i1 [ 1, %match_arm826 ], [ 0, %match_arm827 ]
+  ret i1 %.t839
 }
 
 define i1 @Result$$bool$Error$$__is_err({ i64, [8 x i8] } %res) {
 entry:
   %res.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %res, ptr %res.addr
-  %.t827 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t828 = extractvalue { i64, [8 x i8] } %.t827, 0
-  switch i64 %.t828, label %match_arm830 [
-    i64 0, label %match_arm830, 
-    i64 1, label %match_arm831
-  ]
-match_arm830:
-  %.t832 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t827, ptr %.t832
-  %.t833 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t832, i32 0, i32 1
-  %.t834 = getelementptr inbounds i8, ptr %.t833, i32 0
-  %.t835 = alloca i1
-  %.t836 = load i1, ptr %.t834
-  store i1 %.t836, ptr %.t835
-  br label %match_merge829
-match_arm831:
-  %.t837 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t827, ptr %.t837
-  %.t838 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t837, i32 0, i32 1
-  %.t839 = getelementptr inbounds i8, ptr %.t838, i32 0
-  %.t840 = alloca { i64, [8 x i8] }
-  %.t841 = load { i64, [8 x i8] }, ptr %.t839
-  store { i64, [8 x i8] } %.t841, ptr %.t840
-  br label %match_merge829
-match_merge829:
-  %.t842 = phi i1 [ 0, %match_arm830 ], [ 1, %match_arm831 ]
-  ret i1 %.t842
+  %.t840 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t841 = extractvalue { i64, [8 x i8] } %.t840, 0
+  switch i64 %.t841, label %match_unreachable845 [i64 0, label %match_arm843, i64 1, label %match_arm844 ]
+match_arm843:
+  %.t846 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t840, ptr %.t846
+  %.t847 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t846, i32 0, i32 1
+  %.t848 = getelementptr inbounds i8, ptr %.t847, i32 0
+  %.t849 = alloca i1
+  %.t850 = load i1, ptr %.t848
+  store i1 %.t850, ptr %.t849
+  br label %match_merge842
+match_arm844:
+  %.t851 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t840, ptr %.t851
+  %.t852 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t851, i32 0, i32 1
+  %.t853 = getelementptr inbounds i8, ptr %.t852, i32 0
+  %.t854 = alloca { i64, [8 x i8] }
+  %.t855 = load { i64, [8 x i8] }, ptr %.t853
+  store { i64, [8 x i8] } %.t855, ptr %.t854
+  br label %match_merge842
+match_unreachable845:
+  unreachable
+match_merge842:
+  %.t856 = phi i1 [ 0, %match_arm843 ], [ 1, %match_arm844 ]
+  ret i1 %.t856
 }
 
 define i1 @Result$$bool$Error$$__unwrap_or({ i64, [8 x i8] } %res, i1 %fallback) {
@@ -1495,88 +1481,83 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %fallback.addr = alloca i1
   store i1 %fallback, ptr %fallback.addr
-  %.t843 = load { i64, [8 x i8] }, ptr %res.addr
-  %.t844 = extractvalue { i64, [8 x i8] } %.t843, 0
-  switch i64 %.t844, label %match_arm846 [
-    i64 0, label %match_arm846, 
-    i64 1, label %match_arm847
-  ]
-match_arm846:
-  %.t848 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t843, ptr %.t848
-  %.t849 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t848, i32 0, i32 1
-  %.t850 = getelementptr inbounds i8, ptr %.t849, i32 0
-  %.t851 = alloca i1
-  %.t852 = load i1, ptr %.t850
-  store i1 %.t852, ptr %.t851
-  %.t853 = load i1, ptr %.t851
-  %.t854 = zext i1 %.t853 to i32
-  br label %match_merge845
-match_arm847:
-  %.t855 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t843, ptr %.t855
-  %.t856 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t855, i32 0, i32 1
-  %.t857 = getelementptr inbounds i8, ptr %.t856, i32 0
-  %.t858 = alloca { i64, [8 x i8] }
-  %.t859 = load { i64, [8 x i8] }, ptr %.t857
-  store { i64, [8 x i8] } %.t859, ptr %.t858
-  %.t860 = load i1, ptr %fallback.addr
-  %.t861 = zext i1 %.t860 to i32
-  br label %match_merge845
-match_merge845:
-  %.t862 = phi i32 [ %.t854, %match_arm846 ], [ %.t861, %match_arm847 ]
-  %.t863 = trunc i32 %.t862 to i1
-  ret i1 %.t863
+  %.t857 = load { i64, [8 x i8] }, ptr %res.addr
+  %.t858 = extractvalue { i64, [8 x i8] } %.t857, 0
+  switch i64 %.t858, label %match_unreachable862 [i64 0, label %match_arm860, i64 1, label %match_arm861 ]
+match_arm860:
+  %.t863 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t857, ptr %.t863
+  %.t864 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t863, i32 0, i32 1
+  %.t865 = getelementptr inbounds i8, ptr %.t864, i32 0
+  %.t866 = alloca i1
+  %.t867 = load i1, ptr %.t865
+  store i1 %.t867, ptr %.t866
+  %.t868 = load i1, ptr %.t866
+  %.t869 = zext i1 %.t868 to i32
+  br label %match_merge859
+match_arm861:
+  %.t870 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t857, ptr %.t870
+  %.t871 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t870, i32 0, i32 1
+  %.t872 = getelementptr inbounds i8, ptr %.t871, i32 0
+  %.t873 = alloca { i64, [8 x i8] }
+  %.t874 = load { i64, [8 x i8] }, ptr %.t872
+  store { i64, [8 x i8] } %.t874, ptr %.t873
+  %.t875 = load i1, ptr %fallback.addr
+  %.t876 = zext i1 %.t875 to i32
+  br label %match_merge859
+match_unreachable862:
+  unreachable
+match_merge859:
+  %.t877 = phi i32 [ %.t869, %match_arm860 ], [ %.t876, %match_arm861 ]
+  %.t878 = trunc i32 %.t877 to i1
+  ret i1 %.t878
 }
 
 define i1 @Option$$i64$$__is_some({ i64, [8 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %opt, ptr %opt.addr
-  %.t864 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t865 = extractvalue { i64, [8 x i8] } %.t864, 0
-  switch i64 %.t865, label %match_arm867 [
-    i64 0, label %match_arm867
-  ]
-match_arm867:
-  %.t869 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t864, ptr %.t869
-  %.t870 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t869, i32 0, i32 1
-  %.t871 = getelementptr inbounds i8, ptr %.t870, i32 0
-  %.t872 = alloca i64
-  %.t873 = load i64, ptr %.t871
-  store i64 %.t873, ptr %.t872
-  br label %match_merge866
-match_arm868:
-  br label %match_merge866
-match_merge866:
-  %.t874 = phi i1 [ 1, %match_arm867 ], [ 0, %match_arm868 ]
-  ret i1 %.t874
+  %.t879 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t880 = extractvalue { i64, [8 x i8] } %.t879, 0
+  switch i64 %.t880, label %match_arm883 [i64 0, label %match_arm882 ]
+match_arm882:
+  %.t884 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t879, ptr %.t884
+  %.t885 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t884, i32 0, i32 1
+  %.t886 = getelementptr inbounds i8, ptr %.t885, i32 0
+  %.t887 = alloca i64
+  %.t888 = load i64, ptr %.t886
+  store i64 %.t888, ptr %.t887
+  br label %match_merge881
+match_arm883:
+  br label %match_merge881
+match_merge881:
+  %.t889 = phi i1 [ 1, %match_arm882 ], [ 0, %match_arm883 ]
+  ret i1 %.t889
 }
 
 define i1 @Option$$i64$$__is_none({ i64, [8 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %opt, ptr %opt.addr
-  %.t875 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t876 = extractvalue { i64, [8 x i8] } %.t875, 0
-  switch i64 %.t876, label %match_arm878 [
-    i64 0, label %match_arm878
-  ]
-match_arm878:
-  %.t880 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t875, ptr %.t880
-  %.t881 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t880, i32 0, i32 1
-  %.t882 = getelementptr inbounds i8, ptr %.t881, i32 0
-  %.t883 = alloca i64
-  %.t884 = load i64, ptr %.t882
-  store i64 %.t884, ptr %.t883
-  br label %match_merge877
-match_arm879:
-  br label %match_merge877
-match_merge877:
-  %.t885 = phi i1 [ 0, %match_arm878 ], [ 1, %match_arm879 ]
-  ret i1 %.t885
+  %.t890 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t891 = extractvalue { i64, [8 x i8] } %.t890, 0
+  switch i64 %.t891, label %match_arm894 [i64 0, label %match_arm893 ]
+match_arm893:
+  %.t895 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t890, ptr %.t895
+  %.t896 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t895, i32 0, i32 1
+  %.t897 = getelementptr inbounds i8, ptr %.t896, i32 0
+  %.t898 = alloca i64
+  %.t899 = load i64, ptr %.t897
+  store i64 %.t899, ptr %.t898
+  br label %match_merge892
+match_arm894:
+  br label %match_merge892
+match_merge892:
+  %.t900 = phi i1 [ 0, %match_arm893 ], [ 1, %match_arm894 ]
+  ret i1 %.t900
 }
 
 define i64 @Option$$i64$$__unwrap_or({ i64, [8 x i8] } %opt, i64 %fallback) {
@@ -1585,80 +1566,74 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %fallback.addr = alloca i64
   store i64 %fallback, ptr %fallback.addr
-  %.t886 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t887 = extractvalue { i64, [8 x i8] } %.t886, 0
-  switch i64 %.t887, label %match_arm889 [
-    i64 0, label %match_arm889
-  ]
-match_arm889:
-  %.t891 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t886, ptr %.t891
-  %.t892 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t891, i32 0, i32 1
-  %.t893 = getelementptr inbounds i8, ptr %.t892, i32 0
-  %.t894 = alloca i64
-  %.t895 = load i64, ptr %.t893
-  store i64 %.t895, ptr %.t894
-  %.t896 = load i64, ptr %.t894
-  %.t897 = trunc i64 %.t896 to i32
-  br label %match_merge888
-match_arm890:
-  %.t898 = load i64, ptr %fallback.addr
-  %.t899 = trunc i64 %.t898 to i32
-  br label %match_merge888
-match_merge888:
-  %.t900 = phi i32 [ %.t897, %match_arm889 ], [ %.t899, %match_arm890 ]
-  %.t901 = sext i32 %.t900 to i64
-  ret i64 %.t901
+  %.t901 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t902 = extractvalue { i64, [8 x i8] } %.t901, 0
+  switch i64 %.t902, label %match_arm905 [i64 0, label %match_arm904 ]
+match_arm904:
+  %.t906 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t901, ptr %.t906
+  %.t907 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t906, i32 0, i32 1
+  %.t908 = getelementptr inbounds i8, ptr %.t907, i32 0
+  %.t909 = alloca i64
+  %.t910 = load i64, ptr %.t908
+  store i64 %.t910, ptr %.t909
+  %.t911 = load i64, ptr %.t909
+  %.t912 = trunc i64 %.t911 to i32
+  br label %match_merge903
+match_arm905:
+  %.t913 = load i64, ptr %fallback.addr
+  %.t914 = trunc i64 %.t913 to i32
+  br label %match_merge903
+match_merge903:
+  %.t915 = phi i32 [ %.t912, %match_arm904 ], [ %.t914, %match_arm905 ]
+  %.t916 = sext i32 %.t915 to i64
+  ret i64 %.t916
 }
 
 define i1 @Option$$u64$$__is_some({ i64, [8 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %opt, ptr %opt.addr
-  %.t902 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t903 = extractvalue { i64, [8 x i8] } %.t902, 0
-  switch i64 %.t903, label %match_arm905 [
-    i64 0, label %match_arm905
-  ]
-match_arm905:
-  %.t907 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t902, ptr %.t907
-  %.t908 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t907, i32 0, i32 1
-  %.t909 = getelementptr inbounds i8, ptr %.t908, i32 0
-  %.t910 = alloca i64
-  %.t911 = load i64, ptr %.t909
-  store i64 %.t911, ptr %.t910
-  br label %match_merge904
-match_arm906:
-  br label %match_merge904
-match_merge904:
-  %.t912 = phi i1 [ 1, %match_arm905 ], [ 0, %match_arm906 ]
-  ret i1 %.t912
+  %.t917 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t918 = extractvalue { i64, [8 x i8] } %.t917, 0
+  switch i64 %.t918, label %match_arm921 [i64 0, label %match_arm920 ]
+match_arm920:
+  %.t922 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t917, ptr %.t922
+  %.t923 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t922, i32 0, i32 1
+  %.t924 = getelementptr inbounds i8, ptr %.t923, i32 0
+  %.t925 = alloca i64
+  %.t926 = load i64, ptr %.t924
+  store i64 %.t926, ptr %.t925
+  br label %match_merge919
+match_arm921:
+  br label %match_merge919
+match_merge919:
+  %.t927 = phi i1 [ 1, %match_arm920 ], [ 0, %match_arm921 ]
+  ret i1 %.t927
 }
 
 define i1 @Option$$u64$$__is_none({ i64, [8 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %opt, ptr %opt.addr
-  %.t913 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t914 = extractvalue { i64, [8 x i8] } %.t913, 0
-  switch i64 %.t914, label %match_arm916 [
-    i64 0, label %match_arm916
-  ]
-match_arm916:
-  %.t918 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t913, ptr %.t918
-  %.t919 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t918, i32 0, i32 1
-  %.t920 = getelementptr inbounds i8, ptr %.t919, i32 0
-  %.t921 = alloca i64
-  %.t922 = load i64, ptr %.t920
-  store i64 %.t922, ptr %.t921
-  br label %match_merge915
-match_arm917:
-  br label %match_merge915
-match_merge915:
-  %.t923 = phi i1 [ 0, %match_arm916 ], [ 1, %match_arm917 ]
-  ret i1 %.t923
+  %.t928 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t929 = extractvalue { i64, [8 x i8] } %.t928, 0
+  switch i64 %.t929, label %match_arm932 [i64 0, label %match_arm931 ]
+match_arm931:
+  %.t933 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t928, ptr %.t933
+  %.t934 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t933, i32 0, i32 1
+  %.t935 = getelementptr inbounds i8, ptr %.t934, i32 0
+  %.t936 = alloca i64
+  %.t937 = load i64, ptr %.t935
+  store i64 %.t937, ptr %.t936
+  br label %match_merge930
+match_arm932:
+  br label %match_merge930
+match_merge930:
+  %.t938 = phi i1 [ 0, %match_arm931 ], [ 1, %match_arm932 ]
+  ret i1 %.t938
 }
 
 define i64 @Option$$u64$$__unwrap_or({ i64, [8 x i8] } %opt, i64 %fallback) {
@@ -1667,80 +1642,74 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %fallback.addr = alloca i64
   store i64 %fallback, ptr %fallback.addr
-  %.t924 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t925 = extractvalue { i64, [8 x i8] } %.t924, 0
-  switch i64 %.t925, label %match_arm927 [
-    i64 0, label %match_arm927
-  ]
-match_arm927:
-  %.t929 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t924, ptr %.t929
-  %.t930 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t929, i32 0, i32 1
-  %.t931 = getelementptr inbounds i8, ptr %.t930, i32 0
-  %.t932 = alloca i64
-  %.t933 = load i64, ptr %.t931
-  store i64 %.t933, ptr %.t932
-  %.t934 = load i64, ptr %.t932
-  %.t935 = trunc i64 %.t934 to i32
-  br label %match_merge926
-match_arm928:
-  %.t936 = load i64, ptr %fallback.addr
-  %.t937 = trunc i64 %.t936 to i32
-  br label %match_merge926
-match_merge926:
-  %.t938 = phi i32 [ %.t935, %match_arm927 ], [ %.t937, %match_arm928 ]
-  %.t939 = sext i32 %.t938 to i64
-  ret i64 %.t939
+  %.t939 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t940 = extractvalue { i64, [8 x i8] } %.t939, 0
+  switch i64 %.t940, label %match_arm943 [i64 0, label %match_arm942 ]
+match_arm942:
+  %.t944 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t939, ptr %.t944
+  %.t945 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t944, i32 0, i32 1
+  %.t946 = getelementptr inbounds i8, ptr %.t945, i32 0
+  %.t947 = alloca i64
+  %.t948 = load i64, ptr %.t946
+  store i64 %.t948, ptr %.t947
+  %.t949 = load i64, ptr %.t947
+  %.t950 = trunc i64 %.t949 to i32
+  br label %match_merge941
+match_arm943:
+  %.t951 = load i64, ptr %fallback.addr
+  %.t952 = trunc i64 %.t951 to i32
+  br label %match_merge941
+match_merge941:
+  %.t953 = phi i32 [ %.t950, %match_arm942 ], [ %.t952, %match_arm943 ]
+  %.t954 = sext i32 %.t953 to i64
+  ret i64 %.t954
 }
 
 define i1 @Option$$u8$$__is_some({ i64, [1 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [1 x i8] }
   store { i64, [1 x i8] } %opt, ptr %opt.addr
-  %.t940 = load { i64, [1 x i8] }, ptr %opt.addr
-  %.t941 = extractvalue { i64, [1 x i8] } %.t940, 0
-  switch i64 %.t941, label %match_arm943 [
-    i64 0, label %match_arm943
-  ]
-match_arm943:
-  %.t945 = alloca { i64, [1 x i8] }
-  store { i64, [1 x i8] } %.t940, ptr %.t945
-  %.t946 = getelementptr inbounds { i64, [1 x i8] }, ptr %.t945, i32 0, i32 1
-  %.t947 = getelementptr inbounds i8, ptr %.t946, i32 0
-  %.t948 = alloca i8
-  %.t949 = load i8, ptr %.t947
-  store i8 %.t949, ptr %.t948
-  br label %match_merge942
-match_arm944:
-  br label %match_merge942
-match_merge942:
-  %.t950 = phi i1 [ 1, %match_arm943 ], [ 0, %match_arm944 ]
-  ret i1 %.t950
+  %.t955 = load { i64, [1 x i8] }, ptr %opt.addr
+  %.t956 = extractvalue { i64, [1 x i8] } %.t955, 0
+  switch i64 %.t956, label %match_arm959 [i64 0, label %match_arm958 ]
+match_arm958:
+  %.t960 = alloca { i64, [1 x i8] }
+  store { i64, [1 x i8] } %.t955, ptr %.t960
+  %.t961 = getelementptr inbounds { i64, [1 x i8] }, ptr %.t960, i32 0, i32 1
+  %.t962 = getelementptr inbounds i8, ptr %.t961, i32 0
+  %.t963 = alloca i8
+  %.t964 = load i8, ptr %.t962
+  store i8 %.t964, ptr %.t963
+  br label %match_merge957
+match_arm959:
+  br label %match_merge957
+match_merge957:
+  %.t965 = phi i1 [ 1, %match_arm958 ], [ 0, %match_arm959 ]
+  ret i1 %.t965
 }
 
 define i1 @Option$$u8$$__is_none({ i64, [1 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [1 x i8] }
   store { i64, [1 x i8] } %opt, ptr %opt.addr
-  %.t951 = load { i64, [1 x i8] }, ptr %opt.addr
-  %.t952 = extractvalue { i64, [1 x i8] } %.t951, 0
-  switch i64 %.t952, label %match_arm954 [
-    i64 0, label %match_arm954
-  ]
-match_arm954:
-  %.t956 = alloca { i64, [1 x i8] }
-  store { i64, [1 x i8] } %.t951, ptr %.t956
-  %.t957 = getelementptr inbounds { i64, [1 x i8] }, ptr %.t956, i32 0, i32 1
-  %.t958 = getelementptr inbounds i8, ptr %.t957, i32 0
-  %.t959 = alloca i8
-  %.t960 = load i8, ptr %.t958
-  store i8 %.t960, ptr %.t959
-  br label %match_merge953
-match_arm955:
-  br label %match_merge953
-match_merge953:
-  %.t961 = phi i1 [ 0, %match_arm954 ], [ 1, %match_arm955 ]
-  ret i1 %.t961
+  %.t966 = load { i64, [1 x i8] }, ptr %opt.addr
+  %.t967 = extractvalue { i64, [1 x i8] } %.t966, 0
+  switch i64 %.t967, label %match_arm970 [i64 0, label %match_arm969 ]
+match_arm969:
+  %.t971 = alloca { i64, [1 x i8] }
+  store { i64, [1 x i8] } %.t966, ptr %.t971
+  %.t972 = getelementptr inbounds { i64, [1 x i8] }, ptr %.t971, i32 0, i32 1
+  %.t973 = getelementptr inbounds i8, ptr %.t972, i32 0
+  %.t974 = alloca i8
+  %.t975 = load i8, ptr %.t973
+  store i8 %.t975, ptr %.t974
+  br label %match_merge968
+match_arm970:
+  br label %match_merge968
+match_merge968:
+  %.t976 = phi i1 [ 0, %match_arm969 ], [ 1, %match_arm970 ]
+  ret i1 %.t976
 }
 
 define i8 @Option$$u8$$__unwrap_or({ i64, [1 x i8] } %opt, i8 %fallback) {
@@ -1749,80 +1718,74 @@ entry:
   store { i64, [1 x i8] } %opt, ptr %opt.addr
   %fallback.addr = alloca i8
   store i8 %fallback, ptr %fallback.addr
-  %.t962 = load { i64, [1 x i8] }, ptr %opt.addr
-  %.t963 = extractvalue { i64, [1 x i8] } %.t962, 0
-  switch i64 %.t963, label %match_arm965 [
-    i64 0, label %match_arm965
-  ]
-match_arm965:
-  %.t967 = alloca { i64, [1 x i8] }
-  store { i64, [1 x i8] } %.t962, ptr %.t967
-  %.t968 = getelementptr inbounds { i64, [1 x i8] }, ptr %.t967, i32 0, i32 1
-  %.t969 = getelementptr inbounds i8, ptr %.t968, i32 0
-  %.t970 = alloca i8
-  %.t971 = load i8, ptr %.t969
-  store i8 %.t971, ptr %.t970
-  %.t972 = load i8, ptr %.t970
-  %.t973 = zext i8 %.t972 to i32
-  br label %match_merge964
-match_arm966:
-  %.t974 = load i8, ptr %fallback.addr
-  %.t975 = zext i8 %.t974 to i32
-  br label %match_merge964
-match_merge964:
-  %.t976 = phi i32 [ %.t973, %match_arm965 ], [ %.t975, %match_arm966 ]
-  %.t977 = trunc i32 %.t976 to i8
-  ret i8 %.t977
+  %.t977 = load { i64, [1 x i8] }, ptr %opt.addr
+  %.t978 = extractvalue { i64, [1 x i8] } %.t977, 0
+  switch i64 %.t978, label %match_arm981 [i64 0, label %match_arm980 ]
+match_arm980:
+  %.t982 = alloca { i64, [1 x i8] }
+  store { i64, [1 x i8] } %.t977, ptr %.t982
+  %.t983 = getelementptr inbounds { i64, [1 x i8] }, ptr %.t982, i32 0, i32 1
+  %.t984 = getelementptr inbounds i8, ptr %.t983, i32 0
+  %.t985 = alloca i8
+  %.t986 = load i8, ptr %.t984
+  store i8 %.t986, ptr %.t985
+  %.t987 = load i8, ptr %.t985
+  %.t988 = zext i8 %.t987 to i32
+  br label %match_merge979
+match_arm981:
+  %.t989 = load i8, ptr %fallback.addr
+  %.t990 = zext i8 %.t989 to i32
+  br label %match_merge979
+match_merge979:
+  %.t991 = phi i32 [ %.t988, %match_arm980 ], [ %.t990, %match_arm981 ]
+  %.t992 = trunc i32 %.t991 to i8
+  ret i8 %.t992
 }
 
 define i1 @Option$$ptr$$__is_some({ i64, [8 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %opt, ptr %opt.addr
-  %.t978 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t979 = extractvalue { i64, [8 x i8] } %.t978, 0
-  switch i64 %.t979, label %match_arm981 [
-    i64 0, label %match_arm981
-  ]
-match_arm981:
-  %.t983 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t978, ptr %.t983
-  %.t984 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t983, i32 0, i32 1
-  %.t985 = getelementptr inbounds i8, ptr %.t984, i32 0
-  %.t986 = alloca ptr
-  %.t987 = load ptr, ptr %.t985
-  store ptr %.t987, ptr %.t986
-  br label %match_merge980
-match_arm982:
-  br label %match_merge980
-match_merge980:
-  %.t988 = phi i1 [ 1, %match_arm981 ], [ 0, %match_arm982 ]
-  ret i1 %.t988
+  %.t993 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t994 = extractvalue { i64, [8 x i8] } %.t993, 0
+  switch i64 %.t994, label %match_arm997 [i64 0, label %match_arm996 ]
+match_arm996:
+  %.t998 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t993, ptr %.t998
+  %.t999 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t998, i32 0, i32 1
+  %.t1000 = getelementptr inbounds i8, ptr %.t999, i32 0
+  %.t1001 = alloca ptr
+  %.t1002 = load ptr, ptr %.t1000
+  store ptr %.t1002, ptr %.t1001
+  br label %match_merge995
+match_arm997:
+  br label %match_merge995
+match_merge995:
+  %.t1003 = phi i1 [ 1, %match_arm996 ], [ 0, %match_arm997 ]
+  ret i1 %.t1003
 }
 
 define i1 @Option$$ptr$$__is_none({ i64, [8 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %opt, ptr %opt.addr
-  %.t989 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t990 = extractvalue { i64, [8 x i8] } %.t989, 0
-  switch i64 %.t990, label %match_arm992 [
-    i64 0, label %match_arm992
-  ]
-match_arm992:
-  %.t994 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t989, ptr %.t994
-  %.t995 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t994, i32 0, i32 1
-  %.t996 = getelementptr inbounds i8, ptr %.t995, i32 0
-  %.t997 = alloca ptr
-  %.t998 = load ptr, ptr %.t996
-  store ptr %.t998, ptr %.t997
-  br label %match_merge991
-match_arm993:
-  br label %match_merge991
-match_merge991:
-  %.t999 = phi i1 [ 0, %match_arm992 ], [ 1, %match_arm993 ]
-  ret i1 %.t999
+  %.t1004 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t1005 = extractvalue { i64, [8 x i8] } %.t1004, 0
+  switch i64 %.t1005, label %match_arm1008 [i64 0, label %match_arm1007 ]
+match_arm1007:
+  %.t1009 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t1004, ptr %.t1009
+  %.t1010 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t1009, i32 0, i32 1
+  %.t1011 = getelementptr inbounds i8, ptr %.t1010, i32 0
+  %.t1012 = alloca ptr
+  %.t1013 = load ptr, ptr %.t1011
+  store ptr %.t1013, ptr %.t1012
+  br label %match_merge1006
+match_arm1008:
+  br label %match_merge1006
+match_merge1006:
+  %.t1014 = phi i1 [ 0, %match_arm1007 ], [ 1, %match_arm1008 ]
+  ret i1 %.t1014
 }
 
 define ptr @Option$$ptr$$__unwrap_or({ i64, [8 x i8] } %opt, ptr %fallback) {
@@ -1831,80 +1794,74 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %fallback.addr = alloca ptr
   store ptr %fallback, ptr %fallback.addr
-  %.t1000 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t1001 = extractvalue { i64, [8 x i8] } %.t1000, 0
-  switch i64 %.t1001, label %match_arm1003 [
-    i64 0, label %match_arm1003
-  ]
-match_arm1003:
-  %.t1005 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t1000, ptr %.t1005
-  %.t1006 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t1005, i32 0, i32 1
-  %.t1007 = getelementptr inbounds i8, ptr %.t1006, i32 0
-  %.t1008 = alloca ptr
-  %.t1009 = load ptr, ptr %.t1007
-  store ptr %.t1009, ptr %.t1008
-  %.t1010 = load ptr, ptr %.t1008
-  %.t1011 = ptrtoint ptr %.t1010 to i32
-  br label %match_merge1002
-match_arm1004:
-  %.t1012 = load ptr, ptr %fallback.addr
-  %.t1013 = ptrtoint ptr %.t1012 to i32
-  br label %match_merge1002
-match_merge1002:
-  %.t1014 = phi i32 [ %.t1011, %match_arm1003 ], [ %.t1013, %match_arm1004 ]
-  %.t1015 = inttoptr i32 %.t1014 to ptr
-  ret ptr %.t1015
+  %.t1015 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t1016 = extractvalue { i64, [8 x i8] } %.t1015, 0
+  switch i64 %.t1016, label %match_arm1019 [i64 0, label %match_arm1018 ]
+match_arm1018:
+  %.t1020 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t1015, ptr %.t1020
+  %.t1021 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t1020, i32 0, i32 1
+  %.t1022 = getelementptr inbounds i8, ptr %.t1021, i32 0
+  %.t1023 = alloca ptr
+  %.t1024 = load ptr, ptr %.t1022
+  store ptr %.t1024, ptr %.t1023
+  %.t1025 = load ptr, ptr %.t1023
+  %.t1026 = ptrtoint ptr %.t1025 to i32
+  br label %match_merge1017
+match_arm1019:
+  %.t1027 = load ptr, ptr %fallback.addr
+  %.t1028 = ptrtoint ptr %.t1027 to i32
+  br label %match_merge1017
+match_merge1017:
+  %.t1029 = phi i32 [ %.t1026, %match_arm1018 ], [ %.t1028, %match_arm1019 ]
+  %.t1030 = inttoptr i32 %.t1029 to ptr
+  ret ptr %.t1030
 }
 
 define i1 @Option$$str$$__is_some({ i64, [8 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %opt, ptr %opt.addr
-  %.t1016 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t1017 = extractvalue { i64, [8 x i8] } %.t1016, 0
-  switch i64 %.t1017, label %match_arm1019 [
-    i64 0, label %match_arm1019
-  ]
-match_arm1019:
-  %.t1021 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t1016, ptr %.t1021
-  %.t1022 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t1021, i32 0, i32 1
-  %.t1023 = getelementptr inbounds i8, ptr %.t1022, i32 0
-  %.t1024 = alloca ptr
-  %.t1025 = load ptr, ptr %.t1023
-  store ptr %.t1025, ptr %.t1024
-  br label %match_merge1018
-match_arm1020:
-  br label %match_merge1018
-match_merge1018:
-  %.t1026 = phi i1 [ 1, %match_arm1019 ], [ 0, %match_arm1020 ]
-  ret i1 %.t1026
+  %.t1031 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t1032 = extractvalue { i64, [8 x i8] } %.t1031, 0
+  switch i64 %.t1032, label %match_arm1035 [i64 0, label %match_arm1034 ]
+match_arm1034:
+  %.t1036 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t1031, ptr %.t1036
+  %.t1037 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t1036, i32 0, i32 1
+  %.t1038 = getelementptr inbounds i8, ptr %.t1037, i32 0
+  %.t1039 = alloca ptr
+  %.t1040 = load ptr, ptr %.t1038
+  store ptr %.t1040, ptr %.t1039
+  br label %match_merge1033
+match_arm1035:
+  br label %match_merge1033
+match_merge1033:
+  %.t1041 = phi i1 [ 1, %match_arm1034 ], [ 0, %match_arm1035 ]
+  ret i1 %.t1041
 }
 
 define i1 @Option$$str$$__is_none({ i64, [8 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %opt, ptr %opt.addr
-  %.t1027 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t1028 = extractvalue { i64, [8 x i8] } %.t1027, 0
-  switch i64 %.t1028, label %match_arm1030 [
-    i64 0, label %match_arm1030
-  ]
-match_arm1030:
-  %.t1032 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t1027, ptr %.t1032
-  %.t1033 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t1032, i32 0, i32 1
-  %.t1034 = getelementptr inbounds i8, ptr %.t1033, i32 0
-  %.t1035 = alloca ptr
-  %.t1036 = load ptr, ptr %.t1034
-  store ptr %.t1036, ptr %.t1035
-  br label %match_merge1029
-match_arm1031:
-  br label %match_merge1029
-match_merge1029:
-  %.t1037 = phi i1 [ 0, %match_arm1030 ], [ 1, %match_arm1031 ]
-  ret i1 %.t1037
+  %.t1042 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t1043 = extractvalue { i64, [8 x i8] } %.t1042, 0
+  switch i64 %.t1043, label %match_arm1046 [i64 0, label %match_arm1045 ]
+match_arm1045:
+  %.t1047 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t1042, ptr %.t1047
+  %.t1048 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t1047, i32 0, i32 1
+  %.t1049 = getelementptr inbounds i8, ptr %.t1048, i32 0
+  %.t1050 = alloca ptr
+  %.t1051 = load ptr, ptr %.t1049
+  store ptr %.t1051, ptr %.t1050
+  br label %match_merge1044
+match_arm1046:
+  br label %match_merge1044
+match_merge1044:
+  %.t1052 = phi i1 [ 0, %match_arm1045 ], [ 1, %match_arm1046 ]
+  ret i1 %.t1052
 }
 
 define ptr @Option$$str$$__unwrap_or({ i64, [8 x i8] } %opt, ptr %fallback) {
@@ -1913,80 +1870,74 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %fallback.addr = alloca ptr
   store ptr %fallback, ptr %fallback.addr
-  %.t1038 = load { i64, [8 x i8] }, ptr %opt.addr
-  %.t1039 = extractvalue { i64, [8 x i8] } %.t1038, 0
-  switch i64 %.t1039, label %match_arm1041 [
-    i64 0, label %match_arm1041
-  ]
-match_arm1041:
-  %.t1043 = alloca { i64, [8 x i8] }
-  store { i64, [8 x i8] } %.t1038, ptr %.t1043
-  %.t1044 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t1043, i32 0, i32 1
-  %.t1045 = getelementptr inbounds i8, ptr %.t1044, i32 0
-  %.t1046 = alloca ptr
-  %.t1047 = load ptr, ptr %.t1045
-  store ptr %.t1047, ptr %.t1046
-  %.t1048 = load ptr, ptr %.t1046
-  %.t1049 = ptrtoint ptr %.t1048 to i32
-  br label %match_merge1040
-match_arm1042:
-  %.t1050 = load ptr, ptr %fallback.addr
-  %.t1051 = ptrtoint ptr %.t1050 to i32
-  br label %match_merge1040
-match_merge1040:
-  %.t1052 = phi i32 [ %.t1049, %match_arm1041 ], [ %.t1051, %match_arm1042 ]
-  %.t1053 = inttoptr i32 %.t1052 to ptr
-  ret ptr %.t1053
+  %.t1053 = load { i64, [8 x i8] }, ptr %opt.addr
+  %.t1054 = extractvalue { i64, [8 x i8] } %.t1053, 0
+  switch i64 %.t1054, label %match_arm1057 [i64 0, label %match_arm1056 ]
+match_arm1056:
+  %.t1058 = alloca { i64, [8 x i8] }
+  store { i64, [8 x i8] } %.t1053, ptr %.t1058
+  %.t1059 = getelementptr inbounds { i64, [8 x i8] }, ptr %.t1058, i32 0, i32 1
+  %.t1060 = getelementptr inbounds i8, ptr %.t1059, i32 0
+  %.t1061 = alloca ptr
+  %.t1062 = load ptr, ptr %.t1060
+  store ptr %.t1062, ptr %.t1061
+  %.t1063 = load ptr, ptr %.t1061
+  %.t1064 = ptrtoint ptr %.t1063 to i32
+  br label %match_merge1055
+match_arm1057:
+  %.t1065 = load ptr, ptr %fallback.addr
+  %.t1066 = ptrtoint ptr %.t1065 to i32
+  br label %match_merge1055
+match_merge1055:
+  %.t1067 = phi i32 [ %.t1064, %match_arm1056 ], [ %.t1066, %match_arm1057 ]
+  %.t1068 = inttoptr i32 %.t1067 to ptr
+  ret ptr %.t1068
 }
 
 define i1 @Option$$bool$$__is_some({ i64, [0 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [0 x i8] }
   store { i64, [0 x i8] } %opt, ptr %opt.addr
-  %.t1054 = load { i64, [0 x i8] }, ptr %opt.addr
-  %.t1055 = extractvalue { i64, [0 x i8] } %.t1054, 0
-  switch i64 %.t1055, label %match_arm1057 [
-    i64 0, label %match_arm1057
-  ]
-match_arm1057:
-  %.t1059 = alloca { i64, [0 x i8] }
-  store { i64, [0 x i8] } %.t1054, ptr %.t1059
-  %.t1060 = getelementptr inbounds { i64, [0 x i8] }, ptr %.t1059, i32 0, i32 1
-  %.t1061 = getelementptr inbounds i8, ptr %.t1060, i32 0
-  %.t1062 = alloca i1
-  %.t1063 = load i1, ptr %.t1061
-  store i1 %.t1063, ptr %.t1062
-  br label %match_merge1056
-match_arm1058:
-  br label %match_merge1056
-match_merge1056:
-  %.t1064 = phi i1 [ 1, %match_arm1057 ], [ 0, %match_arm1058 ]
-  ret i1 %.t1064
+  %.t1069 = load { i64, [0 x i8] }, ptr %opt.addr
+  %.t1070 = extractvalue { i64, [0 x i8] } %.t1069, 0
+  switch i64 %.t1070, label %match_arm1073 [i64 0, label %match_arm1072 ]
+match_arm1072:
+  %.t1074 = alloca { i64, [0 x i8] }
+  store { i64, [0 x i8] } %.t1069, ptr %.t1074
+  %.t1075 = getelementptr inbounds { i64, [0 x i8] }, ptr %.t1074, i32 0, i32 1
+  %.t1076 = getelementptr inbounds i8, ptr %.t1075, i32 0
+  %.t1077 = alloca i1
+  %.t1078 = load i1, ptr %.t1076
+  store i1 %.t1078, ptr %.t1077
+  br label %match_merge1071
+match_arm1073:
+  br label %match_merge1071
+match_merge1071:
+  %.t1079 = phi i1 [ 1, %match_arm1072 ], [ 0, %match_arm1073 ]
+  ret i1 %.t1079
 }
 
 define i1 @Option$$bool$$__is_none({ i64, [0 x i8] } %opt) {
 entry:
   %opt.addr = alloca { i64, [0 x i8] }
   store { i64, [0 x i8] } %opt, ptr %opt.addr
-  %.t1065 = load { i64, [0 x i8] }, ptr %opt.addr
-  %.t1066 = extractvalue { i64, [0 x i8] } %.t1065, 0
-  switch i64 %.t1066, label %match_arm1068 [
-    i64 0, label %match_arm1068
-  ]
-match_arm1068:
-  %.t1070 = alloca { i64, [0 x i8] }
-  store { i64, [0 x i8] } %.t1065, ptr %.t1070
-  %.t1071 = getelementptr inbounds { i64, [0 x i8] }, ptr %.t1070, i32 0, i32 1
-  %.t1072 = getelementptr inbounds i8, ptr %.t1071, i32 0
-  %.t1073 = alloca i1
-  %.t1074 = load i1, ptr %.t1072
-  store i1 %.t1074, ptr %.t1073
-  br label %match_merge1067
-match_arm1069:
-  br label %match_merge1067
-match_merge1067:
-  %.t1075 = phi i1 [ 0, %match_arm1068 ], [ 1, %match_arm1069 ]
-  ret i1 %.t1075
+  %.t1080 = load { i64, [0 x i8] }, ptr %opt.addr
+  %.t1081 = extractvalue { i64, [0 x i8] } %.t1080, 0
+  switch i64 %.t1081, label %match_arm1084 [i64 0, label %match_arm1083 ]
+match_arm1083:
+  %.t1085 = alloca { i64, [0 x i8] }
+  store { i64, [0 x i8] } %.t1080, ptr %.t1085
+  %.t1086 = getelementptr inbounds { i64, [0 x i8] }, ptr %.t1085, i32 0, i32 1
+  %.t1087 = getelementptr inbounds i8, ptr %.t1086, i32 0
+  %.t1088 = alloca i1
+  %.t1089 = load i1, ptr %.t1087
+  store i1 %.t1089, ptr %.t1088
+  br label %match_merge1082
+match_arm1084:
+  br label %match_merge1082
+match_merge1082:
+  %.t1090 = phi i1 [ 0, %match_arm1083 ], [ 1, %match_arm1084 ]
+  ret i1 %.t1090
 }
 
 define i1 @Option$$bool$$__unwrap_or({ i64, [0 x i8] } %opt, i1 %fallback) {
@@ -1995,30 +1946,28 @@ entry:
   store { i64, [0 x i8] } %opt, ptr %opt.addr
   %fallback.addr = alloca i1
   store i1 %fallback, ptr %fallback.addr
-  %.t1076 = load { i64, [0 x i8] }, ptr %opt.addr
-  %.t1077 = extractvalue { i64, [0 x i8] } %.t1076, 0
-  switch i64 %.t1077, label %match_arm1079 [
-    i64 0, label %match_arm1079
-  ]
-match_arm1079:
-  %.t1081 = alloca { i64, [0 x i8] }
-  store { i64, [0 x i8] } %.t1076, ptr %.t1081
-  %.t1082 = getelementptr inbounds { i64, [0 x i8] }, ptr %.t1081, i32 0, i32 1
-  %.t1083 = getelementptr inbounds i8, ptr %.t1082, i32 0
-  %.t1084 = alloca i1
-  %.t1085 = load i1, ptr %.t1083
-  store i1 %.t1085, ptr %.t1084
-  %.t1086 = load i1, ptr %.t1084
-  %.t1087 = zext i1 %.t1086 to i32
-  br label %match_merge1078
-match_arm1080:
-  %.t1088 = load i1, ptr %fallback.addr
-  %.t1089 = zext i1 %.t1088 to i32
-  br label %match_merge1078
-match_merge1078:
-  %.t1090 = phi i32 [ %.t1087, %match_arm1079 ], [ %.t1089, %match_arm1080 ]
-  %.t1091 = trunc i32 %.t1090 to i1
-  ret i1 %.t1091
+  %.t1091 = load { i64, [0 x i8] }, ptr %opt.addr
+  %.t1092 = extractvalue { i64, [0 x i8] } %.t1091, 0
+  switch i64 %.t1092, label %match_arm1095 [i64 0, label %match_arm1094 ]
+match_arm1094:
+  %.t1096 = alloca { i64, [0 x i8] }
+  store { i64, [0 x i8] } %.t1091, ptr %.t1096
+  %.t1097 = getelementptr inbounds { i64, [0 x i8] }, ptr %.t1096, i32 0, i32 1
+  %.t1098 = getelementptr inbounds i8, ptr %.t1097, i32 0
+  %.t1099 = alloca i1
+  %.t1100 = load i1, ptr %.t1098
+  store i1 %.t1100, ptr %.t1099
+  %.t1101 = load i1, ptr %.t1099
+  %.t1102 = zext i1 %.t1101 to i32
+  br label %match_merge1093
+match_arm1095:
+  %.t1103 = load i1, ptr %fallback.addr
+  %.t1104 = zext i1 %.t1103 to i32
+  br label %match_merge1093
+match_merge1093:
+  %.t1105 = phi i32 [ %.t1102, %match_arm1094 ], [ %.t1104, %match_arm1095 ]
+  %.t1106 = trunc i32 %.t1105 to i1
+  ret i1 %.t1106
 }
 
 define ptr @PageAllocator__alloc({ i64 } %self, i64 %num_pages) {
@@ -2027,43 +1976,43 @@ entry:
   store { i64 } %self, ptr %self.addr
   %num_pages.addr = alloca i64
   store i64 %num_pages, ptr %num_pages.addr
-  %.t1092 = load { i64 }, ptr %self.addr
+  %.t1107 = load { i64 }, ptr %self.addr
   %pa = alloca { i64 }
-  store { i64 } %.t1092, ptr %pa
-  %.t1093 = load i64, ptr %num_pages.addr
-  %.t1094 = load { i64 }, ptr %pa
-  %.t1095 = extractvalue { i64 } %.t1094, 0
-  %.t1096 = mul i64 %.t1093, %.t1095
+  store { i64 } %.t1107, ptr %pa
+  %.t1108 = load i64, ptr %num_pages.addr
+  %.t1109 = load { i64 }, ptr %pa
+  %.t1110 = extractvalue { i64 } %.t1109, 0
+  %.t1111 = mul i64 %.t1108, %.t1110
   %total_size = alloca i64
-  store i64 %.t1096, ptr %total_size
-  %.t1097 = sext i32 0 to i64
+  store i64 %.t1111, ptr %total_size
+  %.t1112 = sext i32 0 to i64
   %null_addr = alloca i64
-  store i64 %.t1097, ptr %null_addr
-  %.t1098 = load i64, ptr %null_addr
-  %.t1099 = inttoptr i64 %.t1098 to ptr
+  store i64 %.t1112, ptr %null_addr
+  %.t1113 = load i64, ptr %null_addr
+  %.t1114 = inttoptr i64 %.t1113 to ptr
   %addr = alloca ptr
-  store ptr %.t1099, ptr %addr
+  store ptr %.t1114, ptr %addr
   %prot = alloca i32
   store i32 3, ptr %prot
   %flags = alloca i32
   store i32 34, ptr %flags
-  %.t1100 = sub i32 0, 1
+  %.t1115 = sub i32 0, 1
   %fd = alloca i32
-  store i32 %.t1100, ptr %fd
-  %.t1101 = sext i32 0 to i64
+  store i32 %.t1115, ptr %fd
+  %.t1116 = sext i32 0 to i64
   %offset = alloca i64
-  store i64 %.t1101, ptr %offset
-  %.t1102 = load ptr, ptr %addr
-  %.t1103 = load i64, ptr %total_size
-  %.t1104 = load i32, ptr %prot
-  %.t1105 = load i32, ptr %flags
-  %.t1106 = load i32, ptr %fd
-  %.t1107 = load i64, ptr %offset
-  %.t1108 = call ptr @mmap(ptr %.t1102, i64 %.t1103, i32 %.t1104, i32 %.t1105, i32 %.t1106, i64 %.t1107)
+  store i64 %.t1116, ptr %offset
+  %.t1117 = load ptr, ptr %addr
+  %.t1118 = load i64, ptr %total_size
+  %.t1119 = load i32, ptr %prot
+  %.t1120 = load i32, ptr %flags
+  %.t1121 = load i32, ptr %fd
+  %.t1122 = load i64, ptr %offset
+  %.t1123 = call ptr @mmap(ptr %.t1117, i64 %.t1118, i32 %.t1119, i32 %.t1120, i32 %.t1121, i64 %.t1122)
   %ptr = alloca ptr
-  store ptr %.t1108, ptr %ptr
-  %.t1109 = load ptr, ptr %ptr
-  ret ptr %.t1109
+  store ptr %.t1123, ptr %ptr
+  %.t1124 = load ptr, ptr %ptr
+  ret ptr %.t1124
 }
 
 define {  } @PageAllocator__free({ i64 } %self, ptr %ptr, i64 %num_pages) {
@@ -2074,20 +2023,20 @@ entry:
   store ptr %ptr, ptr %ptr.addr
   %num_pages.addr = alloca i64
   store i64 %num_pages, ptr %num_pages.addr
-  %.t1110 = load { i64 }, ptr %self.addr
+  %.t1125 = load { i64 }, ptr %self.addr
   %pa = alloca { i64 }
-  store { i64 } %.t1110, ptr %pa
-  %.t1111 = load i64, ptr %num_pages.addr
-  %.t1112 = load { i64 }, ptr %pa
-  %.t1113 = extractvalue { i64 } %.t1112, 0
-  %.t1114 = mul i64 %.t1111, %.t1113
+  store { i64 } %.t1125, ptr %pa
+  %.t1126 = load i64, ptr %num_pages.addr
+  %.t1127 = load { i64 }, ptr %pa
+  %.t1128 = extractvalue { i64 } %.t1127, 0
+  %.t1129 = mul i64 %.t1126, %.t1128
   %total_size = alloca i64
-  store i64 %.t1114, ptr %total_size
-  %.t1115 = load ptr, ptr %ptr.addr
-  %.t1116 = load i64, ptr %total_size
-  %.t1117 = call i32 @munmap(ptr %.t1115, i64 %.t1116)
+  store i64 %.t1129, ptr %total_size
+  %.t1130 = load ptr, ptr %ptr.addr
+  %.t1131 = load i64, ptr %total_size
+  %.t1132 = call i32 @munmap(ptr %.t1130, i64 %.t1131)
   %result = alloca i32
-  store i32 %.t1117, ptr %result
+  store i32 %.t1132, ptr %result
   ret {  } undef
 }
 
@@ -2112,30 +2061,30 @@ entry:
   store i64 %old_pages, ptr %old_pages.addr
   %new_pages.addr = alloca i64
   store i64 %new_pages, ptr %new_pages.addr
-  %.t1118 = load { i64 }, ptr %self.addr
+  %.t1133 = load { i64 }, ptr %self.addr
   %pa = alloca { i64 }
-  store { i64 } %.t1118, ptr %pa
-  %.t1119 = load { i64 }, ptr %pa
-  %.t1120 = load i64, ptr %new_pages.addr
-  %.t1121 = call ptr @PageAllocator__alloc({ i64 } %.t1119, i64 %.t1120)
+  store { i64 } %.t1133, ptr %pa
+  %.t1134 = load { i64 }, ptr %pa
+  %.t1135 = load i64, ptr %new_pages.addr
+  %.t1136 = call ptr @PageAllocator__alloc({ i64 } %.t1134, i64 %.t1135)
   %new_ptr = alloca ptr
-  store ptr %.t1121, ptr %new_ptr
-  %.t1122 = load i64, ptr %old_pages.addr
-  %.t1123 = load { i64 }, ptr %pa
-  %.t1124 = extractvalue { i64 } %.t1123, 0
-  %.t1125 = mul i64 %.t1122, %.t1124
+  store ptr %.t1136, ptr %new_ptr
+  %.t1137 = load i64, ptr %old_pages.addr
+  %.t1138 = load { i64 }, ptr %pa
+  %.t1139 = extractvalue { i64 } %.t1138, 0
+  %.t1140 = mul i64 %.t1137, %.t1139
   %old_size = alloca i64
-  store i64 %.t1125, ptr %old_size
-  %.t1126 = load ptr, ptr %new_ptr
-  %.t1127 = load ptr, ptr %ptr.addr
-  %.t1128 = load i64, ptr %old_size
-  %.t1129 = call {  } @memcpy(ptr %.t1126, ptr %.t1127, i64 %.t1128)
-  %.t1130 = load { i64 }, ptr %pa
-  %.t1131 = load ptr, ptr %ptr.addr
-  %.t1132 = load i64, ptr %old_pages.addr
-  %.t1133 = call {  } @PageAllocator__free({ i64 } %.t1130, ptr %.t1131, i64 %.t1132)
-  %.t1134 = load ptr, ptr %new_ptr
-  ret ptr %.t1134
+  store i64 %.t1140, ptr %old_size
+  %.t1141 = load ptr, ptr %new_ptr
+  %.t1142 = load ptr, ptr %ptr.addr
+  %.t1143 = load i64, ptr %old_size
+  %.t1144 = call {  } @memcpy(ptr %.t1141, ptr %.t1142, i64 %.t1143)
+  %.t1145 = load { i64 }, ptr %pa
+  %.t1146 = load ptr, ptr %ptr.addr
+  %.t1147 = load i64, ptr %old_pages.addr
+  %.t1148 = call {  } @PageAllocator__free({ i64 } %.t1145, ptr %.t1146, i64 %.t1147)
+  %.t1149 = load ptr, ptr %new_ptr
+  ret ptr %.t1149
 }
 
 define { ptr, { { i64 }, ptr, i64, i64, i64 } } @Arena__alloc({ { i64 }, ptr, i64, i64, i64 } %self, i64 %size) {
@@ -2144,124 +2093,124 @@ entry:
   store { { i64 }, ptr, i64, i64, i64 } %self, ptr %self.addr
   %size.addr = alloca i64
   store i64 %size, ptr %size.addr
-  %.t1135 = load { { i64 }, ptr, i64, i64, i64 }, ptr %self.addr
+  %.t1150 = load { { i64 }, ptr, i64, i64, i64 }, ptr %self.addr
   %arena = alloca { { i64 }, ptr, i64, i64, i64 }
-  store { { i64 }, ptr, i64, i64, i64 } %.t1135, ptr %arena
-  %.t1136 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1137 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1136, 3
-  %.t1138 = load i64, ptr %size.addr
-  %.t1139 = add i64 %.t1137, %.t1138
-  %new_used = alloca i64
-  store i64 %.t1139, ptr %new_used
-  %.t1140 = load i64, ptr %new_used
-  %.t1141 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1142 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1141, 2
-  %.t1143 = icmp ugt i64 %.t1140, %.t1142
-  %needs_grow = alloca i1
-  store i1 %.t1143, ptr %needs_grow
-  %.t1144 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %arena_updated = alloca { { i64 }, ptr, i64, i64, i64 }
-  store { { i64 }, ptr, i64, i64, i64 } %.t1144, ptr %arena_updated
-  %.t1148 = load i1, ptr %needs_grow
-  br i1 %.t1148, label %if_then1145, label %if_end1147
-if_then1145:
-  %.t1149 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1150 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1149, 0
-  %.t1151 = extractvalue { i64 } %.t1150, 0
-  %page_size = alloca i64
-  store i64 %.t1151, ptr %page_size
-  %.t1152 = load i64, ptr %new_used
-  %.t1153 = load i64, ptr %page_size
+  store { { i64 }, ptr, i64, i64, i64 } %.t1150, ptr %arena
+  %.t1151 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1152 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1151, 3
+  %.t1153 = load i64, ptr %size.addr
   %.t1154 = add i64 %.t1152, %.t1153
-  %.t1155 = sub i64 %.t1154, 1
-  %.t1156 = load i64, ptr %page_size
-  %.t1157 = udiv i64 %.t1155, %.t1156
+  %new_used = alloca i64
+  store i64 %.t1154, ptr %new_used
+  %.t1155 = load i64, ptr %new_used
+  %.t1156 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1157 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1156, 2
+  %.t1158 = icmp ugt i64 %.t1155, %.t1157
+  %needs_grow = alloca i1
+  store i1 %.t1158, ptr %needs_grow
+  %.t1159 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %arena_updated = alloca { { i64 }, ptr, i64, i64, i64 }
+  store { { i64 }, ptr, i64, i64, i64 } %.t1159, ptr %arena_updated
+  %.t1163 = load i1, ptr %needs_grow
+  br i1 %.t1163, label %if_then1160, label %if_end1162
+if_then1160:
+  %.t1164 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1165 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1164, 0
+  %.t1166 = extractvalue { i64 } %.t1165, 0
+  %page_size = alloca i64
+  store i64 %.t1166, ptr %page_size
+  %.t1167 = load i64, ptr %new_used
+  %.t1168 = load i64, ptr %page_size
+  %.t1169 = add i64 %.t1167, %.t1168
+  %.t1170 = sub i64 %.t1169, 1
+  %.t1171 = load i64, ptr %page_size
+  %.t1172 = udiv i64 %.t1170, %.t1171
   %total_pages_needed = alloca i64
-  store i64 %.t1157, ptr %total_pages_needed
-  %.t1158 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1159 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1158, 0
-  %.t1160 = load i64, ptr %total_pages_needed
-  %.t1161 = call ptr @PageAllocator__alloc({ i64 } %.t1159, i64 %.t1160)
-  %new_buffer = alloca ptr
-  store ptr %.t1161, ptr %new_buffer
-  %.t1162 = load i64, ptr %total_pages_needed
-  %.t1163 = load i64, ptr %page_size
-  %.t1164 = mul i64 %.t1162, %.t1163
-  %new_capacity = alloca i64
-  store i64 %.t1164, ptr %new_capacity
-  %.t1165 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1166 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1165, 3
-  %.t1167 = icmp ugt i64 %.t1166, 0
-  %has_old_data = alloca i1
-  store i1 %.t1167, ptr %has_old_data
-  %.t1171 = load i1, ptr %has_old_data
-  br i1 %.t1171, label %if_then1168, label %if_end1170
-if_then1168:
-  %.t1172 = load ptr, ptr %new_buffer
+  store i64 %.t1172, ptr %total_pages_needed
   %.t1173 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1174 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1173, 1
-  %.t1175 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1176 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1175, 3
-  %.t1177 = call {  } @memcpy(ptr %.t1172, ptr %.t1174, i64 %.t1176)
-  %copy_result = alloca {  }
-  store {  } %.t1177, ptr %copy_result
-  %.t1178 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1179 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1178, 0
+  %.t1174 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1173, 0
+  %.t1175 = load i64, ptr %total_pages_needed
+  %.t1176 = call ptr @PageAllocator__alloc({ i64 } %.t1174, i64 %.t1175)
+  %new_buffer = alloca ptr
+  store ptr %.t1176, ptr %new_buffer
+  %.t1177 = load i64, ptr %total_pages_needed
+  %.t1178 = load i64, ptr %page_size
+  %.t1179 = mul i64 %.t1177, %.t1178
+  %new_capacity = alloca i64
+  store i64 %.t1179, ptr %new_capacity
   %.t1180 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1181 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1180, 1
-  %.t1182 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1183 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1182, 4
-  %.t1184 = call {  } @PageAllocator__free({ i64 } %.t1179, ptr %.t1181, i64 %.t1183)
+  %.t1181 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1180, 3
+  %.t1182 = icmp ugt i64 %.t1181, 0
+  %has_old_data = alloca i1
+  store i1 %.t1182, ptr %has_old_data
+  %.t1186 = load i1, ptr %has_old_data
+  br i1 %.t1186, label %if_then1183, label %if_end1185
+if_then1183:
+  %.t1187 = load ptr, ptr %new_buffer
+  %.t1188 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1189 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1188, 1
+  %.t1190 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1191 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1190, 3
+  %.t1192 = call {  } @memcpy(ptr %.t1187, ptr %.t1189, i64 %.t1191)
+  %copy_result = alloca {  }
+  store {  } %.t1192, ptr %copy_result
+  %.t1193 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1194 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1193, 0
+  %.t1195 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1196 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1195, 1
+  %.t1197 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1198 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1197, 4
+  %.t1199 = call {  } @PageAllocator__free({ i64 } %.t1194, ptr %.t1196, i64 %.t1198)
   %free_result = alloca {  }
-  store {  } %.t1184, ptr %free_result
-  br label %if_end1170
-if_end1170:
-  %.t1185 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1186 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1185, 0
-  %.t1187 = insertvalue { { i64 }, ptr, i64, i64, i64 } undef, { i64 } %.t1186, 0
-  %.t1188 = load ptr, ptr %new_buffer
-  %.t1189 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1187, ptr %.t1188, 1
-  %.t1190 = load i64, ptr %new_capacity
-  %.t1191 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1189, i64 %.t1190, 2
-  %.t1192 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1193 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1192, 3
-  %.t1194 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1191, i64 %.t1193, 3
-  %.t1195 = load i64, ptr %total_pages_needed
-  %.t1196 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1194, i64 %.t1195, 4
+  store {  } %.t1199, ptr %free_result
+  br label %if_end1185
+if_end1185:
+  %.t1200 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1201 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1200, 0
+  %.t1202 = insertvalue { { i64 }, ptr, i64, i64, i64 } undef, { i64 } %.t1201, 0
+  %.t1203 = load ptr, ptr %new_buffer
+  %.t1204 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1202, ptr %.t1203, 1
+  %.t1205 = load i64, ptr %new_capacity
+  %.t1206 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1204, i64 %.t1205, 2
+  %.t1207 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1208 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1207, 3
+  %.t1209 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1206, i64 %.t1208, 3
+  %.t1210 = load i64, ptr %total_pages_needed
+  %.t1211 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1209, i64 %.t1210, 4
   %new_arena = alloca { { i64 }, ptr, i64, i64, i64 }
-  store { { i64 }, ptr, i64, i64, i64 } %.t1196, ptr %new_arena
-  %.t1197 = load { { i64 }, ptr, i64, i64, i64 }, ptr %new_arena
-  store { { i64 }, ptr, i64, i64, i64 } %.t1197, ptr %arena_updated
-  br label %if_end1147
-if_end1147:
-  %.t1198 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
-  %.t1199 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1198, 1
-  %.t1200 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
-  %.t1201 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1200, 3
-  %.t1202 = getelementptr i64, ptr %.t1199, i64 %.t1201
+  store { { i64 }, ptr, i64, i64, i64 } %.t1211, ptr %new_arena
+  %.t1212 = load { { i64 }, ptr, i64, i64, i64 }, ptr %new_arena
+  store { { i64 }, ptr, i64, i64, i64 } %.t1212, ptr %arena_updated
+  br label %if_end1162
+if_end1162:
+  %.t1213 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
+  %.t1214 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1213, 1
+  %.t1215 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
+  %.t1216 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1215, 3
+  %.t1217 = getelementptr i64, ptr %.t1214, i64 %.t1216
   %alloc_ptr = alloca ptr
-  store ptr %.t1202, ptr %alloc_ptr
-  %.t1203 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
-  %.t1204 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1203, 0
-  %.t1205 = insertvalue { { i64 }, ptr, i64, i64, i64 } undef, { i64 } %.t1204, 0
-  %.t1206 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
-  %.t1207 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1206, 1
-  %.t1208 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1205, ptr %.t1207, 1
-  %.t1209 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
-  %.t1210 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1209, 2
-  %.t1211 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1208, i64 %.t1210, 2
-  %.t1212 = load i64, ptr %new_used
-  %.t1213 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1211, i64 %.t1212, 3
-  %.t1214 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
-  %.t1215 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1214, 4
-  %.t1216 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1213, i64 %.t1215, 4
+  store ptr %.t1217, ptr %alloc_ptr
+  %.t1218 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
+  %.t1219 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1218, 0
+  %.t1220 = insertvalue { { i64 }, ptr, i64, i64, i64 } undef, { i64 } %.t1219, 0
+  %.t1221 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
+  %.t1222 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1221, 1
+  %.t1223 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1220, ptr %.t1222, 1
+  %.t1224 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
+  %.t1225 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1224, 2
+  %.t1226 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1223, i64 %.t1225, 2
+  %.t1227 = load i64, ptr %new_used
+  %.t1228 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1226, i64 %.t1227, 3
+  %.t1229 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena_updated
+  %.t1230 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1229, 4
+  %.t1231 = insertvalue { { i64 }, ptr, i64, i64, i64 } %.t1228, i64 %.t1230, 4
   %final_arena = alloca { { i64 }, ptr, i64, i64, i64 }
-  store { { i64 }, ptr, i64, i64, i64 } %.t1216, ptr %final_arena
-  %.t1217 = load ptr, ptr %alloc_ptr
-  %.t1218 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } undef, ptr %.t1217, 0
-  %.t1219 = load { { i64 }, ptr, i64, i64, i64 }, ptr %final_arena
-  %.t1220 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1218, { { i64 }, ptr, i64, i64, i64 } %.t1219, 1
-  ret { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1220
+  store { { i64 }, ptr, i64, i64, i64 } %.t1231, ptr %final_arena
+  %.t1232 = load ptr, ptr %alloc_ptr
+  %.t1233 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } undef, ptr %.t1232, 0
+  %.t1234 = load { { i64 }, ptr, i64, i64, i64 }, ptr %final_arena
+  %.t1235 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1233, { { i64 }, ptr, i64, i64, i64 } %.t1234, 1
+  ret { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1235
 }
 
 define {  } @Arena__free({ { i64 }, ptr, i64, i64, i64 } %self, ptr %ptr) {
@@ -2292,12 +2241,12 @@ entry:
   store ptr %old_ptr, ptr %old_ptr.addr
   %new_size.addr = alloca i64
   store i64 %new_size, ptr %new_size.addr
-  %.t1221 = load { { i64 }, ptr, i64, i64, i64 }, ptr %self.addr
+  %.t1236 = load { { i64 }, ptr, i64, i64, i64 }, ptr %self.addr
   %arena = alloca { { i64 }, ptr, i64, i64, i64 }
-  store { { i64 }, ptr, i64, i64, i64 } %.t1221, ptr %arena
-  %.t1222 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
-  %.t1223 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1222, 1
-  ret ptr %.t1223
+  store { { i64 }, ptr, i64, i64, i64 } %.t1236, ptr %arena
+  %.t1237 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena
+  %.t1238 = extractvalue { { i64 }, ptr, i64, i64, i64 } %.t1237, 1
+  ret ptr %.t1238
 }
 
 define { ptr, { { i64 }, ptr, ptr, ptr } } @GeneralPurposeAllocator__alloc({ { i64 }, ptr, ptr, ptr } %self, i64 %size) {
@@ -2306,189 +2255,189 @@ entry:
   store { { i64 }, ptr, ptr, ptr } %self, ptr %self.addr
   %size.addr = alloca i64
   store i64 %size, ptr %size.addr
-  %.t1224 = load { { i64 }, ptr, ptr, ptr }, ptr %self.addr
+  %.t1239 = load { { i64 }, ptr, ptr, ptr }, ptr %self.addr
   %gpa = alloca { { i64 }, ptr, ptr, ptr }
-  store { { i64 }, ptr, ptr, ptr } %.t1224, ptr %gpa
-  %.t1225 = sext i32 16 to i64
+  store { { i64 }, ptr, ptr, ptr } %.t1239, ptr %gpa
+  %.t1240 = sext i32 16 to i64
   %header_size = alloca i64
-  store i64 %.t1225, ptr %header_size
-  %.t1226 = load i64, ptr %size.addr
-  %.t1227 = load i64, ptr %header_size
-  %.t1228 = add i64 %.t1226, %.t1227
+  store i64 %.t1240, ptr %header_size
+  %.t1241 = load i64, ptr %size.addr
+  %.t1242 = load i64, ptr %header_size
+  %.t1243 = add i64 %.t1241, %.t1242
   %total_size = alloca i64
-  store i64 %.t1228, ptr %total_size
-  %.t1229 = sext i32 0 to i64
+  store i64 %.t1243, ptr %total_size
+  %.t1244 = sext i32 0 to i64
   %null_addr = alloca i64
-  store i64 %.t1229, ptr %null_addr
-  %.t1230 = load i64, ptr %null_addr
-  %.t1231 = inttoptr i64 %.t1230 to ptr
+  store i64 %.t1244, ptr %null_addr
+  %.t1245 = load i64, ptr %null_addr
+  %.t1246 = inttoptr i64 %.t1245 to ptr
   %null_ptr = alloca ptr
-  store ptr %.t1231, ptr %null_ptr
-  %.t1232 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1233 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1232, 1
+  store ptr %.t1246, ptr %null_ptr
+  %.t1247 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1248 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1247, 1
   %current = alloca ptr
-  store ptr %.t1233, ptr %current
-  %.t1234 = load ptr, ptr %null_ptr
+  store ptr %.t1248, ptr %current
+  %.t1249 = load ptr, ptr %null_ptr
   %prev = alloca ptr
-  store ptr %.t1234, ptr %prev
-  %.t1235 = load ptr, ptr %null_ptr
+  store ptr %.t1249, ptr %prev
+  %.t1250 = load ptr, ptr %null_ptr
   %found_block = alloca ptr
-  store ptr %.t1235, ptr %found_block
-  %.t1236 = load ptr, ptr %null_ptr
+  store ptr %.t1250, ptr %found_block
+  %.t1251 = load ptr, ptr %null_ptr
   %found_prev = alloca ptr
-  store ptr %.t1236, ptr %found_prev
-  br label %while_header1237
-while_header1237:
-  %.t1240 = load ptr, ptr %current
-  %.t1241 = load ptr, ptr %null_ptr
-  %.t1242 = icmp ne ptr %.t1240, %.t1241
-  br i1 %.t1242, label %while_body1238, label %while_exit1239
-while_body1238:
-  %.t1243 = load ptr, ptr %current
-  %.t1244 = load i64, ptr %.t1243
-  %block_size = alloca i64
-  store i64 %.t1244, ptr %block_size
-  %.t1245 = load i64, ptr %block_size
-  %.t1246 = load i64, ptr %total_size
-  %.t1247 = icmp uge i64 %.t1245, %.t1246
-  %fits = alloca i1
-  store i1 %.t1247, ptr %fits
-  %.t1248 = load i1, ptr %fits
-  br i1 %.t1248, label %then1249, label %else1250
-then1249:
-  %.t1252 = load ptr, ptr %current
-  store ptr %.t1252, ptr %found_block
-  %.t1253 = load ptr, ptr %prev
-  store ptr %.t1253, ptr %found_prev
-  %.t1254 = load ptr, ptr %null_ptr
-  store ptr %.t1254, ptr %current
-  br label %merge1251
-else1250:
+  store ptr %.t1251, ptr %found_prev
+  br label %while_header1252
+while_header1252:
   %.t1255 = load ptr, ptr %current
-  %.t1256 = getelementptr i64, ptr %.t1255, i64 8
+  %.t1256 = load ptr, ptr %null_ptr
+  %.t1257 = icmp ne ptr %.t1255, %.t1256
+  br i1 %.t1257, label %while_body1253, label %while_exit1254
+while_body1253:
+  %.t1258 = load ptr, ptr %current
+  %.t1259 = load i64, ptr %.t1258
+  %block_size = alloca i64
+  store i64 %.t1259, ptr %block_size
+  %.t1260 = load i64, ptr %block_size
+  %.t1261 = load i64, ptr %total_size
+  %.t1262 = icmp uge i64 %.t1260, %.t1261
+  %fits = alloca i1
+  store i1 %.t1262, ptr %fits
+  %.t1263 = load i1, ptr %fits
+  br i1 %.t1263, label %then1264, label %else1265
+then1264:
+  %.t1267 = load ptr, ptr %current
+  store ptr %.t1267, ptr %found_block
+  %.t1268 = load ptr, ptr %prev
+  store ptr %.t1268, ptr %found_prev
+  %.t1269 = load ptr, ptr %null_ptr
+  store ptr %.t1269, ptr %current
+  br label %merge1266
+else1265:
+  %.t1270 = load ptr, ptr %current
+  %.t1271 = getelementptr i64, ptr %.t1270, i64 8
   %current_next_offset = alloca ptr
-  store ptr %.t1256, ptr %current_next_offset
-  %.t1257 = load ptr, ptr %current_next_offset
-  %.t1258 = load ptr, ptr %.t1257
+  store ptr %.t1271, ptr %current_next_offset
+  %.t1272 = load ptr, ptr %current_next_offset
+  %.t1273 = load ptr, ptr %.t1272
   %next = alloca ptr
-  store ptr %.t1258, ptr %next
-  %.t1259 = load ptr, ptr %current
-  store ptr %.t1259, ptr %prev
-  %.t1260 = load ptr, ptr %next
-  store ptr %.t1260, ptr %current
-  br label %merge1251
-merge1251:
-  %.t1261 = phi i32 [ 0, %then1249 ], [ 0, %else1250 ]
-  br label %while_header1237
-while_exit1239:
-  %.t1262 = load ptr, ptr %found_block
-  %.t1263 = load ptr, ptr %null_ptr
-  %.t1264 = icmp ne ptr %.t1262, %.t1263
-  br i1 %.t1264, label %then1265, label %else1266
-then1265:
-  %.t1268 = load ptr, ptr %found_block
-  %.t1269 = getelementptr i64, ptr %.t1268, i64 8
+  store ptr %.t1273, ptr %next
+  %.t1274 = load ptr, ptr %current
+  store ptr %.t1274, ptr %prev
+  %.t1275 = load ptr, ptr %next
+  store ptr %.t1275, ptr %current
+  br label %merge1266
+merge1266:
+  %.t1276 = phi i32 [ 0, %then1264 ], [ 0, %else1265 ]
+  br label %while_header1252
+while_exit1254:
+  %.t1277 = load ptr, ptr %found_block
+  %.t1278 = load ptr, ptr %null_ptr
+  %.t1279 = icmp ne ptr %.t1277, %.t1278
+  br i1 %.t1279, label %then1280, label %else1281
+then1280:
+  %.t1283 = load ptr, ptr %found_block
+  %.t1284 = getelementptr i64, ptr %.t1283, i64 8
   %next_offset2 = alloca ptr
-  store ptr %.t1269, ptr %next_offset2
-  %.t1270 = load ptr, ptr %next_offset2
-  %.t1271 = load ptr, ptr %.t1270
+  store ptr %.t1284, ptr %next_offset2
+  %.t1285 = load ptr, ptr %next_offset2
+  %.t1286 = load ptr, ptr %.t1285
   %next_block = alloca ptr
-  store ptr %.t1271, ptr %next_block
-  %.t1272 = load ptr, ptr %found_prev
-  %.t1273 = load ptr, ptr %null_ptr
-  %.t1274 = icmp eq ptr %.t1272, %.t1273
-  br i1 %.t1274, label %then1275, label %else1276
-then1275:
-  %.t1278 = load ptr, ptr %next_block
-  br label %merge1277
-else1276:
-  %.t1279 = load ptr, ptr %found_prev
-  %.t1280 = getelementptr i64, ptr %.t1279, i64 8
+  store ptr %.t1286, ptr %next_block
+  %.t1287 = load ptr, ptr %found_prev
+  %.t1288 = load ptr, ptr %null_ptr
+  %.t1289 = icmp eq ptr %.t1287, %.t1288
+  br i1 %.t1289, label %then1290, label %else1291
+then1290:
+  %.t1293 = load ptr, ptr %next_block
+  br label %merge1292
+else1291:
+  %.t1294 = load ptr, ptr %found_prev
+  %.t1295 = getelementptr i64, ptr %.t1294, i64 8
   %prev_next_offset = alloca ptr
-  store ptr %.t1280, ptr %prev_next_offset
-  %.t1281 = load ptr, ptr %prev_next_offset
-  %.t1282 = load ptr, ptr %next_block
-  %.t1283 = ptrtoint ptr %.t1282 to i64
-  store i64 %.t1283, ptr %.t1281
+  store ptr %.t1295, ptr %prev_next_offset
+  %.t1296 = load ptr, ptr %prev_next_offset
+  %.t1297 = load ptr, ptr %next_block
+  %.t1298 = ptrtoint ptr %.t1297 to i64
+  store i64 %.t1298, ptr %.t1296
   %_w3 = alloca {  }
   store {  } undef, ptr %_w3
-  %.t1284 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1285 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1284, 1
-  br label %merge1277
-merge1277:
-  %.t1286 = phi ptr [ %.t1278, %then1275 ], [ %.t1285, %else1276 ]
+  %.t1299 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1300 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1299, 1
+  br label %merge1292
+merge1292:
+  %.t1301 = phi ptr [ %.t1293, %then1290 ], [ %.t1300, %else1291 ]
   %new_free_list = alloca ptr
-  store ptr %.t1286, ptr %new_free_list
-  %.t1287 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1288 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1287, 0
-  %.t1289 = insertvalue { { i64 }, ptr, ptr, ptr } undef, { i64 } %.t1288, 0
-  %.t1290 = load ptr, ptr %new_free_list
-  %.t1291 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1289, ptr %.t1290, 1
-  %.t1292 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1293 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1292, 2
-  %.t1294 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1291, ptr %.t1293, 2
-  %.t1295 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1296 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1295, 3
-  %.t1297 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1294, ptr %.t1296, 3
-  %updated_gpa = alloca { { i64 }, ptr, ptr, ptr }
-  store { { i64 }, ptr, ptr, ptr } %.t1297, ptr %updated_gpa
-  %.t1298 = load { { i64 }, ptr, ptr, ptr }, ptr %updated_gpa
-  store { { i64 }, ptr, ptr, ptr } %.t1298, ptr %gpa
-  %.t1299 = load ptr, ptr %found_block
-  %.t1300 = load i64, ptr %header_size
-  %.t1301 = getelementptr i64, ptr %.t1299, i64 %.t1300
-  br label %merge1267
-else1266:
+  store ptr %.t1301, ptr %new_free_list
   %.t1302 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
   %.t1303 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1302, 0
-  %.t1304 = extractvalue { i64 } %.t1303, 0
+  %.t1304 = insertvalue { { i64 }, ptr, ptr, ptr } undef, { i64 } %.t1303, 0
+  %.t1305 = load ptr, ptr %new_free_list
+  %.t1306 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1304, ptr %.t1305, 1
+  %.t1307 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1308 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1307, 2
+  %.t1309 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1306, ptr %.t1308, 2
+  %.t1310 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1311 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1310, 3
+  %.t1312 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1309, ptr %.t1311, 3
+  %updated_gpa = alloca { { i64 }, ptr, ptr, ptr }
+  store { { i64 }, ptr, ptr, ptr } %.t1312, ptr %updated_gpa
+  %.t1313 = load { { i64 }, ptr, ptr, ptr }, ptr %updated_gpa
+  store { { i64 }, ptr, ptr, ptr } %.t1313, ptr %gpa
+  %.t1314 = load ptr, ptr %found_block
+  %.t1315 = load i64, ptr %header_size
+  %.t1316 = getelementptr i64, ptr %.t1314, i64 %.t1315
+  br label %merge1282
+else1281:
+  %.t1317 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1318 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1317, 0
+  %.t1319 = extractvalue { i64 } %.t1318, 0
   %page_size = alloca i64
-  store i64 %.t1304, ptr %page_size
-  %.t1305 = load i64, ptr %total_size
-  %.t1306 = load i64, ptr %page_size
-  %.t1307 = add i64 %.t1305, %.t1306
-  %.t1308 = sub i64 %.t1307, 1
-  %.t1309 = load i64, ptr %page_size
-  %.t1310 = udiv i64 %.t1308, %.t1309
+  store i64 %.t1319, ptr %page_size
+  %.t1320 = load i64, ptr %total_size
+  %.t1321 = load i64, ptr %page_size
+  %.t1322 = add i64 %.t1320, %.t1321
+  %.t1323 = sub i64 %.t1322, 1
+  %.t1324 = load i64, ptr %page_size
+  %.t1325 = udiv i64 %.t1323, %.t1324
   %pages_needed = alloca i64
-  store i64 %.t1310, ptr %pages_needed
-  %.t1311 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1312 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1311, 0
-  %.t1313 = load i64, ptr %pages_needed
-  %.t1314 = call ptr @PageAllocator__alloc({ i64 } %.t1312, i64 %.t1313)
+  store i64 %.t1325, ptr %pages_needed
+  %.t1326 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1327 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1326, 0
+  %.t1328 = load i64, ptr %pages_needed
+  %.t1329 = call ptr @PageAllocator__alloc({ i64 } %.t1327, i64 %.t1328)
   %new_block = alloca ptr
-  store ptr %.t1314, ptr %new_block
-  %.t1315 = load ptr, ptr %new_block
-  %.t1316 = load i64, ptr %total_size
-  store i64 %.t1316, ptr %.t1315
+  store ptr %.t1329, ptr %new_block
+  %.t1330 = load ptr, ptr %new_block
+  %.t1331 = load i64, ptr %total_size
+  store i64 %.t1331, ptr %.t1330
   %_w1 = alloca {  }
   store {  } undef, ptr %_w1
-  %.t1317 = load ptr, ptr %new_block
-  %.t1318 = getelementptr i64, ptr %.t1317, i64 8
+  %.t1332 = load ptr, ptr %new_block
+  %.t1333 = getelementptr i64, ptr %.t1332, i64 8
   %new_block_next_offset = alloca ptr
-  store ptr %.t1318, ptr %new_block_next_offset
-  %.t1319 = load ptr, ptr %new_block_next_offset
-  %.t1320 = load ptr, ptr %null_ptr
-  %.t1321 = ptrtoint ptr %.t1320 to i64
-  store i64 %.t1321, ptr %.t1319
+  store ptr %.t1333, ptr %new_block_next_offset
+  %.t1334 = load ptr, ptr %new_block_next_offset
+  %.t1335 = load ptr, ptr %null_ptr
+  %.t1336 = ptrtoint ptr %.t1335 to i64
+  store i64 %.t1336, ptr %.t1334
   %_w2 = alloca {  }
   store {  } undef, ptr %_w2
-  %.t1322 = load ptr, ptr %new_block
-  %.t1323 = load i64, ptr %header_size
-  %.t1324 = getelementptr i64, ptr %.t1322, i64 %.t1323
-  br label %merge1267
-merge1267:
-  %.t1325 = phi ptr [ %.t1301, %merge1277 ], [ %.t1324, %else1266 ]
+  %.t1337 = load ptr, ptr %new_block
+  %.t1338 = load i64, ptr %header_size
+  %.t1339 = getelementptr i64, ptr %.t1337, i64 %.t1338
+  br label %merge1282
+merge1282:
+  %.t1340 = phi ptr [ %.t1316, %merge1292 ], [ %.t1339, %else1281 ]
   %allocated_ptr = alloca ptr
-  store ptr %.t1325, ptr %allocated_ptr
-  %.t1326 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  store ptr %.t1340, ptr %allocated_ptr
+  %.t1341 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
   %final_gpa = alloca { { i64 }, ptr, ptr, ptr }
-  store { { i64 }, ptr, ptr, ptr } %.t1326, ptr %final_gpa
-  %.t1327 = load ptr, ptr %allocated_ptr
-  %.t1328 = insertvalue { ptr, { { i64 }, ptr, ptr, ptr } } undef, ptr %.t1327, 0
-  %.t1329 = load { { i64 }, ptr, ptr, ptr }, ptr %final_gpa
-  %.t1330 = insertvalue { ptr, { { i64 }, ptr, ptr, ptr } } %.t1328, { { i64 }, ptr, ptr, ptr } %.t1329, 1
-  ret { ptr, { { i64 }, ptr, ptr, ptr } } %.t1330
+  store { { i64 }, ptr, ptr, ptr } %.t1341, ptr %final_gpa
+  %.t1342 = load ptr, ptr %allocated_ptr
+  %.t1343 = insertvalue { ptr, { { i64 }, ptr, ptr, ptr } } undef, ptr %.t1342, 0
+  %.t1344 = load { { i64 }, ptr, ptr, ptr }, ptr %final_gpa
+  %.t1345 = insertvalue { ptr, { { i64 }, ptr, ptr, ptr } } %.t1343, { { i64 }, ptr, ptr, ptr } %.t1344, 1
+  ret { ptr, { { i64 }, ptr, ptr, ptr } } %.t1345
 }
 
 define { { i64 }, ptr, ptr, ptr } @GeneralPurposeAllocator__free({ { i64 }, ptr, ptr, ptr } %self, ptr %ptr) {
@@ -2497,54 +2446,54 @@ entry:
   store { { i64 }, ptr, ptr, ptr } %self, ptr %self.addr
   %ptr.addr = alloca ptr
   store ptr %ptr, ptr %ptr.addr
-  %.t1331 = load { { i64 }, ptr, ptr, ptr }, ptr %self.addr
+  %.t1346 = load { { i64 }, ptr, ptr, ptr }, ptr %self.addr
   %gpa = alloca { { i64 }, ptr, ptr, ptr }
-  store { { i64 }, ptr, ptr, ptr } %.t1331, ptr %gpa
-  %.t1332 = sext i32 16 to i64
+  store { { i64 }, ptr, ptr, ptr } %.t1346, ptr %gpa
+  %.t1347 = sext i32 16 to i64
   %header_size = alloca i64
-  store i64 %.t1332, ptr %header_size
-  %.t1333 = load ptr, ptr %ptr.addr
-  %.t1334 = ptrtoint ptr %.t1333 to i64
+  store i64 %.t1347, ptr %header_size
+  %.t1348 = load ptr, ptr %ptr.addr
+  %.t1349 = ptrtoint ptr %.t1348 to i64
   %ptr_as_int = alloca i64
-  store i64 %.t1334, ptr %ptr_as_int
-  %.t1335 = sext i32 16 to i64
+  store i64 %.t1349, ptr %ptr_as_int
+  %.t1350 = sext i32 16 to i64
   %header_size_as_int = alloca i64
-  store i64 %.t1335, ptr %header_size_as_int
-  %.t1336 = load i64, ptr %ptr_as_int
-  %.t1337 = load i64, ptr %header_size_as_int
-  %.t1338 = sub i64 %.t1336, %.t1337
+  store i64 %.t1350, ptr %header_size_as_int
+  %.t1351 = load i64, ptr %ptr_as_int
+  %.t1352 = load i64, ptr %header_size_as_int
+  %.t1353 = sub i64 %.t1351, %.t1352
   %block_start_int = alloca i64
-  store i64 %.t1338, ptr %block_start_int
-  %.t1339 = load i64, ptr %block_start_int
-  %.t1340 = inttoptr i64 %.t1339 to ptr
+  store i64 %.t1353, ptr %block_start_int
+  %.t1354 = load i64, ptr %block_start_int
+  %.t1355 = inttoptr i64 %.t1354 to ptr
   %block_start = alloca ptr
-  store ptr %.t1340, ptr %block_start
-  %.t1341 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1342 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1341, 1
+  store ptr %.t1355, ptr %block_start
+  %.t1356 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1357 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1356, 1
   %old_head = alloca ptr
-  store ptr %.t1342, ptr %old_head
-  %.t1343 = load ptr, ptr %block_start
-  %.t1344 = getelementptr i64, ptr %.t1343, i64 8
+  store ptr %.t1357, ptr %old_head
+  %.t1358 = load ptr, ptr %block_start
+  %.t1359 = getelementptr i64, ptr %.t1358, i64 8
   %next_offset = alloca ptr
-  store ptr %.t1344, ptr %next_offset
-  %.t1345 = load ptr, ptr %next_offset
-  %.t1346 = load ptr, ptr %old_head
-  %.t1347 = ptrtoint ptr %.t1346 to i64
-  store i64 %.t1347, ptr %.t1345
+  store ptr %.t1359, ptr %next_offset
+  %.t1360 = load ptr, ptr %next_offset
+  %.t1361 = load ptr, ptr %old_head
+  %.t1362 = ptrtoint ptr %.t1361 to i64
+  store i64 %.t1362, ptr %.t1360
   %_w1 = alloca {  }
   store {  } undef, ptr %_w1
-  %.t1348 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1349 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1348, 0
-  %.t1350 = insertvalue { { i64 }, ptr, ptr, ptr } undef, { i64 } %.t1349, 0
-  %.t1351 = load ptr, ptr %block_start
-  %.t1352 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1350, ptr %.t1351, 1
-  %.t1353 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1354 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1353, 2
-  %.t1355 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1352, ptr %.t1354, 2
-  %.t1356 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1357 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1356, 3
-  %.t1358 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1355, ptr %.t1357, 3
-  ret { { i64 }, ptr, ptr, ptr } %.t1358
+  %.t1363 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1364 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1363, 0
+  %.t1365 = insertvalue { { i64 }, ptr, ptr, ptr } undef, { i64 } %.t1364, 0
+  %.t1366 = load ptr, ptr %block_start
+  %.t1367 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1365, ptr %.t1366, 1
+  %.t1368 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1369 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1368, 2
+  %.t1370 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1367, ptr %.t1369, 2
+  %.t1371 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1372 = extractvalue { { i64 }, ptr, ptr, ptr } %.t1371, 3
+  %.t1373 = insertvalue { { i64 }, ptr, ptr, ptr } %.t1370, ptr %.t1372, 3
+  ret { { i64 }, ptr, ptr, ptr } %.t1373
 }
 
 define i1 @GeneralPurposeAllocator__realloc({ { i64 }, ptr, ptr, ptr } %self, ptr %ptr, i64 %new_size) {
@@ -2566,105 +2515,105 @@ entry:
   store ptr %ptr, ptr %ptr.addr
   %new_size.addr = alloca i64
   store i64 %new_size, ptr %new_size.addr
-  %.t1359 = load { { i64 }, ptr, ptr, ptr }, ptr %self.addr
+  %.t1374 = load { { i64 }, ptr, ptr, ptr }, ptr %self.addr
   %gpa = alloca { { i64 }, ptr, ptr, ptr }
-  store { { i64 }, ptr, ptr, ptr } %.t1359, ptr %gpa
-  %.t1360 = load ptr, ptr %ptr.addr
-  %.t1361 = ptrtoint ptr %.t1360 to i64
+  store { { i64 }, ptr, ptr, ptr } %.t1374, ptr %gpa
+  %.t1375 = load ptr, ptr %ptr.addr
+  %.t1376 = ptrtoint ptr %.t1375 to i64
   %ptr_as_int = alloca i64
-  store i64 %.t1361, ptr %ptr_as_int
-  %.t1362 = sext i32 16 to i64
+  store i64 %.t1376, ptr %ptr_as_int
+  %.t1377 = sext i32 16 to i64
   %header_size = alloca i64
-  store i64 %.t1362, ptr %header_size
-  %.t1363 = load i64, ptr %ptr_as_int
-  %.t1364 = load i64, ptr %header_size
-  %.t1365 = sub i64 %.t1363, %.t1364
+  store i64 %.t1377, ptr %header_size
+  %.t1378 = load i64, ptr %ptr_as_int
+  %.t1379 = load i64, ptr %header_size
+  %.t1380 = sub i64 %.t1378, %.t1379
   %block_start_int = alloca i64
-  store i64 %.t1365, ptr %block_start_int
-  %.t1366 = load i64, ptr %block_start_int
-  %.t1367 = inttoptr i64 %.t1366 to ptr
+  store i64 %.t1380, ptr %block_start_int
+  %.t1381 = load i64, ptr %block_start_int
+  %.t1382 = inttoptr i64 %.t1381 to ptr
   %block_start = alloca ptr
-  store ptr %.t1367, ptr %block_start
-  %.t1368 = load ptr, ptr %block_start
-  %.t1369 = load i64, ptr %.t1368
+  store ptr %.t1382, ptr %block_start
+  %.t1383 = load ptr, ptr %block_start
+  %.t1384 = load i64, ptr %.t1383
   %old_total_size = alloca i64
-  store i64 %.t1369, ptr %old_total_size
-  %.t1370 = load i64, ptr %old_total_size
-  %.t1371 = load i64, ptr %header_size
-  %.t1372 = sub i64 %.t1370, %.t1371
+  store i64 %.t1384, ptr %old_total_size
+  %.t1385 = load i64, ptr %old_total_size
+  %.t1386 = load i64, ptr %header_size
+  %.t1387 = sub i64 %.t1385, %.t1386
   %old_size = alloca i64
-  store i64 %.t1372, ptr %old_size
-  %.t1373 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
-  %.t1374 = load i64, ptr %new_size.addr
-  %.t1375 = call { ptr, { { i64 }, ptr, ptr, ptr } } @GeneralPurposeAllocator__alloc({ { i64 }, ptr, ptr, ptr } %.t1373, i64 %.t1374)
+  store i64 %.t1387, ptr %old_size
+  %.t1388 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa
+  %.t1389 = load i64, ptr %new_size.addr
+  %.t1390 = call { ptr, { { i64 }, ptr, ptr, ptr } } @GeneralPurposeAllocator__alloc({ { i64 }, ptr, ptr, ptr } %.t1388, i64 %.t1389)
   %alloc_result = alloca { ptr, { { i64 }, ptr, ptr, ptr } }
-  store { ptr, { { i64 }, ptr, ptr, ptr } } %.t1375, ptr %alloc_result
-  %.t1376 = load { ptr, { { i64 }, ptr, ptr, ptr } }, ptr %alloc_result
-  %.t1377 = extractvalue { ptr, { { i64 }, ptr, ptr, ptr } } %.t1376, 0
+  store { ptr, { { i64 }, ptr, ptr, ptr } } %.t1390, ptr %alloc_result
+  %.t1391 = load { ptr, { { i64 }, ptr, ptr, ptr } }, ptr %alloc_result
+  %.t1392 = extractvalue { ptr, { { i64 }, ptr, ptr, ptr } } %.t1391, 0
   %new_ptr = alloca ptr
-  store ptr %.t1377, ptr %new_ptr
-  %.t1378 = load { ptr, { { i64 }, ptr, ptr, ptr } }, ptr %alloc_result
-  %.t1379 = extractvalue { ptr, { { i64 }, ptr, ptr, ptr } } %.t1378, 1
+  store ptr %.t1392, ptr %new_ptr
+  %.t1393 = load { ptr, { { i64 }, ptr, ptr, ptr } }, ptr %alloc_result
+  %.t1394 = extractvalue { ptr, { { i64 }, ptr, ptr, ptr } } %.t1393, 1
   %gpa2 = alloca { { i64 }, ptr, ptr, ptr }
-  store { { i64 }, ptr, ptr, ptr } %.t1379, ptr %gpa2
-  %.t1380 = load i64, ptr %old_size
-  %.t1381 = load i64, ptr %new_size.addr
-  %.t1382 = icmp ult i64 %.t1380, %.t1381
-  br i1 %.t1382, label %then1383, label %else1384
-then1383:
-  %.t1386 = load i64, ptr %old_size
-  br label %merge1385
-else1384:
-  %.t1387 = load i64, ptr %new_size.addr
-  br label %merge1385
-merge1385:
-  %.t1388 = phi i64 [ %.t1386, %then1383 ], [ %.t1387, %else1384 ]
+  store { { i64 }, ptr, ptr, ptr } %.t1394, ptr %gpa2
+  %.t1395 = load i64, ptr %old_size
+  %.t1396 = load i64, ptr %new_size.addr
+  %.t1397 = icmp ult i64 %.t1395, %.t1396
+  br i1 %.t1397, label %then1398, label %else1399
+then1398:
+  %.t1401 = load i64, ptr %old_size
+  br label %merge1400
+else1399:
+  %.t1402 = load i64, ptr %new_size.addr
+  br label %merge1400
+merge1400:
+  %.t1403 = phi i64 [ %.t1401, %then1398 ], [ %.t1402, %else1399 ]
   %copy_size = alloca i64
-  store i64 %.t1388, ptr %copy_size
-  %.t1389 = load ptr, ptr %new_ptr
-  %.t1390 = load ptr, ptr %ptr.addr
-  %.t1391 = load i64, ptr %copy_size
-  %.t1392 = call {  } @memcpy(ptr %.t1389, ptr %.t1390, i64 %.t1391)
-  %.t1393 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa2
-  %.t1394 = load ptr, ptr %ptr.addr
-  %.t1395 = call { { i64 }, ptr, ptr, ptr } @GeneralPurposeAllocator__free({ { i64 }, ptr, ptr, ptr } %.t1393, ptr %.t1394)
+  store i64 %.t1403, ptr %copy_size
+  %.t1404 = load ptr, ptr %new_ptr
+  %.t1405 = load ptr, ptr %ptr.addr
+  %.t1406 = load i64, ptr %copy_size
+  %.t1407 = call {  } @memcpy(ptr %.t1404, ptr %.t1405, i64 %.t1406)
+  %.t1408 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa2
+  %.t1409 = load ptr, ptr %ptr.addr
+  %.t1410 = call { { i64 }, ptr, ptr, ptr } @GeneralPurposeAllocator__free({ { i64 }, ptr, ptr, ptr } %.t1408, ptr %.t1409)
   %gpa3 = alloca { { i64 }, ptr, ptr, ptr }
-  store { { i64 }, ptr, ptr, ptr } %.t1395, ptr %gpa3
-  %.t1396 = load ptr, ptr %new_ptr
-  %.t1397 = insertvalue { ptr, { { i64 }, ptr, ptr, ptr } } undef, ptr %.t1396, 0
-  %.t1398 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa3
-  %.t1399 = insertvalue { ptr, { { i64 }, ptr, ptr, ptr } } %.t1397, { { i64 }, ptr, ptr, ptr } %.t1398, 1
-  ret { ptr, { { i64 }, ptr, ptr, ptr } } %.t1399
+  store { { i64 }, ptr, ptr, ptr } %.t1410, ptr %gpa3
+  %.t1411 = load ptr, ptr %new_ptr
+  %.t1412 = insertvalue { ptr, { { i64 }, ptr, ptr, ptr } } undef, ptr %.t1411, 0
+  %.t1413 = load { { i64 }, ptr, ptr, ptr }, ptr %gpa3
+  %.t1414 = insertvalue { ptr, { { i64 }, ptr, ptr, ptr } } %.t1412, { { i64 }, ptr, ptr, ptr } %.t1413, 1
+  ret { ptr, { { i64 }, ptr, ptr, ptr } } %.t1414
 }
 
 define i64 @str__len(ptr %self) {
 entry:
   %self.addr = alloca ptr
   store ptr %self, ptr %self.addr
-  %.t1400 = sext i32 0 to i64
+  %.t1415 = sext i32 0 to i64
   %length = alloca i64
-  store i64 %.t1400, ptr %length
-  %.t1401 = load ptr, ptr %self.addr
+  store i64 %.t1415, ptr %length
+  %.t1416 = load ptr, ptr %self.addr
   %p = alloca ptr
-  store ptr %.t1401, ptr %p
-  br label %while_header1402
-while_header1402:
-  %.t1405 = load ptr, ptr %p
-  %.t1406 = load i8, ptr %.t1405
-  %.t1407 = zext i8 %.t1406 to i64
-  %.t1408 = icmp ne i64 %.t1407, 0
-  br i1 %.t1408, label %while_body1403, label %while_exit1404
-while_body1403:
-  %.t1409 = load i64, ptr %length
-  %.t1410 = add i64 %.t1409, 1
-  store i64 %.t1410, ptr %length
-  %.t1411 = load ptr, ptr %p
-  %.t1412 = getelementptr i64, ptr %.t1411, i64 1
-  store ptr %.t1412, ptr %p
-  br label %while_header1402
-while_exit1404:
-  %.t1413 = load i64, ptr %length
-  ret i64 %.t1413
+  store ptr %.t1416, ptr %p
+  br label %while_header1417
+while_header1417:
+  %.t1420 = load ptr, ptr %p
+  %.t1421 = load i8, ptr %.t1420
+  %.t1422 = zext i8 %.t1421 to i64
+  %.t1423 = icmp ne i64 %.t1422, 0
+  br i1 %.t1423, label %while_body1418, label %while_exit1419
+while_body1418:
+  %.t1424 = load i64, ptr %length
+  %.t1425 = add i64 %.t1424, 1
+  store i64 %.t1425, ptr %length
+  %.t1426 = load ptr, ptr %p
+  %.t1427 = getelementptr i64, ptr %.t1426, i64 1
+  store ptr %.t1427, ptr %p
+  br label %while_header1417
+while_exit1419:
+  %.t1428 = load i64, ptr %length
+  ret i64 %.t1428
 }
 
 define i8 @str__at(ptr %self, i64 %index) {
@@ -2673,18 +2622,18 @@ entry:
   store ptr %self, ptr %self.addr
   %index.addr = alloca i64
   store i64 %index, ptr %index.addr
-  %.t1414 = load ptr, ptr %self.addr
+  %.t1429 = load ptr, ptr %self.addr
   %p = alloca ptr
-  store ptr %.t1414, ptr %p
-  %.t1415 = load ptr, ptr %p
-  %.t1416 = load i64, ptr %index.addr
-  %.t1417 = getelementptr i64, ptr %.t1415, i64 %.t1416
-  store ptr %.t1417, ptr %p
-  %.t1418 = load ptr, ptr %p
-  %.t1419 = load i8, ptr %.t1418
-  %.t1420 = zext i8 %.t1419 to i64
-  %.t1421 = trunc i64 %.t1420 to i8
-  ret i8 %.t1421
+  store ptr %.t1429, ptr %p
+  %.t1430 = load ptr, ptr %p
+  %.t1431 = load i64, ptr %index.addr
+  %.t1432 = getelementptr i64, ptr %.t1430, i64 %.t1431
+  store ptr %.t1432, ptr %p
+  %.t1433 = load ptr, ptr %p
+  %.t1434 = load i8, ptr %.t1433
+  %.t1435 = zext i8 %.t1434 to i64
+  %.t1436 = trunc i64 %.t1435 to i8
+  ret i8 %.t1436
 }
 
 define { ptr, { { i64 }, ptr, i64, i64, i64 } } @str__slice(ptr %self, i64 %start, i64 %end, { { i64 }, ptr, i64, i64, i64 } %arena) {
@@ -2697,94 +2646,94 @@ entry:
   store i64 %end, ptr %end.addr
   %arena.addr = alloca { { i64 }, ptr, i64, i64, i64 }
   store { { i64 }, ptr, i64, i64, i64 } %arena, ptr %arena.addr
-  %.t1422 = load i64, ptr %end.addr
-  %.t1423 = load i64, ptr %start.addr
-  %.t1424 = sub i64 %.t1422, %.t1423
+  %.t1437 = load i64, ptr %end.addr
+  %.t1438 = load i64, ptr %start.addr
+  %.t1439 = sub i64 %.t1437, %.t1438
   %slice_len = alloca i64
-  store i64 %.t1424, ptr %slice_len
-  %.t1425 = load i64, ptr %slice_len
-  %.t1426 = icmp sle i64 %.t1425, 0
+  store i64 %.t1439, ptr %slice_len
+  %.t1440 = load i64, ptr %slice_len
+  %.t1441 = icmp sle i64 %.t1440, 0
   %is_invalid = alloca i1
-  store i1 %.t1426, ptr %is_invalid
-  %.t1427 = load i1, ptr %is_invalid
-  br i1 %.t1427, label %then1428, label %else1429
-then1428:
-  %.t1431 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } undef, ptr getelementptr inbounds ([1 x i8], ptr @.str.12, i32 0, i32 0), 0
-  %.t1432 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena.addr
-  %.t1433 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1431, { { i64 }, ptr, i64, i64, i64 } %.t1432, 1
-  br label %merge1430
-else1429:
-  %.t1434 = load i64, ptr %slice_len
-  %.t1435 = inttoptr i64 %.t1434 to ptr
+  store i1 %.t1441, ptr %is_invalid
+  %.t1442 = load i1, ptr %is_invalid
+  br i1 %.t1442, label %then1443, label %else1444
+then1443:
+  %.t1446 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } undef, ptr getelementptr inbounds ([1 x i8], ptr @.str.12, i32 0, i32 0), 0
+  %.t1447 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena.addr
+  %.t1448 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1446, { { i64 }, ptr, i64, i64, i64 } %.t1447, 1
+  br label %merge1445
+else1444:
+  %.t1449 = load i64, ptr %slice_len
+  %.t1450 = inttoptr i64 %.t1449 to ptr
   %len_ptr = alloca ptr
-  store ptr %.t1435, ptr %len_ptr
-  %.t1436 = load ptr, ptr %len_ptr
-  %.t1437 = ptrtoint ptr %.t1436 to i64
+  store ptr %.t1450, ptr %len_ptr
+  %.t1451 = load ptr, ptr %len_ptr
+  %.t1452 = ptrtoint ptr %.t1451 to i64
   %len_u64 = alloca i64
-  store i64 %.t1437, ptr %len_u64
-  %.t1438 = load i64, ptr %len_u64
-  %.t1439 = add i64 %.t1438, 1
+  store i64 %.t1452, ptr %len_u64
+  %.t1453 = load i64, ptr %len_u64
+  %.t1454 = add i64 %.t1453, 1
   %alloc_size = alloca i64
-  store i64 %.t1439, ptr %alloc_size
-  %.t1440 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena.addr
-  %.t1441 = load i64, ptr %alloc_size
-  %.t1442 = call { ptr, { { i64 }, ptr, i64, i64, i64 } } @Arena__alloc({ { i64 }, ptr, i64, i64, i64 } %.t1440, i64 %.t1441)
+  store i64 %.t1454, ptr %alloc_size
+  %.t1455 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena.addr
+  %.t1456 = load i64, ptr %alloc_size
+  %.t1457 = call { ptr, { { i64 }, ptr, i64, i64, i64 } } @Arena__alloc({ { i64 }, ptr, i64, i64, i64 } %.t1455, i64 %.t1456)
   %alloc_result = alloca { ptr, { { i64 }, ptr, i64, i64, i64 } }
-  store { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1442, ptr %alloc_result
-  %.t1443 = load { ptr, { { i64 }, ptr, i64, i64, i64 } }, ptr %alloc_result
-  %.t1444 = extractvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1443, 0
+  store { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1457, ptr %alloc_result
+  %.t1458 = load { ptr, { { i64 }, ptr, i64, i64, i64 } }, ptr %alloc_result
+  %.t1459 = extractvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1458, 0
   %buffer = alloca ptr
-  store ptr %.t1444, ptr %buffer
-  %.t1445 = load { ptr, { { i64 }, ptr, i64, i64, i64 } }, ptr %alloc_result
-  %.t1446 = extractvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1445, 1
+  store ptr %.t1459, ptr %buffer
+  %.t1460 = load { ptr, { { i64 }, ptr, i64, i64, i64 } }, ptr %alloc_result
+  %.t1461 = extractvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1460, 1
   %arena2 = alloca { { i64 }, ptr, i64, i64, i64 }
-  store { { i64 }, ptr, i64, i64, i64 } %.t1446, ptr %arena2
-  %.t1447 = load ptr, ptr %self.addr
-  %.t1448 = load i64, ptr %start.addr
-  %.t1449 = getelementptr i64, ptr %.t1447, i64 %.t1448
+  store { { i64 }, ptr, i64, i64, i64 } %.t1461, ptr %arena2
+  %.t1462 = load ptr, ptr %self.addr
+  %.t1463 = load i64, ptr %start.addr
+  %.t1464 = getelementptr i64, ptr %.t1462, i64 %.t1463
   %src = alloca ptr
-  store ptr %.t1449, ptr %src
-  %.t1450 = load ptr, ptr %buffer
-  %.t1451 = load ptr, ptr %src
-  %.t1452 = load i64, ptr %len_u64
-  %.t1453 = call {  } @memcpy(ptr %.t1450, ptr %.t1451, i64 %.t1452)
-  %.t1454 = load ptr, ptr %buffer
-  %.t1455 = load i64, ptr %len_u64
-  %.t1456 = getelementptr i64, ptr %.t1454, i64 %.t1455
+  store ptr %.t1464, ptr %src
+  %.t1465 = load ptr, ptr %buffer
+  %.t1466 = load ptr, ptr %src
+  %.t1467 = load i64, ptr %len_u64
+  %.t1468 = call {  } @memcpy(ptr %.t1465, ptr %.t1466, i64 %.t1467)
+  %.t1469 = load ptr, ptr %buffer
+  %.t1470 = load i64, ptr %len_u64
+  %.t1471 = getelementptr i64, ptr %.t1469, i64 %.t1470
   %null_pos = alloca ptr
-  store ptr %.t1456, ptr %null_pos
-  %.t1457 = trunc i32 0 to i8
+  store ptr %.t1471, ptr %null_pos
+  %.t1472 = trunc i32 0 to i8
   %zero = alloca i8
-  store i8 %.t1457, ptr %zero
-  %.t1458 = load ptr, ptr %null_pos
-  %.t1459 = load i8, ptr %zero
-  store i8 %.t1459, ptr %.t1458
-  %.t1460 = load ptr, ptr %buffer
-  %.t1461 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } undef, ptr %.t1460, 0
-  %.t1462 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena2
-  %.t1463 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1461, { { i64 }, ptr, i64, i64, i64 } %.t1462, 1
-  br label %merge1430
-merge1430:
-  %.t1464 = phi { ptr, { { i64 }, ptr, i64, i64, i64 } } [ %.t1433, %then1428 ], [ %.t1463, %else1429 ]
-  ret { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1464
+  store i8 %.t1472, ptr %zero
+  %.t1473 = load ptr, ptr %null_pos
+  %.t1474 = load i8, ptr %zero
+  store i8 %.t1474, ptr %.t1473
+  %.t1475 = load ptr, ptr %buffer
+  %.t1476 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } undef, ptr %.t1475, 0
+  %.t1477 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena2
+  %.t1478 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1476, { { i64 }, ptr, i64, i64, i64 } %.t1477, 1
+  br label %merge1445
+merge1445:
+  %.t1479 = phi { ptr, { { i64 }, ptr, i64, i64, i64 } } [ %.t1448, %then1443 ], [ %.t1478, %else1444 ]
+  ret { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1479
 }
 
 define i1 @str__is_empty(ptr %self) {
 entry:
   %self.addr = alloca ptr
   store ptr %self, ptr %self.addr
-  %.t1465 = load ptr, ptr %self.addr
+  %.t1480 = load ptr, ptr %self.addr
   %p = alloca ptr
-  store ptr %.t1465, ptr %p
-  %.t1466 = load ptr, ptr %p
-  %.t1467 = load i8, ptr %.t1466
-  %.t1468 = zext i8 %.t1467 to i64
-  %.t1469 = trunc i64 %.t1468 to i8
+  store ptr %.t1480, ptr %p
+  %.t1481 = load ptr, ptr %p
+  %.t1482 = load i8, ptr %.t1481
+  %.t1483 = zext i8 %.t1482 to i64
+  %.t1484 = trunc i64 %.t1483 to i8
   %first = alloca i8
-  store i8 %.t1469, ptr %first
-  %.t1470 = load i8, ptr %first
-  %.t1471 = icmp eq i8 %.t1470, 0
-  ret i1 %.t1471
+  store i8 %.t1484, ptr %first
+  %.t1485 = load i8, ptr %first
+  %.t1486 = icmp eq i8 %.t1485, 0
+  ret i1 %.t1486
 }
 
 define i1 @str__equals(ptr %self, ptr %other) {
@@ -2793,83 +2742,83 @@ entry:
   store ptr %self, ptr %self.addr
   %other.addr = alloca ptr
   store ptr %other, ptr %other.addr
-  %.t1472 = load ptr, ptr %self.addr
+  %.t1487 = load ptr, ptr %self.addr
   %p1 = alloca ptr
-  store ptr %.t1472, ptr %p1
-  %.t1473 = load ptr, ptr %other.addr
+  store ptr %.t1487, ptr %p1
+  %.t1488 = load ptr, ptr %other.addr
   %p2 = alloca ptr
-  store ptr %.t1473, ptr %p2
+  store ptr %.t1488, ptr %p2
   %continue = alloca i1
   store i1 1, ptr %continue
   %result = alloca i1
   store i1 1, ptr %result
-  br label %while_header1474
-while_header1474:
-  %.t1477 = load i1, ptr %continue
-  br i1 %.t1477, label %while_body1475, label %while_exit1476
-while_body1475:
-  %.t1478 = load ptr, ptr %p1
-  %.t1479 = load i8, ptr %.t1478
-  %.t1480 = zext i8 %.t1479 to i64
-  %.t1481 = trunc i64 %.t1480 to i8
+  br label %while_header1489
+while_header1489:
+  %.t1492 = load i1, ptr %continue
+  br i1 %.t1492, label %while_body1490, label %while_exit1491
+while_body1490:
+  %.t1493 = load ptr, ptr %p1
+  %.t1494 = load i8, ptr %.t1493
+  %.t1495 = zext i8 %.t1494 to i64
+  %.t1496 = trunc i64 %.t1495 to i8
   %c1 = alloca i8
-  store i8 %.t1481, ptr %c1
-  %.t1482 = load ptr, ptr %p2
-  %.t1483 = load i8, ptr %.t1482
-  %.t1484 = zext i8 %.t1483 to i64
-  %.t1485 = trunc i64 %.t1484 to i8
+  store i8 %.t1496, ptr %c1
+  %.t1497 = load ptr, ptr %p2
+  %.t1498 = load i8, ptr %.t1497
+  %.t1499 = zext i8 %.t1498 to i64
+  %.t1500 = trunc i64 %.t1499 to i8
   %c2 = alloca i8
-  store i8 %.t1485, ptr %c2
-  %.t1486 = load i8, ptr %c1
-  %.t1487 = load i8, ptr %c2
-  %.t1488 = icmp ne i8 %.t1486, %.t1487
-  br i1 %.t1488, label %then1489, label %else1490
-then1489:
-  br label %merge1491
-else1490:
-  %.t1492 = load i8, ptr %c1
-  %.t1493 = icmp eq i8 %.t1492, 0
-  br i1 %.t1493, label %then1494, label %else1495
-then1494:
-  br label %merge1496
-else1495:
-  br label %merge1496
-merge1496:
-  %.t1497 = phi i1 [ 1, %then1494 ], [ 1, %else1495 ]
-  br label %merge1491
-merge1491:
-  %.t1498 = phi i1 [ 0, %then1489 ], [ %.t1497, %merge1496 ]
-  store i1 %.t1498, ptr %result
-  %.t1499 = load i8, ptr %c1
-  %.t1500 = load i8, ptr %c2
-  %.t1501 = icmp ne i8 %.t1499, %.t1500
-  br i1 %.t1501, label %then1502, label %else1503
-then1502:
-  br label %merge1504
-else1503:
-  %.t1505 = load i8, ptr %c1
-  %.t1506 = icmp eq i8 %.t1505, 0
-  br i1 %.t1506, label %then1507, label %else1508
-then1507:
-  br label %merge1509
-else1508:
-  br label %merge1509
-merge1509:
-  %.t1510 = phi i1 [ 0, %then1507 ], [ 1, %else1508 ]
-  br label %merge1504
-merge1504:
-  %.t1511 = phi i1 [ 0, %then1502 ], [ %.t1510, %merge1509 ]
-  store i1 %.t1511, ptr %continue
-  %.t1512 = load ptr, ptr %p1
-  %.t1513 = getelementptr i64, ptr %.t1512, i64 1
-  store ptr %.t1513, ptr %p1
-  %.t1514 = load ptr, ptr %p2
-  %.t1515 = getelementptr i64, ptr %.t1514, i64 1
-  store ptr %.t1515, ptr %p2
-  br label %while_header1474
-while_exit1476:
-  %.t1516 = load i1, ptr %result
-  ret i1 %.t1516
+  store i8 %.t1500, ptr %c2
+  %.t1501 = load i8, ptr %c1
+  %.t1502 = load i8, ptr %c2
+  %.t1503 = icmp ne i8 %.t1501, %.t1502
+  br i1 %.t1503, label %then1504, label %else1505
+then1504:
+  br label %merge1506
+else1505:
+  %.t1507 = load i8, ptr %c1
+  %.t1508 = icmp eq i8 %.t1507, 0
+  br i1 %.t1508, label %then1509, label %else1510
+then1509:
+  br label %merge1511
+else1510:
+  br label %merge1511
+merge1511:
+  %.t1512 = phi i1 [ 1, %then1509 ], [ 1, %else1510 ]
+  br label %merge1506
+merge1506:
+  %.t1513 = phi i1 [ 0, %then1504 ], [ %.t1512, %merge1511 ]
+  store i1 %.t1513, ptr %result
+  %.t1514 = load i8, ptr %c1
+  %.t1515 = load i8, ptr %c2
+  %.t1516 = icmp ne i8 %.t1514, %.t1515
+  br i1 %.t1516, label %then1517, label %else1518
+then1517:
+  br label %merge1519
+else1518:
+  %.t1520 = load i8, ptr %c1
+  %.t1521 = icmp eq i8 %.t1520, 0
+  br i1 %.t1521, label %then1522, label %else1523
+then1522:
+  br label %merge1524
+else1523:
+  br label %merge1524
+merge1524:
+  %.t1525 = phi i1 [ 0, %then1522 ], [ 1, %else1523 ]
+  br label %merge1519
+merge1519:
+  %.t1526 = phi i1 [ 0, %then1517 ], [ %.t1525, %merge1524 ]
+  store i1 %.t1526, ptr %continue
+  %.t1527 = load ptr, ptr %p1
+  %.t1528 = getelementptr i64, ptr %.t1527, i64 1
+  store ptr %.t1528, ptr %p1
+  %.t1529 = load ptr, ptr %p2
+  %.t1530 = getelementptr i64, ptr %.t1529, i64 1
+  store ptr %.t1530, ptr %p2
+  br label %while_header1489
+while_exit1491:
+  %.t1531 = load i1, ptr %result
+  ret i1 %.t1531
 }
 
 define i1 @str__starts_with(ptr %self, ptr %prefix) {
@@ -2878,105 +2827,105 @@ entry:
   store ptr %self, ptr %self.addr
   %prefix.addr = alloca ptr
   store ptr %prefix, ptr %prefix.addr
-  %.t1517 = load ptr, ptr %self.addr
+  %.t1532 = load ptr, ptr %self.addr
   %p_str = alloca ptr
-  store ptr %.t1517, ptr %p_str
-  %.t1518 = load ptr, ptr %prefix.addr
+  store ptr %.t1532, ptr %p_str
+  %.t1533 = load ptr, ptr %prefix.addr
   %p_prefix = alloca ptr
-  store ptr %.t1518, ptr %p_prefix
+  store ptr %.t1533, ptr %p_prefix
   %result = alloca i1
   store i1 1, ptr %result
   %continue = alloca i1
   store i1 1, ptr %continue
-  br label %while_header1519
-while_header1519:
-  %.t1522 = load i1, ptr %continue
-  br i1 %.t1522, label %while_body1520, label %while_exit1521
-while_body1520:
-  %.t1523 = load ptr, ptr %p_prefix
-  %.t1524 = load i8, ptr %.t1523
-  %.t1525 = zext i8 %.t1524 to i64
-  %.t1526 = trunc i64 %.t1525 to i8
-  %prefix_char = alloca i8
-  store i8 %.t1526, ptr %prefix_char
-  %.t1527 = load i8, ptr %prefix_char
-  %.t1528 = icmp ne i8 %.t1527, 0
-  br i1 %.t1528, label %then1529, label %else1530
-then1529:
-  br label %merge1531
-else1530:
-  br label %merge1531
-merge1531:
-  %.t1532 = phi i1 [ 1, %then1529 ], [ 0, %else1530 ]
-  store i1 %.t1532, ptr %continue
-  %.t1533 = load i1, ptr %continue
-  br i1 %.t1533, label %then1534, label %else1535
-then1534:
-  %.t1537 = load ptr, ptr %p_str
-  %.t1538 = load i8, ptr %.t1537
-  %.t1539 = zext i8 %.t1538 to i64
-  br label %merge1536
-else1535:
-  br label %merge1536
-merge1536:
-  %.t1540 = phi i64 [ %.t1539, %then1534 ], [ 0, %else1535 ]
+  br label %while_header1534
+while_header1534:
+  %.t1537 = load i1, ptr %continue
+  br i1 %.t1537, label %while_body1535, label %while_exit1536
+while_body1535:
+  %.t1538 = load ptr, ptr %p_prefix
+  %.t1539 = load i8, ptr %.t1538
+  %.t1540 = zext i8 %.t1539 to i64
   %.t1541 = trunc i64 %.t1540 to i8
+  %prefix_char = alloca i8
+  store i8 %.t1541, ptr %prefix_char
+  %.t1542 = load i8, ptr %prefix_char
+  %.t1543 = icmp ne i8 %.t1542, 0
+  br i1 %.t1543, label %then1544, label %else1545
+then1544:
+  br label %merge1546
+else1545:
+  br label %merge1546
+merge1546:
+  %.t1547 = phi i1 [ 1, %then1544 ], [ 0, %else1545 ]
+  store i1 %.t1547, ptr %continue
+  %.t1548 = load i1, ptr %continue
+  br i1 %.t1548, label %then1549, label %else1550
+then1549:
+  %.t1552 = load ptr, ptr %p_str
+  %.t1553 = load i8, ptr %.t1552
+  %.t1554 = zext i8 %.t1553 to i64
+  br label %merge1551
+else1550:
+  br label %merge1551
+merge1551:
+  %.t1555 = phi i64 [ %.t1554, %then1549 ], [ 0, %else1550 ]
+  %.t1556 = trunc i64 %.t1555 to i8
   %c_str = alloca i8
-  store i8 %.t1541, ptr %c_str
-  %.t1542 = load i1, ptr %continue
-  br i1 %.t1542, label %then1543, label %else1544
-then1543:
-  %.t1546 = load ptr, ptr %p_prefix
-  %.t1547 = load i8, ptr %.t1546
-  %.t1548 = zext i8 %.t1547 to i64
-  br label %merge1545
-else1544:
-  br label %merge1545
-merge1545:
-  %.t1549 = phi i64 [ %.t1548, %then1543 ], [ 0, %else1544 ]
-  %.t1550 = trunc i64 %.t1549 to i8
-  %c_prefix = alloca i8
-  store i8 %.t1550, ptr %c_prefix
-  %.t1551 = load i1, ptr %continue
-  br i1 %.t1551, label %then1552, label %else1553
-then1552:
-  %.t1555 = load i8, ptr %c_str
-  %.t1556 = load i8, ptr %c_prefix
-  %.t1557 = icmp ne i8 %.t1555, %.t1556
+  store i8 %.t1556, ptr %c_str
+  %.t1557 = load i1, ptr %continue
   br i1 %.t1557, label %then1558, label %else1559
 then1558:
+  %.t1561 = load ptr, ptr %p_prefix
+  %.t1562 = load i8, ptr %.t1561
+  %.t1563 = zext i8 %.t1562 to i64
   br label %merge1560
 else1559:
   br label %merge1560
 merge1560:
-  %.t1561 = phi i1 [ 0, %then1558 ], [ 1, %else1559 ]
-  br label %merge1554
-else1553:
-  %.t1562 = load i1, ptr %result
-  br label %merge1554
-merge1554:
-  %.t1563 = phi i1 [ %.t1561, %merge1560 ], [ %.t1562, %else1553 ]
-  store i1 %.t1563, ptr %result
-  %.t1564 = load i1, ptr %result
-  br i1 %.t1564, label %then1565, label %else1566
-then1565:
-  %.t1568 = load i1, ptr %continue
-  br label %merge1567
-else1566:
-  br label %merge1567
-merge1567:
-  %.t1569 = phi i1 [ %.t1568, %then1565 ], [ 0, %else1566 ]
-  store i1 %.t1569, ptr %continue
-  %.t1570 = load ptr, ptr %p_str
-  %.t1571 = getelementptr i64, ptr %.t1570, i64 1
-  store ptr %.t1571, ptr %p_str
-  %.t1572 = load ptr, ptr %p_prefix
-  %.t1573 = getelementptr i64, ptr %.t1572, i64 1
-  store ptr %.t1573, ptr %p_prefix
-  br label %while_header1519
-while_exit1521:
-  %.t1574 = load i1, ptr %result
-  ret i1 %.t1574
+  %.t1564 = phi i64 [ %.t1563, %then1558 ], [ 0, %else1559 ]
+  %.t1565 = trunc i64 %.t1564 to i8
+  %c_prefix = alloca i8
+  store i8 %.t1565, ptr %c_prefix
+  %.t1566 = load i1, ptr %continue
+  br i1 %.t1566, label %then1567, label %else1568
+then1567:
+  %.t1570 = load i8, ptr %c_str
+  %.t1571 = load i8, ptr %c_prefix
+  %.t1572 = icmp ne i8 %.t1570, %.t1571
+  br i1 %.t1572, label %then1573, label %else1574
+then1573:
+  br label %merge1575
+else1574:
+  br label %merge1575
+merge1575:
+  %.t1576 = phi i1 [ 0, %then1573 ], [ 1, %else1574 ]
+  br label %merge1569
+else1568:
+  %.t1577 = load i1, ptr %result
+  br label %merge1569
+merge1569:
+  %.t1578 = phi i1 [ %.t1576, %merge1575 ], [ %.t1577, %else1568 ]
+  store i1 %.t1578, ptr %result
+  %.t1579 = load i1, ptr %result
+  br i1 %.t1579, label %then1580, label %else1581
+then1580:
+  %.t1583 = load i1, ptr %continue
+  br label %merge1582
+else1581:
+  br label %merge1582
+merge1582:
+  %.t1584 = phi i1 [ %.t1583, %then1580 ], [ 0, %else1581 ]
+  store i1 %.t1584, ptr %continue
+  %.t1585 = load ptr, ptr %p_str
+  %.t1586 = getelementptr i64, ptr %.t1585, i64 1
+  store ptr %.t1586, ptr %p_str
+  %.t1587 = load ptr, ptr %p_prefix
+  %.t1588 = getelementptr i64, ptr %.t1587, i64 1
+  store ptr %.t1588, ptr %p_prefix
+  br label %while_header1534
+while_exit1536:
+  %.t1589 = load i1, ptr %result
+  ret i1 %.t1589
 }
 
 define i1 @str__ends_with(ptr %self, ptr %suffix) {
@@ -2985,144 +2934,144 @@ entry:
   store ptr %self, ptr %self.addr
   %suffix.addr = alloca ptr
   store ptr %suffix, ptr %suffix.addr
-  %.t1575 = load ptr, ptr %self.addr
-  %.t1576 = call i64 @str__len(ptr %.t1575)
+  %.t1590 = load ptr, ptr %self.addr
+  %.t1591 = call i64 @str__len(ptr %.t1590)
   %self_len = alloca i64
-  store i64 %.t1576, ptr %self_len
-  %.t1577 = load ptr, ptr %suffix.addr
-  %.t1578 = call i64 @str__len(ptr %.t1577)
+  store i64 %.t1591, ptr %self_len
+  %.t1592 = load ptr, ptr %suffix.addr
+  %.t1593 = call i64 @str__len(ptr %.t1592)
   %suffix_len = alloca i64
-  store i64 %.t1578, ptr %suffix_len
-  %.t1579 = load i64, ptr %suffix_len
-  %.t1580 = load i64, ptr %self_len
-  %.t1581 = icmp sgt i64 %.t1579, %.t1580
-  br i1 %.t1581, label %then1582, label %else1583
-then1582:
-  br label %merge1584
-else1583:
-  br label %merge1584
-merge1584:
-  %.t1585 = phi i1 [ 0, %then1582 ], [ 1, %else1583 ]
+  store i64 %.t1593, ptr %suffix_len
+  %.t1594 = load i64, ptr %suffix_len
+  %.t1595 = load i64, ptr %self_len
+  %.t1596 = icmp sgt i64 %.t1594, %.t1595
+  br i1 %.t1596, label %then1597, label %else1598
+then1597:
+  br label %merge1599
+else1598:
+  br label %merge1599
+merge1599:
+  %.t1600 = phi i1 [ 0, %then1597 ], [ 1, %else1598 ]
   %result = alloca i1
-  store i1 %.t1585, ptr %result
-  %.t1586 = load i1, ptr %result
-  br i1 %.t1586, label %then1587, label %else1588
-then1587:
-  %.t1590 = load i64, ptr %self_len
-  %.t1591 = load i64, ptr %suffix_len
-  %.t1592 = sub i64 %.t1590, %.t1591
+  store i1 %.t1600, ptr %result
+  %.t1601 = load i1, ptr %result
+  br i1 %.t1601, label %then1602, label %else1603
+then1602:
+  %.t1605 = load i64, ptr %self_len
+  %.t1606 = load i64, ptr %suffix_len
+  %.t1607 = sub i64 %.t1605, %.t1606
   %start_pos = alloca i64
-  store i64 %.t1592, ptr %start_pos
-  %.t1593 = load ptr, ptr %self.addr
+  store i64 %.t1607, ptr %start_pos
+  %.t1608 = load ptr, ptr %self.addr
   %p_str = alloca ptr
-  store ptr %.t1593, ptr %p_str
-  %.t1594 = load ptr, ptr %p_str
-  %.t1595 = load i64, ptr %start_pos
-  %.t1596 = getelementptr i64, ptr %.t1594, i64 %.t1595
-  store ptr %.t1596, ptr %p_str
-  %.t1597 = load ptr, ptr %suffix.addr
+  store ptr %.t1608, ptr %p_str
+  %.t1609 = load ptr, ptr %p_str
+  %.t1610 = load i64, ptr %start_pos
+  %.t1611 = getelementptr i64, ptr %.t1609, i64 %.t1610
+  store ptr %.t1611, ptr %p_str
+  %.t1612 = load ptr, ptr %suffix.addr
   %p_suffix = alloca ptr
-  store ptr %.t1597, ptr %p_suffix
+  store ptr %.t1612, ptr %p_suffix
   %continue = alloca i1
   store i1 1, ptr %continue
   %is_match = alloca i1
   store i1 1, ptr %is_match
-  br label %while_header1598
-while_header1598:
-  %.t1601 = load i1, ptr %continue
-  br i1 %.t1601, label %while_body1599, label %while_exit1600
-while_body1599:
-  %.t1602 = load ptr, ptr %p_suffix
-  %.t1603 = load i8, ptr %.t1602
-  %.t1604 = zext i8 %.t1603 to i64
-  %.t1605 = trunc i64 %.t1604 to i8
-  %suffix_char = alloca i8
-  store i8 %.t1605, ptr %suffix_char
-  %.t1606 = load i8, ptr %suffix_char
-  %.t1607 = icmp ne i8 %.t1606, 0
-  br i1 %.t1607, label %then1608, label %else1609
-then1608:
-  br label %merge1610
-else1609:
-  br label %merge1610
-merge1610:
-  %.t1611 = phi i1 [ 1, %then1608 ], [ 0, %else1609 ]
-  store i1 %.t1611, ptr %continue
-  %.t1612 = load i1, ptr %continue
-  br i1 %.t1612, label %then1613, label %else1614
-then1613:
-  %.t1616 = load ptr, ptr %p_str
-  %.t1617 = load i8, ptr %.t1616
-  %.t1618 = zext i8 %.t1617 to i64
-  br label %merge1615
-else1614:
-  br label %merge1615
-merge1615:
-  %.t1619 = phi i64 [ %.t1618, %then1613 ], [ 0, %else1614 ]
+  br label %while_header1613
+while_header1613:
+  %.t1616 = load i1, ptr %continue
+  br i1 %.t1616, label %while_body1614, label %while_exit1615
+while_body1614:
+  %.t1617 = load ptr, ptr %p_suffix
+  %.t1618 = load i8, ptr %.t1617
+  %.t1619 = zext i8 %.t1618 to i64
   %.t1620 = trunc i64 %.t1619 to i8
+  %suffix_char = alloca i8
+  store i8 %.t1620, ptr %suffix_char
+  %.t1621 = load i8, ptr %suffix_char
+  %.t1622 = icmp ne i8 %.t1621, 0
+  br i1 %.t1622, label %then1623, label %else1624
+then1623:
+  br label %merge1625
+else1624:
+  br label %merge1625
+merge1625:
+  %.t1626 = phi i1 [ 1, %then1623 ], [ 0, %else1624 ]
+  store i1 %.t1626, ptr %continue
+  %.t1627 = load i1, ptr %continue
+  br i1 %.t1627, label %then1628, label %else1629
+then1628:
+  %.t1631 = load ptr, ptr %p_str
+  %.t1632 = load i8, ptr %.t1631
+  %.t1633 = zext i8 %.t1632 to i64
+  br label %merge1630
+else1629:
+  br label %merge1630
+merge1630:
+  %.t1634 = phi i64 [ %.t1633, %then1628 ], [ 0, %else1629 ]
+  %.t1635 = trunc i64 %.t1634 to i8
   %c_str = alloca i8
-  store i8 %.t1620, ptr %c_str
-  %.t1621 = load i1, ptr %continue
-  br i1 %.t1621, label %then1622, label %else1623
-then1622:
-  %.t1625 = load ptr, ptr %p_suffix
-  %.t1626 = load i8, ptr %.t1625
-  %.t1627 = zext i8 %.t1626 to i64
-  br label %merge1624
-else1623:
-  br label %merge1624
-merge1624:
-  %.t1628 = phi i64 [ %.t1627, %then1622 ], [ 0, %else1623 ]
-  %.t1629 = trunc i64 %.t1628 to i8
-  %c_suffix = alloca i8
-  store i8 %.t1629, ptr %c_suffix
-  %.t1630 = load i1, ptr %continue
-  br i1 %.t1630, label %then1631, label %else1632
-then1631:
-  %.t1634 = load i8, ptr %c_str
-  %.t1635 = load i8, ptr %c_suffix
-  %.t1636 = icmp ne i8 %.t1634, %.t1635
+  store i8 %.t1635, ptr %c_str
+  %.t1636 = load i1, ptr %continue
   br i1 %.t1636, label %then1637, label %else1638
 then1637:
+  %.t1640 = load ptr, ptr %p_suffix
+  %.t1641 = load i8, ptr %.t1640
+  %.t1642 = zext i8 %.t1641 to i64
   br label %merge1639
 else1638:
   br label %merge1639
 merge1639:
-  %.t1640 = phi i1 [ 0, %then1637 ], [ 1, %else1638 ]
-  br label %merge1633
-else1632:
-  %.t1641 = load i1, ptr %is_match
-  br label %merge1633
-merge1633:
-  %.t1642 = phi i1 [ %.t1640, %merge1639 ], [ %.t1641, %else1632 ]
-  store i1 %.t1642, ptr %is_match
-  %.t1643 = load i1, ptr %is_match
-  br i1 %.t1643, label %then1644, label %else1645
-then1644:
-  %.t1647 = load i1, ptr %continue
-  br label %merge1646
-else1645:
-  br label %merge1646
-merge1646:
-  %.t1648 = phi i1 [ %.t1647, %then1644 ], [ 0, %else1645 ]
-  store i1 %.t1648, ptr %continue
-  %.t1649 = load ptr, ptr %p_str
-  %.t1650 = getelementptr i64, ptr %.t1649, i64 1
-  store ptr %.t1650, ptr %p_str
-  %.t1651 = load ptr, ptr %p_suffix
-  %.t1652 = getelementptr i64, ptr %.t1651, i64 1
-  store ptr %.t1652, ptr %p_suffix
-  br label %while_header1598
-while_exit1600:
-  %.t1653 = load i1, ptr %is_match
-  br label %merge1589
-else1588:
-  br label %merge1589
-merge1589:
-  %.t1654 = phi i1 [ %.t1653, %while_exit1600 ], [ 0, %else1588 ]
-  store i1 %.t1654, ptr %result
-  %.t1655 = load i1, ptr %result
-  ret i1 %.t1655
+  %.t1643 = phi i64 [ %.t1642, %then1637 ], [ 0, %else1638 ]
+  %.t1644 = trunc i64 %.t1643 to i8
+  %c_suffix = alloca i8
+  store i8 %.t1644, ptr %c_suffix
+  %.t1645 = load i1, ptr %continue
+  br i1 %.t1645, label %then1646, label %else1647
+then1646:
+  %.t1649 = load i8, ptr %c_str
+  %.t1650 = load i8, ptr %c_suffix
+  %.t1651 = icmp ne i8 %.t1649, %.t1650
+  br i1 %.t1651, label %then1652, label %else1653
+then1652:
+  br label %merge1654
+else1653:
+  br label %merge1654
+merge1654:
+  %.t1655 = phi i1 [ 0, %then1652 ], [ 1, %else1653 ]
+  br label %merge1648
+else1647:
+  %.t1656 = load i1, ptr %is_match
+  br label %merge1648
+merge1648:
+  %.t1657 = phi i1 [ %.t1655, %merge1654 ], [ %.t1656, %else1647 ]
+  store i1 %.t1657, ptr %is_match
+  %.t1658 = load i1, ptr %is_match
+  br i1 %.t1658, label %then1659, label %else1660
+then1659:
+  %.t1662 = load i1, ptr %continue
+  br label %merge1661
+else1660:
+  br label %merge1661
+merge1661:
+  %.t1663 = phi i1 [ %.t1662, %then1659 ], [ 0, %else1660 ]
+  store i1 %.t1663, ptr %continue
+  %.t1664 = load ptr, ptr %p_str
+  %.t1665 = getelementptr i64, ptr %.t1664, i64 1
+  store ptr %.t1665, ptr %p_str
+  %.t1666 = load ptr, ptr %p_suffix
+  %.t1667 = getelementptr i64, ptr %.t1666, i64 1
+  store ptr %.t1667, ptr %p_suffix
+  br label %while_header1613
+while_exit1615:
+  %.t1668 = load i1, ptr %is_match
+  br label %merge1604
+else1603:
+  br label %merge1604
+merge1604:
+  %.t1669 = phi i1 [ %.t1668, %while_exit1615 ], [ 0, %else1603 ]
+  store i1 %.t1669, ptr %result
+  %.t1670 = load i1, ptr %result
+  ret i1 %.t1670
 }
 
 define i64 @str__find(ptr %self, ptr %needle) {
@@ -3131,213 +3080,213 @@ entry:
   store ptr %self, ptr %self.addr
   %needle.addr = alloca ptr
   store ptr %needle, ptr %needle.addr
-  %.t1656 = load ptr, ptr %self.addr
+  %.t1671 = load ptr, ptr %self.addr
   %p_haystack = alloca ptr
-  store ptr %.t1656, ptr %p_haystack
-  %.t1657 = sext i32 0 to i64
+  store ptr %.t1671, ptr %p_haystack
+  %.t1672 = sext i32 0 to i64
   %pos = alloca i64
-  store i64 %.t1657, ptr %pos
+  store i64 %.t1672, ptr %pos
   %found = alloca i1
   store i1 0, ptr %found
-  %.t1658 = sub i32 0, 1
-  %.t1659 = sext i32 %.t1658 to i64
+  %.t1673 = sub i32 0, 1
+  %.t1674 = sext i32 %.t1673 to i64
   %result = alloca i64
-  store i64 %.t1659, ptr %result
+  store i64 %.t1674, ptr %result
   %continue = alloca i1
   store i1 1, ptr %continue
-  %.t1660 = load ptr, ptr %self.addr
+  %.t1675 = load ptr, ptr %self.addr
   %p_check = alloca ptr
-  store ptr %.t1660, ptr %p_check
-  %.t1661 = load ptr, ptr %needle.addr
+  store ptr %.t1675, ptr %p_check
+  %.t1676 = load ptr, ptr %needle.addr
   %p_needle = alloca ptr
-  store ptr %.t1661, ptr %p_needle
+  store ptr %.t1676, ptr %p_needle
   %matches = alloca i1
   store i1 1, ptr %matches
   %inner_continue = alloca i1
   store i1 1, ptr %inner_continue
-  br label %while_header1662
-while_header1662:
-  %.t1665 = load i1, ptr %continue
-  br i1 %.t1665, label %while_body1663, label %while_exit1664
-while_body1663:
-  %.t1666 = load ptr, ptr %p_haystack
-  %.t1667 = load i8, ptr %.t1666
-  %.t1668 = zext i8 %.t1667 to i64
-  %.t1669 = trunc i64 %.t1668 to i8
+  br label %while_header1677
+while_header1677:
+  %.t1680 = load i1, ptr %continue
+  br i1 %.t1680, label %while_body1678, label %while_exit1679
+while_body1678:
+  %.t1681 = load ptr, ptr %p_haystack
+  %.t1682 = load i8, ptr %.t1681
+  %.t1683 = zext i8 %.t1682 to i64
+  %.t1684 = trunc i64 %.t1683 to i8
   %haystack_char = alloca i8
-  store i8 %.t1669, ptr %haystack_char
-  %.t1670 = load i8, ptr %haystack_char
-  %.t1671 = icmp ne i8 %.t1670, 0
-  br i1 %.t1671, label %then1672, label %else1673
-then1672:
-  br label %merge1674
-else1673:
-  br label %merge1674
-merge1674:
-  %.t1675 = phi i1 [ 1, %then1672 ], [ 0, %else1673 ]
-  store i1 %.t1675, ptr %continue
-  %.t1676 = load i1, ptr %continue
-  br i1 %.t1676, label %then1677, label %else1678
-then1677:
-  %.t1680 = load ptr, ptr %p_haystack
-  br label %merge1679
-else1678:
-  %.t1681 = load ptr, ptr %p_check
-  br label %merge1679
-merge1679:
-  %.t1682 = phi ptr [ %.t1680, %then1677 ], [ %.t1681, %else1678 ]
-  store ptr %.t1682, ptr %p_check
-  %.t1683 = load i1, ptr %continue
-  br i1 %.t1683, label %then1684, label %else1685
-then1684:
-  %.t1687 = load ptr, ptr %needle.addr
-  br label %merge1686
-else1685:
-  %.t1688 = load ptr, ptr %p_needle
-  br label %merge1686
-merge1686:
-  %.t1689 = phi ptr [ %.t1687, %then1684 ], [ %.t1688, %else1685 ]
-  store ptr %.t1689, ptr %p_needle
-  %.t1690 = load i1, ptr %continue
-  br i1 %.t1690, label %then1691, label %else1692
-then1691:
-  br label %merge1693
-else1692:
-  %.t1694 = load i1, ptr %matches
-  br label %merge1693
-merge1693:
-  %.t1695 = phi i1 [ 1, %then1691 ], [ %.t1694, %else1692 ]
-  store i1 %.t1695, ptr %matches
-  %.t1696 = load i1, ptr %continue
-  br i1 %.t1696, label %then1697, label %else1698
-then1697:
-  br label %merge1699
-else1698:
-  %.t1700 = load i1, ptr %inner_continue
-  br label %merge1699
-merge1699:
-  %.t1701 = phi i1 [ 1, %then1697 ], [ %.t1700, %else1698 ]
-  store i1 %.t1701, ptr %inner_continue
-  br label %while_header1702
-while_header1702:
-  %.t1705 = load i1, ptr %inner_continue
-  br i1 %.t1705, label %while_body1703, label %while_exit1704
-while_body1703:
-  %.t1706 = load ptr, ptr %p_needle
-  %.t1707 = load i8, ptr %.t1706
-  %.t1708 = zext i8 %.t1707 to i64
-  %.t1709 = trunc i64 %.t1708 to i8
-  %needle_char = alloca i8
-  store i8 %.t1709, ptr %needle_char
-  %.t1710 = load i8, ptr %needle_char
-  %.t1711 = icmp ne i8 %.t1710, 0
+  store i8 %.t1684, ptr %haystack_char
+  %.t1685 = load i8, ptr %haystack_char
+  %.t1686 = icmp ne i8 %.t1685, 0
+  br i1 %.t1686, label %then1687, label %else1688
+then1687:
+  br label %merge1689
+else1688:
+  br label %merge1689
+merge1689:
+  %.t1690 = phi i1 [ 1, %then1687 ], [ 0, %else1688 ]
+  store i1 %.t1690, ptr %continue
+  %.t1691 = load i1, ptr %continue
+  br i1 %.t1691, label %then1692, label %else1693
+then1692:
+  %.t1695 = load ptr, ptr %p_haystack
+  br label %merge1694
+else1693:
+  %.t1696 = load ptr, ptr %p_check
+  br label %merge1694
+merge1694:
+  %.t1697 = phi ptr [ %.t1695, %then1692 ], [ %.t1696, %else1693 ]
+  store ptr %.t1697, ptr %p_check
+  %.t1698 = load i1, ptr %continue
+  br i1 %.t1698, label %then1699, label %else1700
+then1699:
+  %.t1702 = load ptr, ptr %needle.addr
+  br label %merge1701
+else1700:
+  %.t1703 = load ptr, ptr %p_needle
+  br label %merge1701
+merge1701:
+  %.t1704 = phi ptr [ %.t1702, %then1699 ], [ %.t1703, %else1700 ]
+  store ptr %.t1704, ptr %p_needle
+  %.t1705 = load i1, ptr %continue
+  br i1 %.t1705, label %then1706, label %else1707
+then1706:
+  br label %merge1708
+else1707:
+  %.t1709 = load i1, ptr %matches
+  br label %merge1708
+merge1708:
+  %.t1710 = phi i1 [ 1, %then1706 ], [ %.t1709, %else1707 ]
+  store i1 %.t1710, ptr %matches
+  %.t1711 = load i1, ptr %continue
   br i1 %.t1711, label %then1712, label %else1713
 then1712:
   br label %merge1714
 else1713:
+  %.t1715 = load i1, ptr %inner_continue
   br label %merge1714
 merge1714:
-  %.t1715 = phi i1 [ 1, %then1712 ], [ 0, %else1713 ]
-  store i1 %.t1715, ptr %inner_continue
-  %.t1716 = load i1, ptr %inner_continue
-  br i1 %.t1716, label %then1717, label %else1718
-then1717:
-  %.t1720 = load ptr, ptr %p_check
-  %.t1721 = load i8, ptr %.t1720
-  %.t1722 = zext i8 %.t1721 to i64
-  br label %merge1719
-else1718:
-  br label %merge1719
-merge1719:
-  %.t1723 = phi i64 [ %.t1722, %then1717 ], [ 0, %else1718 ]
+  %.t1716 = phi i1 [ 1, %then1712 ], [ %.t1715, %else1713 ]
+  store i1 %.t1716, ptr %inner_continue
+  br label %while_header1717
+while_header1717:
+  %.t1720 = load i1, ptr %inner_continue
+  br i1 %.t1720, label %while_body1718, label %while_exit1719
+while_body1718:
+  %.t1721 = load ptr, ptr %p_needle
+  %.t1722 = load i8, ptr %.t1721
+  %.t1723 = zext i8 %.t1722 to i64
   %.t1724 = trunc i64 %.t1723 to i8
+  %needle_char = alloca i8
+  store i8 %.t1724, ptr %needle_char
+  %.t1725 = load i8, ptr %needle_char
+  %.t1726 = icmp ne i8 %.t1725, 0
+  br i1 %.t1726, label %then1727, label %else1728
+then1727:
+  br label %merge1729
+else1728:
+  br label %merge1729
+merge1729:
+  %.t1730 = phi i1 [ 1, %then1727 ], [ 0, %else1728 ]
+  store i1 %.t1730, ptr %inner_continue
+  %.t1731 = load i1, ptr %inner_continue
+  br i1 %.t1731, label %then1732, label %else1733
+then1732:
+  %.t1735 = load ptr, ptr %p_check
+  %.t1736 = load i8, ptr %.t1735
+  %.t1737 = zext i8 %.t1736 to i64
+  br label %merge1734
+else1733:
+  br label %merge1734
+merge1734:
+  %.t1738 = phi i64 [ %.t1737, %then1732 ], [ 0, %else1733 ]
+  %.t1739 = trunc i64 %.t1738 to i8
   %c_check = alloca i8
-  store i8 %.t1724, ptr %c_check
-  %.t1725 = load i1, ptr %inner_continue
-  br i1 %.t1725, label %then1726, label %else1727
-then1726:
-  %.t1729 = load ptr, ptr %p_needle
-  %.t1730 = load i8, ptr %.t1729
-  %.t1731 = zext i8 %.t1730 to i64
-  br label %merge1728
-else1727:
-  br label %merge1728
-merge1728:
-  %.t1732 = phi i64 [ %.t1731, %then1726 ], [ 0, %else1727 ]
-  %.t1733 = trunc i64 %.t1732 to i8
-  %c_needle = alloca i8
-  store i8 %.t1733, ptr %c_needle
-  %.t1734 = load i1, ptr %inner_continue
-  br i1 %.t1734, label %then1735, label %else1736
-then1735:
-  %.t1738 = load i8, ptr %c_check
-  %.t1739 = load i8, ptr %c_needle
-  %.t1740 = icmp ne i8 %.t1738, %.t1739
+  store i8 %.t1739, ptr %c_check
+  %.t1740 = load i1, ptr %inner_continue
   br i1 %.t1740, label %then1741, label %else1742
 then1741:
+  %.t1744 = load ptr, ptr %p_needle
+  %.t1745 = load i8, ptr %.t1744
+  %.t1746 = zext i8 %.t1745 to i64
   br label %merge1743
 else1742:
-  %.t1744 = load i1, ptr %matches
   br label %merge1743
 merge1743:
-  %.t1745 = phi i1 [ 0, %then1741 ], [ %.t1744, %else1742 ]
-  br label %merge1737
-else1736:
-  %.t1746 = load i1, ptr %matches
-  br label %merge1737
-merge1737:
-  %.t1747 = phi i1 [ %.t1745, %merge1743 ], [ %.t1746, %else1736 ]
-  store i1 %.t1747, ptr %matches
-  %.t1748 = load ptr, ptr %p_check
-  %.t1749 = getelementptr i64, ptr %.t1748, i64 1
-  store ptr %.t1749, ptr %p_check
-  %.t1750 = load ptr, ptr %p_needle
-  %.t1751 = getelementptr i64, ptr %.t1750, i64 1
-  store ptr %.t1751, ptr %p_needle
-  br label %while_header1702
-while_exit1704:
-  %.t1752 = load i1, ptr %continue
-  br i1 %.t1752, label %then1753, label %else1754
-then1753:
-  %.t1756 = load i1, ptr %matches
-  br label %merge1755
-else1754:
-  %.t1757 = load i1, ptr %found
-  br label %merge1755
-merge1755:
-  %.t1758 = phi i1 [ %.t1756, %then1753 ], [ %.t1757, %else1754 ]
-  store i1 %.t1758, ptr %found
-  %.t1759 = load i1, ptr %found
-  br i1 %.t1759, label %then1760, label %else1761
-then1760:
-  %.t1763 = load i64, ptr %pos
-  br label %merge1762
-else1761:
-  %.t1764 = load i64, ptr %result
-  br label %merge1762
-merge1762:
-  %.t1765 = phi i64 [ %.t1763, %then1760 ], [ %.t1764, %else1761 ]
-  store i64 %.t1765, ptr %result
-  %.t1766 = load i1, ptr %found
-  br i1 %.t1766, label %then1767, label %else1768
-then1767:
-  br label %merge1769
-else1768:
-  %.t1770 = load i1, ptr %continue
-  br label %merge1769
-merge1769:
-  %.t1771 = phi i1 [ 0, %then1767 ], [ %.t1770, %else1768 ]
-  store i1 %.t1771, ptr %continue
-  %.t1772 = load ptr, ptr %p_haystack
-  %.t1773 = getelementptr i64, ptr %.t1772, i64 1
-  store ptr %.t1773, ptr %p_haystack
-  %.t1774 = load i64, ptr %pos
-  %.t1775 = add i64 %.t1774, 1
-  store i64 %.t1775, ptr %pos
-  br label %while_header1662
-while_exit1664:
-  %.t1776 = load i64, ptr %result
-  ret i64 %.t1776
+  %.t1747 = phi i64 [ %.t1746, %then1741 ], [ 0, %else1742 ]
+  %.t1748 = trunc i64 %.t1747 to i8
+  %c_needle = alloca i8
+  store i8 %.t1748, ptr %c_needle
+  %.t1749 = load i1, ptr %inner_continue
+  br i1 %.t1749, label %then1750, label %else1751
+then1750:
+  %.t1753 = load i8, ptr %c_check
+  %.t1754 = load i8, ptr %c_needle
+  %.t1755 = icmp ne i8 %.t1753, %.t1754
+  br i1 %.t1755, label %then1756, label %else1757
+then1756:
+  br label %merge1758
+else1757:
+  %.t1759 = load i1, ptr %matches
+  br label %merge1758
+merge1758:
+  %.t1760 = phi i1 [ 0, %then1756 ], [ %.t1759, %else1757 ]
+  br label %merge1752
+else1751:
+  %.t1761 = load i1, ptr %matches
+  br label %merge1752
+merge1752:
+  %.t1762 = phi i1 [ %.t1760, %merge1758 ], [ %.t1761, %else1751 ]
+  store i1 %.t1762, ptr %matches
+  %.t1763 = load ptr, ptr %p_check
+  %.t1764 = getelementptr i64, ptr %.t1763, i64 1
+  store ptr %.t1764, ptr %p_check
+  %.t1765 = load ptr, ptr %p_needle
+  %.t1766 = getelementptr i64, ptr %.t1765, i64 1
+  store ptr %.t1766, ptr %p_needle
+  br label %while_header1717
+while_exit1719:
+  %.t1767 = load i1, ptr %continue
+  br i1 %.t1767, label %then1768, label %else1769
+then1768:
+  %.t1771 = load i1, ptr %matches
+  br label %merge1770
+else1769:
+  %.t1772 = load i1, ptr %found
+  br label %merge1770
+merge1770:
+  %.t1773 = phi i1 [ %.t1771, %then1768 ], [ %.t1772, %else1769 ]
+  store i1 %.t1773, ptr %found
+  %.t1774 = load i1, ptr %found
+  br i1 %.t1774, label %then1775, label %else1776
+then1775:
+  %.t1778 = load i64, ptr %pos
+  br label %merge1777
+else1776:
+  %.t1779 = load i64, ptr %result
+  br label %merge1777
+merge1777:
+  %.t1780 = phi i64 [ %.t1778, %then1775 ], [ %.t1779, %else1776 ]
+  store i64 %.t1780, ptr %result
+  %.t1781 = load i1, ptr %found
+  br i1 %.t1781, label %then1782, label %else1783
+then1782:
+  br label %merge1784
+else1783:
+  %.t1785 = load i1, ptr %continue
+  br label %merge1784
+merge1784:
+  %.t1786 = phi i1 [ 0, %then1782 ], [ %.t1785, %else1783 ]
+  store i1 %.t1786, ptr %continue
+  %.t1787 = load ptr, ptr %p_haystack
+  %.t1788 = getelementptr i64, ptr %.t1787, i64 1
+  store ptr %.t1788, ptr %p_haystack
+  %.t1789 = load i64, ptr %pos
+  %.t1790 = add i64 %.t1789, 1
+  store i64 %.t1790, ptr %pos
+  br label %while_header1677
+while_exit1679:
+  %.t1791 = load i64, ptr %result
+  ret i64 %.t1791
 }
 
 define i1 @str__contains(ptr %self, ptr %needle) {
@@ -3346,14 +3295,14 @@ entry:
   store ptr %self, ptr %self.addr
   %needle.addr = alloca ptr
   store ptr %needle, ptr %needle.addr
-  %.t1777 = load ptr, ptr %self.addr
-  %.t1778 = load ptr, ptr %needle.addr
-  %.t1779 = call i64 @str__find(ptr %.t1777, ptr %.t1778)
+  %.t1792 = load ptr, ptr %self.addr
+  %.t1793 = load ptr, ptr %needle.addr
+  %.t1794 = call i64 @str__find(ptr %.t1792, ptr %.t1793)
   %pos = alloca i64
-  store i64 %.t1779, ptr %pos
-  %.t1780 = load i64, ptr %pos
-  %.t1781 = icmp sge i64 %.t1780, 0
-  ret i1 %.t1781
+  store i64 %.t1794, ptr %pos
+  %.t1795 = load i64, ptr %pos
+  %.t1796 = icmp sge i64 %.t1795, 0
+  ret i1 %.t1796
 }
 
 define i8 @str__char_at(ptr %self, i64 %index) {
@@ -3362,10 +3311,10 @@ entry:
   store ptr %self, ptr %self.addr
   %index.addr = alloca i64
   store i64 %index, ptr %index.addr
-  %.t1782 = load ptr, ptr %self.addr
-  %.t1783 = load i64, ptr %index.addr
-  %.t1784 = call i8 @str__at(ptr %.t1782, i64 %.t1783)
-  ret i8 %.t1784
+  %.t1797 = load ptr, ptr %self.addr
+  %.t1798 = load i64, ptr %index.addr
+  %.t1799 = call i8 @str__at(ptr %.t1797, i64 %.t1798)
+  ret i8 %.t1799
 }
 
 ; Entry point - replaces crt1.o
