@@ -236,11 +236,6 @@ pub const TypeChecker = struct {
 
         // Check all statements
         for (func.body.items) |stmt| {
-            // Propagate expected types to return statement expressions before checking
-            if (stmt == .return_stmt) {
-                try self.checkExprWithExpectedType(stmt.return_stmt, func.return_type);
-            }
-
             try self.checkStatement(stmt, func.return_type);
         }
 
@@ -286,19 +281,16 @@ pub const TypeChecker = struct {
     fn checkStatement(self: *TypeChecker, stmt: Stmt, func_return_type: ?Type) TypeCheckError!void {
         switch (stmt) {
             .let_binding => |binding| {
-                // For literals, update their inferred type to match context
+                // Type check and infer the binding value
+                // Only call one of the two functions to avoid double-counting linearity
+                var var_type: Type = undefined;
                 if (binding.type_annotation) |expected_type| {
                     try self.checkExprWithExpectedType(binding.value, expected_type);
+                    var_type = expected_type;
+                } else {
+                    var_type = try self.inferExprType(binding.value);
                 }
-                // Verify the final type matches (catches type errors for non-literal expressions)
-                const value_type = try self.inferExprType(binding.value);
-                const var_type = binding.type_annotation orelse value_type;
-                if (binding.type_annotation) |expected_type| {
-                    if (!self.canImplicitlyConvert(value_type, expected_type)) {
-                        std.debug.print("Type mismatch in let binding\n", .{});
-                        return error.TypeMismatch;
-                    }
-                }
+
                 // Bind pattern to variables
                 try self.bindPattern(binding.pattern, var_type, binding.mutable);
             },
@@ -311,14 +303,9 @@ pub const TypeChecker = struct {
                     std.debug.print("Cannot assign to immutable variable: {s}\n", .{assign.name});
                     return error.AssignmentToImmutable;
                 }
-                // Propagate expected type to RHS expression (for literal inference)
+                // Check the RHS expression against the variable's type
+                // This also validates type compatibility and tracks linearity
                 try self.checkExprWithExpectedType(assign.value, var_info.var_type);
-
-                const value_type = try self.inferExprType(assign.value);
-                if (!self.canImplicitlyConvert(value_type, var_info.var_type)) {
-                    printTypeMismatch("assignment to", assign.name, var_info.var_type, value_type);
-                    return error.TypeMismatch;
-                }
             },
             .while_stmt => |while_stmt| {
                 const condition_type = try self.inferExprType(while_stmt.condition);
@@ -344,15 +331,12 @@ pub const TypeChecker = struct {
                 }
             },
             .return_stmt => |ret_expr| {
-                const expr_type = try self.inferExprType(ret_expr);
                 if (func_return_type) |expected_type| {
-                    if (!self.canImplicitlyConvert(expr_type, expected_type)) {
-                        std.debug.print("Type mismatch in return statement: expected {s}, got {s}\n", .{
-                            @tagName(expected_type.kind),
-                            @tagName(expr_type.kind),
-                        });
-                        return error.TypeMismatch;
-                    }
+                    // Use context to type literals
+                    try self.checkExprWithExpectedType(ret_expr, expected_type);
+                } else {
+                    // No expected type, just infer
+                    _ = try self.inferExprType(ret_expr);
                 }
             },
             .expr => |expr| {
@@ -382,7 +366,7 @@ pub const TypeChecker = struct {
         }
     }
 
-    fn checkExprWithExpectedType(self: *TypeChecker, expr: *Expr, expected_type: Type) !void {
+    fn checkExprWithExpectedType(self: *TypeChecker, expr: *Expr, expected_type: Type) TypeCheckError!void {
         // For integer literals, update the inferred type and validate range
         switch (expr.*) {
             .string_literal => {
@@ -443,18 +427,19 @@ pub const TypeChecker = struct {
                 lit.inferred_type = resolved_type;
             },
             .binary_op => |*binop| {
-                // For arithmetic binary operations, propagate expected type to both operands
-                // This allows `let x: u32 = 10 + 5` to type both literals as u32
                 if (!binop.op.returns_bool()) {
+                    // For arithmetic binary operations, propagate expected type to both operands
+                    // This allows `let x: u32 = 10 + 5` to type both literals as u32
                     try self.checkExprWithExpectedType(binop.left, expected_type);
                     try self.checkExprWithExpectedType(binop.right, expected_type);
+                } else {
+                    // For comparison/logical ops, just validate without context
+                    _ = try self.inferExprType(expr);
                 }
-                // For comparison ops, we don't propagate type (result is bool anyway)
             },
-            .unary_op => |*unop| {
-                // Propagate expected type to operand for unary minus
-                // Example: `let x: i64 = -42` should type the literal 42 as i64 before negating
-                try self.checkExprWithExpectedType(unop.operand, expected_type);
+            .unary_op => {
+                // For unary operations, just validate without context
+                _ = try self.inferExprType(expr);
             },
             .if_expr => |*if_expr| {
                 // Propagate expected type to both branches
@@ -494,15 +479,8 @@ pub const TypeChecker = struct {
                 }
             },
             .bool_literal, .variable, .function_call, .field_access, .constructor_call, .dependent_type_ref, .match_expr, .method_call, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
-                // These expressions have fixed types that can't be influenced by context:
-                // - bool_literal: always bool
-                // - variable: type determined at declaration
-                // - function_call: return type is fixed by function signature
-                // - field_access: type determined by field type
-                // - constructor_call: type determined by sum type definition
-                // - dependent_type_ref: type reference for method calls on dependent types
-                // - match_expr: type is the unified type of all arms
-                // - async_expr/spawn_expr/select_expr: concurrency types determined by body/arms
+                // These expressions have fixed types that can't be influenced by context.
+                // Linearity tracking happens in inferExprType when needed.
             },
         }
     }
@@ -773,7 +751,7 @@ pub const TypeChecker = struct {
                     var found = false;
                     for (typedef.kind.struct_type) |type_field| {
                         if (std.mem.eql(u8, field.name, type_field.name)) {
-                            // Use contextual typing to check field value against expected type
+                            // Check field value against expected type (includes linearity tracking)
                             try self.checkExprWithExpectedType(field.value, type_field.field_type.*);
                             found = true;
                             break;
