@@ -39,6 +39,7 @@ pub const Codegen = struct {
     next_temp: usize,
     next_string: usize,
     string_literals: std.ArrayList(u8), // Global string constants
+    defined_strings: std.StringHashMap([]const u8), // Map from string content to global names
     variables: std.StringHashMap(VarInfo),
     functions: std.StringHashMap(FunctionInfo),
     type_defs: std.StringHashMap(TypeDefInfo),
@@ -73,6 +74,7 @@ pub const Codegen = struct {
             .next_temp = 0,
             .next_string = 0,
             .string_literals = .empty,
+            .defined_strings = std.StringHashMap([]const u8).init(allocator),
             .variables = std.StringHashMap(VarInfo).init(allocator),
             .functions = std.StringHashMap(FunctionInfo).init(allocator),
             .type_defs = std.StringHashMap(TypeDefInfo).init(allocator),
@@ -108,6 +110,14 @@ pub const Codegen = struct {
 
         // Free string literals
         self.string_literals.deinit(self.allocator);
+
+        // Free keys and values in defined_strings map
+        var str_iter = self.defined_strings.iterator();
+        while (str_iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.defined_strings.deinit();
 
         // Free all inferred tuple types (shallow - nested tuples tracked separately)
         for (self.inferred_types.items) |*typ| {
@@ -208,12 +218,24 @@ pub const Codegen = struct {
         // Add null terminator
         try processed.append(self.allocator, 0);
 
-        // Generate global constant
-        const str_id = self.next_string;
-        self.next_string += 1;
+        // Convert processed string to owned slice for map key
+        const content_key = try self.allocator.dupe(u8, processed.items);
+
+        // Check if we've already defined this string content
+        if (self.defined_strings.get(content_key)) |global_name| {
+            self.allocator.free(content_key);
+            return try std.fmt.allocPrint(self.allocator, "getelementptr inbounds ([{d} x i8], ptr {s}, i32 0, i32 0)", .{ processed.items.len, global_name });
+        }
+
+        // Generate global constant with content-based hash for unique ID
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(processed.items);
+        const str_id = hasher.final();
 
         const global_name = try std.fmt.allocPrint(self.allocator, "@.str.{d}", .{str_id});
-        defer self.allocator.free(global_name);
+
+        // Store the mapping from content to global name
+        try self.defined_strings.put(content_key, global_name);
 
         // Write to string_literals section
         try self.string_literals.writer(self.allocator).print("{s} = private unnamed_addr constant [{d} x i8] c\"", .{ global_name, processed.items.len });
@@ -1819,7 +1841,6 @@ pub const Codegen = struct {
                 });
 
                 // Add cases for each constructor pattern
-                var first_case = true;
                 for (match_expr.arms, 0..) |arm, i| {
                     switch (arm.pattern) {
                         .identifier => {}, // Skip catch-all, it's the default
@@ -1827,20 +1848,18 @@ pub const Codegen = struct {
                             // Find the variant index
                             for (typedef_info.type_value.kind.sum_type, 0..) |variant, variant_idx| {
                                 if (std.mem.eql(u8, variant.name, constructor.name)) {
-                                    // Add comma and space separator between cases
-                                    if (!first_case) try self.output.appendSlice(self.allocator, ", ");
-                                    try self.output.writer(self.allocator).print("i64 {d}, label %{s}", .{
+                                    // Each case on its own line with proper indentation
+                                    try self.output.writer(self.allocator).print("\n    i64 {d}, label %{s}", .{
                                         variant_idx,
                                         arm_labels[i],
                                     });
-                                    first_case = false;
                                     break;
                                 }
                             }
                         },
                     }
                 }
-                try self.output.appendSlice(self.allocator, " ]\n");
+                try self.output.appendSlice(self.allocator, "\n  ]\n");
 
                 // Generate code for each arm
                 var arm_vals = try self.allocator.alloc([]const u8, match_expr.arms.len);

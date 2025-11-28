@@ -728,7 +728,7 @@ entry:
 if_then390:
   %.t395 = insertvalue { i64, [8 x i8] } undef, i64 52, 0
   %.t396 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t395, 0
-  %.t397 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t396, ptr getelementptr inbounds ([1 x i8], ptr @.str.0, i32 0, i32 0), 1
+  %.t397 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t396, ptr getelementptr inbounds ([1 x i8], ptr @.str.18151106360299273605, i32 0, i32 0), 1
   %.t398 = load i64, ptr %line
   %.t399 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t397, i64 %.t398, 2
   %.t400 = load i64, ptr %column
@@ -744,7 +744,7 @@ if_end392:
 if_then405:
   %.t410 = insertvalue { i64, [8 x i8] } undef, i64 45, 0
   %.t411 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t410, 0
-  %.t412 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t411, ptr getelementptr inbounds ([2 x i8], ptr @.str.1, i32 0, i32 0), 1
+  %.t412 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t411, ptr getelementptr inbounds ([2 x i8], ptr @.str.15882864822835482160, i32 0, i32 0), 1
   %.t413 = load i64, ptr %line
   %.t414 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t412, i64 %.t413, 2
   %.t415 = load i64, ptr %column
@@ -761,7 +761,7 @@ if_else406:
 if_then421:
   %.t426 = insertvalue { i64, [8 x i8] } undef, i64 46, 0
   %.t427 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t426, 0
-  %.t428 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t427, ptr getelementptr inbounds ([2 x i8], ptr @.str.2, i32 0, i32 0), 1
+  %.t428 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t427, ptr getelementptr inbounds ([2 x i8], ptr @.str.2200420175901286535, i32 0, i32 0), 1
   %.t429 = load i64, ptr %line
   %.t430 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t428, i64 %.t429, 2
   %.t431 = load i64, ptr %column
@@ -778,7 +778,7 @@ if_else422:
 if_then437:
   %.t442 = insertvalue { i64, [8 x i8] } undef, i64 47, 0
   %.t443 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t442, 0
-  %.t444 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t443, ptr getelementptr inbounds ([2 x i8], ptr @.str.3, i32 0, i32 0), 1
+  %.t444 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t443, ptr getelementptr inbounds ([2 x i8], ptr @.str.16740139525474306003, i32 0, i32 0), 1
   %.t445 = load i64, ptr %line
   %.t446 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t444, i64 %.t445, 2
   %.t447 = load i64, ptr %column
@@ -795,7 +795,7 @@ if_else438:
 if_then453:
   %.t458 = insertvalue { i64, [8 x i8] } undef, i64 48, 0
   %.t459 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t458, 0
-  %.t460 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t459, ptr getelementptr inbounds ([2 x i8], ptr @.str.4, i32 0, i32 0), 1
+  %.t460 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t459, ptr getelementptr inbounds ([2 x i8], ptr @.str.810667871647353583, i32 0, i32 0), 1
   %.t461 = load i64, ptr %line
   %.t462 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t460, i64 %.t461, 2
   %.t463 = load i64, ptr %column
@@ -812,7 +812,7 @@ if_else454:
 if_then469:
   %.t474 = insertvalue { i64, [8 x i8] } undef, i64 49, 0
   %.t475 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t474, 0
-  %.t476 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t475, ptr getelementptr inbounds ([2 x i8], ptr @.str.5, i32 0, i32 0), 1
+  %.t476 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t475, ptr getelementptr inbounds ([2 x i8], ptr @.str.15683206455558339757, i32 0, i32 0), 1
   %.t477 = load i64, ptr %line
   %.t478 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t476, i64 %.t477, 2
   %.t479 = load i64, ptr %column
@@ -829,7 +829,7 @@ if_else470:
 if_then485:
   %.t490 = insertvalue { i64, [8 x i8] } undef, i64 50, 0
   %.t491 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t490, 0
-  %.t492 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t491, ptr getelementptr inbounds ([2 x i8], ptr @.str.6, i32 0, i32 0), 1
+  %.t492 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t491, ptr getelementptr inbounds ([2 x i8], ptr @.str.17169981123852394891, i32 0, i32 0), 1
   %.t493 = load i64, ptr %line
   %.t494 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t492, i64 %.t493, 2
   %.t495 = load i64, ptr %column
@@ -846,7 +846,7 @@ if_else486:
 if_then501:
   %.t506 = insertvalue { i64, [8 x i8] } undef, i64 39, 0
   %.t507 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t506, 0
-  %.t508 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t507, ptr getelementptr inbounds ([2 x i8], ptr @.str.7, i32 0, i32 0), 1
+  %.t508 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t507, ptr getelementptr inbounds ([2 x i8], ptr @.str.14111902871104387043, i32 0, i32 0), 1
   %.t509 = load i64, ptr %line
   %.t510 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t508, i64 %.t509, 2
   %.t511 = load i64, ptr %column
@@ -863,7 +863,7 @@ if_else502:
 if_then517:
   %.t522 = insertvalue { i64, [8 x i8] } undef, i64 40, 0
   %.t523 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t522, 0
-  %.t524 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t523, ptr getelementptr inbounds ([2 x i8], ptr @.str.8, i32 0, i32 0), 1
+  %.t524 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t523, ptr getelementptr inbounds ([2 x i8], ptr @.str.11693505714082325371, i32 0, i32 0), 1
   %.t525 = load i64, ptr %line
   %.t526 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t524, i64 %.t525, 2
   %.t527 = load i64, ptr %column
@@ -880,7 +880,7 @@ if_else518:
 if_then533:
   %.t538 = insertvalue { i64, [8 x i8] } undef, i64 41, 0
   %.t539 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t538, 0
-  %.t540 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t539, ptr getelementptr inbounds ([2 x i8], ptr @.str.9, i32 0, i32 0), 1
+  %.t540 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t539, ptr getelementptr inbounds ([2 x i8], ptr @.str.2249644112086988589, i32 0, i32 0), 1
   %.t541 = load i64, ptr %line
   %.t542 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t540, i64 %.t541, 2
   %.t543 = load i64, ptr %column
@@ -897,7 +897,7 @@ if_else534:
 if_then549:
   %.t554 = insertvalue { i64, [8 x i8] } undef, i64 38, 0
   %.t555 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t554, 0
-  %.t556 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t555, ptr getelementptr inbounds ([2 x i8], ptr @.str.10, i32 0, i32 0), 1
+  %.t556 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t555, ptr getelementptr inbounds ([2 x i8], ptr @.str.1652154084197249351, i32 0, i32 0), 1
   %.t557 = load i64, ptr %line
   %.t558 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t556, i64 %.t557, 2
   %.t559 = load i64, ptr %column
@@ -910,7 +910,7 @@ if_then549:
 if_else550:
   %.t565 = insertvalue { i64, [8 x i8] } undef, i64 52, 0
   %.t566 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t565, 0
-  %.t567 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t566, ptr getelementptr inbounds ([1 x i8], ptr @.str.11, i32 0, i32 0), 1
+  %.t567 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t566, ptr getelementptr inbounds ([1 x i8], ptr @.str.18151106360299273605, i32 0, i32 0), 1
   %.t568 = load i64, ptr %line
   %.t569 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } %.t567, i64 %.t568, 2
   %.t570 = load i64, ptr %column
@@ -923,18 +923,17 @@ if_else550:
 }
 
 
-@.str.0 = private unnamed_addr constant [1 x i8] c"\00"
-@.str.1 = private unnamed_addr constant [2 x i8] c"(\00"
-@.str.2 = private unnamed_addr constant [2 x i8] c")\00"
-@.str.3 = private unnamed_addr constant [2 x i8] c"[\00"
-@.str.4 = private unnamed_addr constant [2 x i8] c"]\00"
-@.str.5 = private unnamed_addr constant [2 x i8] c"{\00"
-@.str.6 = private unnamed_addr constant [2 x i8] c"}\00"
-@.str.7 = private unnamed_addr constant [2 x i8] c";\00"
-@.str.8 = private unnamed_addr constant [2 x i8] c",\00"
-@.str.9 = private unnamed_addr constant [2 x i8] c".\00"
-@.str.10 = private unnamed_addr constant [2 x i8] c":\00"
-@.str.11 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.18151106360299273605 = private unnamed_addr constant [1 x i8] c"\00"
+@.str.15882864822835482160 = private unnamed_addr constant [2 x i8] c"(\00"
+@.str.2200420175901286535 = private unnamed_addr constant [2 x i8] c")\00"
+@.str.16740139525474306003 = private unnamed_addr constant [2 x i8] c"[\00"
+@.str.810667871647353583 = private unnamed_addr constant [2 x i8] c"]\00"
+@.str.15683206455558339757 = private unnamed_addr constant [2 x i8] c"{\00"
+@.str.17169981123852394891 = private unnamed_addr constant [2 x i8] c"}\00"
+@.str.14111902871104387043 = private unnamed_addr constant [2 x i8] c";\00"
+@.str.11693505714082325371 = private unnamed_addr constant [2 x i8] c",\00"
+@.str.2249644112086988589 = private unnamed_addr constant [2 x i8] c".\00"
+@.str.1652154084197249351 = private unnamed_addr constant [2 x i8] c":\00"
 define ptr @ptr__read(ptr %self, i64 %typ) {
 entry:
   %self.addr = alloca ptr
@@ -1005,7 +1004,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t599 = load { i64, [8 x i8] }, ptr %res.addr
   %.t600 = extractvalue { i64, [8 x i8] } %.t599, 0
-  switch i64 %.t600, label %match_unreachable604 [i64 0, label %match_arm602, i64 1, label %match_arm603 ]
+  switch i64 %.t600, label %match_unreachable604 [
+    i64 0, label %match_arm602
+    i64 1, label %match_arm603
+  ]
 match_arm602:
   %.t605 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t599, ptr %.t605
@@ -1037,7 +1039,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t616 = load { i64, [8 x i8] }, ptr %res.addr
   %.t617 = extractvalue { i64, [8 x i8] } %.t616, 0
-  switch i64 %.t617, label %match_unreachable621 [i64 0, label %match_arm619, i64 1, label %match_arm620 ]
+  switch i64 %.t617, label %match_unreachable621 [
+    i64 0, label %match_arm619
+    i64 1, label %match_arm620
+  ]
 match_arm619:
   %.t622 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t616, ptr %.t622
@@ -1071,7 +1076,10 @@ entry:
   store i64 %fallback, ptr %fallback.addr
   %.t633 = load { i64, [8 x i8] }, ptr %res.addr
   %.t634 = extractvalue { i64, [8 x i8] } %.t633, 0
-  switch i64 %.t634, label %match_unreachable638 [i64 0, label %match_arm636, i64 1, label %match_arm637 ]
+  switch i64 %.t634, label %match_unreachable638 [
+    i64 0, label %match_arm636
+    i64 1, label %match_arm637
+  ]
 match_arm636:
   %.t639 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t633, ptr %.t639
@@ -1108,7 +1116,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t655 = load { i64, [8 x i8] }, ptr %res.addr
   %.t656 = extractvalue { i64, [8 x i8] } %.t655, 0
-  switch i64 %.t656, label %match_unreachable660 [i64 0, label %match_arm658, i64 1, label %match_arm659 ]
+  switch i64 %.t656, label %match_unreachable660 [
+    i64 0, label %match_arm658
+    i64 1, label %match_arm659
+  ]
 match_arm658:
   %.t661 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t655, ptr %.t661
@@ -1140,7 +1151,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t672 = load { i64, [8 x i8] }, ptr %res.addr
   %.t673 = extractvalue { i64, [8 x i8] } %.t672, 0
-  switch i64 %.t673, label %match_unreachable677 [i64 0, label %match_arm675, i64 1, label %match_arm676 ]
+  switch i64 %.t673, label %match_unreachable677 [
+    i64 0, label %match_arm675
+    i64 1, label %match_arm676
+  ]
 match_arm675:
   %.t678 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t672, ptr %.t678
@@ -1174,7 +1188,10 @@ entry:
   store i64 %fallback, ptr %fallback.addr
   %.t689 = load { i64, [8 x i8] }, ptr %res.addr
   %.t690 = extractvalue { i64, [8 x i8] } %.t689, 0
-  switch i64 %.t690, label %match_unreachable694 [i64 0, label %match_arm692, i64 1, label %match_arm693 ]
+  switch i64 %.t690, label %match_unreachable694 [
+    i64 0, label %match_arm692
+    i64 1, label %match_arm693
+  ]
 match_arm692:
   %.t695 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t689, ptr %.t695
@@ -1211,7 +1228,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t711 = load { i64, [8 x i8] }, ptr %res.addr
   %.t712 = extractvalue { i64, [8 x i8] } %.t711, 0
-  switch i64 %.t712, label %match_unreachable716 [i64 0, label %match_arm714, i64 1, label %match_arm715 ]
+  switch i64 %.t712, label %match_unreachable716 [
+    i64 0, label %match_arm714
+    i64 1, label %match_arm715
+  ]
 match_arm714:
   %.t717 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t711, ptr %.t717
@@ -1243,7 +1263,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t728 = load { i64, [8 x i8] }, ptr %res.addr
   %.t729 = extractvalue { i64, [8 x i8] } %.t728, 0
-  switch i64 %.t729, label %match_unreachable733 [i64 0, label %match_arm731, i64 1, label %match_arm732 ]
+  switch i64 %.t729, label %match_unreachable733 [
+    i64 0, label %match_arm731
+    i64 1, label %match_arm732
+  ]
 match_arm731:
   %.t734 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t728, ptr %.t734
@@ -1277,7 +1300,10 @@ entry:
   store ptr %fallback, ptr %fallback.addr
   %.t745 = load { i64, [8 x i8] }, ptr %res.addr
   %.t746 = extractvalue { i64, [8 x i8] } %.t745, 0
-  switch i64 %.t746, label %match_unreachable750 [i64 0, label %match_arm748, i64 1, label %match_arm749 ]
+  switch i64 %.t746, label %match_unreachable750 [
+    i64 0, label %match_arm748
+    i64 1, label %match_arm749
+  ]
 match_arm748:
   %.t751 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t745, ptr %.t751
@@ -1314,7 +1340,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t767 = load { i64, [8 x i8] }, ptr %res.addr
   %.t768 = extractvalue { i64, [8 x i8] } %.t767, 0
-  switch i64 %.t768, label %match_unreachable772 [i64 0, label %match_arm770, i64 1, label %match_arm771 ]
+  switch i64 %.t768, label %match_unreachable772 [
+    i64 0, label %match_arm770
+    i64 1, label %match_arm771
+  ]
 match_arm770:
   %.t773 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t767, ptr %.t773
@@ -1346,7 +1375,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t784 = load { i64, [8 x i8] }, ptr %res.addr
   %.t785 = extractvalue { i64, [8 x i8] } %.t784, 0
-  switch i64 %.t785, label %match_unreachable789 [i64 0, label %match_arm787, i64 1, label %match_arm788 ]
+  switch i64 %.t785, label %match_unreachable789 [
+    i64 0, label %match_arm787
+    i64 1, label %match_arm788
+  ]
 match_arm787:
   %.t790 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t784, ptr %.t790
@@ -1380,7 +1412,10 @@ entry:
   store ptr %fallback, ptr %fallback.addr
   %.t801 = load { i64, [8 x i8] }, ptr %res.addr
   %.t802 = extractvalue { i64, [8 x i8] } %.t801, 0
-  switch i64 %.t802, label %match_unreachable806 [i64 0, label %match_arm804, i64 1, label %match_arm805 ]
+  switch i64 %.t802, label %match_unreachable806 [
+    i64 0, label %match_arm804
+    i64 1, label %match_arm805
+  ]
 match_arm804:
   %.t807 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t801, ptr %.t807
@@ -1417,7 +1452,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t823 = load { i64, [8 x i8] }, ptr %res.addr
   %.t824 = extractvalue { i64, [8 x i8] } %.t823, 0
-  switch i64 %.t824, label %match_unreachable828 [i64 0, label %match_arm826, i64 1, label %match_arm827 ]
+  switch i64 %.t824, label %match_unreachable828 [
+    i64 0, label %match_arm826
+    i64 1, label %match_arm827
+  ]
 match_arm826:
   %.t829 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t823, ptr %.t829
@@ -1449,7 +1487,10 @@ entry:
   store { i64, [8 x i8] } %res, ptr %res.addr
   %.t840 = load { i64, [8 x i8] }, ptr %res.addr
   %.t841 = extractvalue { i64, [8 x i8] } %.t840, 0
-  switch i64 %.t841, label %match_unreachable845 [i64 0, label %match_arm843, i64 1, label %match_arm844 ]
+  switch i64 %.t841, label %match_unreachable845 [
+    i64 0, label %match_arm843
+    i64 1, label %match_arm844
+  ]
 match_arm843:
   %.t846 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t840, ptr %.t846
@@ -1483,7 +1524,10 @@ entry:
   store i1 %fallback, ptr %fallback.addr
   %.t857 = load { i64, [8 x i8] }, ptr %res.addr
   %.t858 = extractvalue { i64, [8 x i8] } %.t857, 0
-  switch i64 %.t858, label %match_unreachable862 [i64 0, label %match_arm860, i64 1, label %match_arm861 ]
+  switch i64 %.t858, label %match_unreachable862 [
+    i64 0, label %match_arm860
+    i64 1, label %match_arm861
+  ]
 match_arm860:
   %.t863 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t857, ptr %.t863
@@ -1520,7 +1564,9 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %.t879 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t880 = extractvalue { i64, [8 x i8] } %.t879, 0
-  switch i64 %.t880, label %match_arm883 [i64 0, label %match_arm882 ]
+  switch i64 %.t880, label %match_arm883 [
+    i64 0, label %match_arm882
+  ]
 match_arm882:
   %.t884 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t879, ptr %.t884
@@ -1543,7 +1589,9 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %.t890 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t891 = extractvalue { i64, [8 x i8] } %.t890, 0
-  switch i64 %.t891, label %match_arm894 [i64 0, label %match_arm893 ]
+  switch i64 %.t891, label %match_arm894 [
+    i64 0, label %match_arm893
+  ]
 match_arm893:
   %.t895 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t890, ptr %.t895
@@ -1568,7 +1616,9 @@ entry:
   store i64 %fallback, ptr %fallback.addr
   %.t901 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t902 = extractvalue { i64, [8 x i8] } %.t901, 0
-  switch i64 %.t902, label %match_arm905 [i64 0, label %match_arm904 ]
+  switch i64 %.t902, label %match_arm905 [
+    i64 0, label %match_arm904
+  ]
 match_arm904:
   %.t906 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t901, ptr %.t906
@@ -1596,7 +1646,9 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %.t917 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t918 = extractvalue { i64, [8 x i8] } %.t917, 0
-  switch i64 %.t918, label %match_arm921 [i64 0, label %match_arm920 ]
+  switch i64 %.t918, label %match_arm921 [
+    i64 0, label %match_arm920
+  ]
 match_arm920:
   %.t922 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t917, ptr %.t922
@@ -1619,7 +1671,9 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %.t928 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t929 = extractvalue { i64, [8 x i8] } %.t928, 0
-  switch i64 %.t929, label %match_arm932 [i64 0, label %match_arm931 ]
+  switch i64 %.t929, label %match_arm932 [
+    i64 0, label %match_arm931
+  ]
 match_arm931:
   %.t933 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t928, ptr %.t933
@@ -1644,7 +1698,9 @@ entry:
   store i64 %fallback, ptr %fallback.addr
   %.t939 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t940 = extractvalue { i64, [8 x i8] } %.t939, 0
-  switch i64 %.t940, label %match_arm943 [i64 0, label %match_arm942 ]
+  switch i64 %.t940, label %match_arm943 [
+    i64 0, label %match_arm942
+  ]
 match_arm942:
   %.t944 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t939, ptr %.t944
@@ -1672,7 +1728,9 @@ entry:
   store { i64, [1 x i8] } %opt, ptr %opt.addr
   %.t955 = load { i64, [1 x i8] }, ptr %opt.addr
   %.t956 = extractvalue { i64, [1 x i8] } %.t955, 0
-  switch i64 %.t956, label %match_arm959 [i64 0, label %match_arm958 ]
+  switch i64 %.t956, label %match_arm959 [
+    i64 0, label %match_arm958
+  ]
 match_arm958:
   %.t960 = alloca { i64, [1 x i8] }
   store { i64, [1 x i8] } %.t955, ptr %.t960
@@ -1695,7 +1753,9 @@ entry:
   store { i64, [1 x i8] } %opt, ptr %opt.addr
   %.t966 = load { i64, [1 x i8] }, ptr %opt.addr
   %.t967 = extractvalue { i64, [1 x i8] } %.t966, 0
-  switch i64 %.t967, label %match_arm970 [i64 0, label %match_arm969 ]
+  switch i64 %.t967, label %match_arm970 [
+    i64 0, label %match_arm969
+  ]
 match_arm969:
   %.t971 = alloca { i64, [1 x i8] }
   store { i64, [1 x i8] } %.t966, ptr %.t971
@@ -1720,7 +1780,9 @@ entry:
   store i8 %fallback, ptr %fallback.addr
   %.t977 = load { i64, [1 x i8] }, ptr %opt.addr
   %.t978 = extractvalue { i64, [1 x i8] } %.t977, 0
-  switch i64 %.t978, label %match_arm981 [i64 0, label %match_arm980 ]
+  switch i64 %.t978, label %match_arm981 [
+    i64 0, label %match_arm980
+  ]
 match_arm980:
   %.t982 = alloca { i64, [1 x i8] }
   store { i64, [1 x i8] } %.t977, ptr %.t982
@@ -1748,7 +1810,9 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %.t993 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t994 = extractvalue { i64, [8 x i8] } %.t993, 0
-  switch i64 %.t994, label %match_arm997 [i64 0, label %match_arm996 ]
+  switch i64 %.t994, label %match_arm997 [
+    i64 0, label %match_arm996
+  ]
 match_arm996:
   %.t998 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t993, ptr %.t998
@@ -1771,7 +1835,9 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %.t1004 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t1005 = extractvalue { i64, [8 x i8] } %.t1004, 0
-  switch i64 %.t1005, label %match_arm1008 [i64 0, label %match_arm1007 ]
+  switch i64 %.t1005, label %match_arm1008 [
+    i64 0, label %match_arm1007
+  ]
 match_arm1007:
   %.t1009 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t1004, ptr %.t1009
@@ -1796,7 +1862,9 @@ entry:
   store ptr %fallback, ptr %fallback.addr
   %.t1015 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t1016 = extractvalue { i64, [8 x i8] } %.t1015, 0
-  switch i64 %.t1016, label %match_arm1019 [i64 0, label %match_arm1018 ]
+  switch i64 %.t1016, label %match_arm1019 [
+    i64 0, label %match_arm1018
+  ]
 match_arm1018:
   %.t1020 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t1015, ptr %.t1020
@@ -1824,7 +1892,9 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %.t1031 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t1032 = extractvalue { i64, [8 x i8] } %.t1031, 0
-  switch i64 %.t1032, label %match_arm1035 [i64 0, label %match_arm1034 ]
+  switch i64 %.t1032, label %match_arm1035 [
+    i64 0, label %match_arm1034
+  ]
 match_arm1034:
   %.t1036 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t1031, ptr %.t1036
@@ -1847,7 +1917,9 @@ entry:
   store { i64, [8 x i8] } %opt, ptr %opt.addr
   %.t1042 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t1043 = extractvalue { i64, [8 x i8] } %.t1042, 0
-  switch i64 %.t1043, label %match_arm1046 [i64 0, label %match_arm1045 ]
+  switch i64 %.t1043, label %match_arm1046 [
+    i64 0, label %match_arm1045
+  ]
 match_arm1045:
   %.t1047 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t1042, ptr %.t1047
@@ -1872,7 +1944,9 @@ entry:
   store ptr %fallback, ptr %fallback.addr
   %.t1053 = load { i64, [8 x i8] }, ptr %opt.addr
   %.t1054 = extractvalue { i64, [8 x i8] } %.t1053, 0
-  switch i64 %.t1054, label %match_arm1057 [i64 0, label %match_arm1056 ]
+  switch i64 %.t1054, label %match_arm1057 [
+    i64 0, label %match_arm1056
+  ]
 match_arm1056:
   %.t1058 = alloca { i64, [8 x i8] }
   store { i64, [8 x i8] } %.t1053, ptr %.t1058
@@ -1900,7 +1974,9 @@ entry:
   store { i64, [0 x i8] } %opt, ptr %opt.addr
   %.t1069 = load { i64, [0 x i8] }, ptr %opt.addr
   %.t1070 = extractvalue { i64, [0 x i8] } %.t1069, 0
-  switch i64 %.t1070, label %match_arm1073 [i64 0, label %match_arm1072 ]
+  switch i64 %.t1070, label %match_arm1073 [
+    i64 0, label %match_arm1072
+  ]
 match_arm1072:
   %.t1074 = alloca { i64, [0 x i8] }
   store { i64, [0 x i8] } %.t1069, ptr %.t1074
@@ -1923,7 +1999,9 @@ entry:
   store { i64, [0 x i8] } %opt, ptr %opt.addr
   %.t1080 = load { i64, [0 x i8] }, ptr %opt.addr
   %.t1081 = extractvalue { i64, [0 x i8] } %.t1080, 0
-  switch i64 %.t1081, label %match_arm1084 [i64 0, label %match_arm1083 ]
+  switch i64 %.t1081, label %match_arm1084 [
+    i64 0, label %match_arm1083
+  ]
 match_arm1083:
   %.t1085 = alloca { i64, [0 x i8] }
   store { i64, [0 x i8] } %.t1080, ptr %.t1085
@@ -1948,7 +2026,9 @@ entry:
   store i1 %fallback, ptr %fallback.addr
   %.t1091 = load { i64, [0 x i8] }, ptr %opt.addr
   %.t1092 = extractvalue { i64, [0 x i8] } %.t1091, 0
-  switch i64 %.t1092, label %match_arm1095 [i64 0, label %match_arm1094 ]
+  switch i64 %.t1092, label %match_arm1095 [
+    i64 0, label %match_arm1094
+  ]
 match_arm1094:
   %.t1096 = alloca { i64, [0 x i8] }
   store { i64, [0 x i8] } %.t1091, ptr %.t1096
@@ -2658,7 +2738,7 @@ entry:
   %.t1442 = load i1, ptr %is_invalid
   br i1 %.t1442, label %then1443, label %else1444
 then1443:
-  %.t1446 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } undef, ptr getelementptr inbounds ([1 x i8], ptr @.str.12, i32 0, i32 0), 0
+  %.t1446 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } undef, ptr getelementptr inbounds ([1 x i8], ptr @.str.18151106360299273605, i32 0, i32 0), 0
   %.t1447 = load { { i64 }, ptr, i64, i64, i64 }, ptr %arena.addr
   %.t1448 = insertvalue { ptr, { { i64 }, ptr, i64, i64, i64 } } %.t1446, { { i64 }, ptr, i64, i64, i64 } %.t1447, 1
   br label %merge1445
