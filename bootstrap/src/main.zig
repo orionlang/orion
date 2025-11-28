@@ -22,16 +22,9 @@ fn getStdlibDirectory(allocator: std.mem.Allocator, exe_path: []const u8) ![]con
 
     // Stdlib is 3 levels up from bin/orion: ../../../stdlib
     // We build the path relative to the exe directory
-    const stdlib_relative = "../../stdlib";
+    const stdlib_path = try std.fs.path.join(allocator, &.{ exe_dir, "../../../stdlib" });
 
-    // Resolve the real path
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const real_path = try std.fs.realpath(
-        try std.fs.path.join(allocator, &.{ exe_dir, stdlib_relative }),
-        &buf,
-    );
-
-    return try allocator.dupe(u8, real_path);
+    return stdlib_path;
 }
 
 pub fn main() !void {

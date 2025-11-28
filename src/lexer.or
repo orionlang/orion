@@ -86,30 +86,34 @@ fn advance(lexer: Lexer@2) Lexer {
 fn skip_whitespace(lexer: Lexer@2) Lexer {
   match peek(lexer) {
     Some(c) => {
-      if std.char.is_whitespace(c) {
-        return skip_whitespace(advance(lexer))
-      }
-      // Handle line comments: //
-      if c == 47 {  // '/'
-        match peek_ahead(lexer, 1) {
-          Some(next) => {
-            if next == 47 {  // '//'
-              // Skip until newline
-              let mut l = advance(advance(lexer))
-              while match peek(l) {
-                Some(ch) => ch != 10,  // newline
-                None => false,
-              } {
-                l = advance(l)
+      {
+        // Check if whitespace (space=32, tab=9, newline=10, carriage return=13)
+        let is_whitespace = c == 32 || c == 9 || c == 10 || c == 13
+        if is_whitespace {
+          skip_whitespace(advance(lexer))
+        } else if c == 47 {  // '/'
+          match peek_ahead(lexer, 1) {
+            Some(next) => {
+              if next == 47 {  // '//'
+                // Skip until newline
+                let mut l = advance(advance(lexer))
+                while match peek(l) {
+                  Some(ch) => ch != 10,
+                  None => false,
+                } {
+                  l = advance(l)
+                }
+                skip_whitespace(l)
+              } else {
+                lexer
               }
-              return skip_whitespace(l)
             },
             None => lexer,
-          },
-          None => lexer,
+          }
+        } else {
+          lexer
         }
       }
-      lexer
     },
     None => lexer,
   }

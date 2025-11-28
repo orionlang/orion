@@ -2443,7 +2443,13 @@ pub const Parser = struct {
         while (!self.check(.right_brace)) {
             const pattern = try self.parseMatchPattern();
             _ = try self.expect(.fat_arrow);
-            const body_expr = try self.parseExpression();
+
+            // Allow either block expressions (with statements) or simple expressions
+            const body_expr = if (self.check(.left_brace))
+                try self.parseBlockExpression()
+            else
+                try self.parseExpression();
+
             const body_ptr = try self.allocator.create(Expr);
             body_ptr.* = body_expr;
 
