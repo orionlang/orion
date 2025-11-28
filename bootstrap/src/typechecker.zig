@@ -442,6 +442,10 @@ pub const TypeChecker = struct {
                 _ = try self.inferExprType(expr);
             },
             .if_expr => |*if_expr| {
+                // Check condition is bool and track linearity
+                const bool_type = Type{ .kind = .{ .primitive = .bool }, .usage = .once };
+                try self.checkExprWithExpectedType(if_expr.condition, bool_type);
+
                 // Propagate expected type to both branches
                 // Example: `let x: i64 = if cond { 42 } else { 100 }` should type both literals as i64
                 try self.checkExprWithExpectedType(if_expr.then_branch, expected_type);
@@ -478,7 +482,11 @@ pub const TypeChecker = struct {
                     }
                 }
             },
-            .bool_literal, .variable, .function_call, .field_access, .constructor_call, .dependent_type_ref, .match_expr, .method_call, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
+            .function_call, .variable => {
+                // Function calls and variables need to track linearity
+                _ = try self.inferExprType(expr);
+            },
+            .bool_literal, .field_access, .constructor_call, .dependent_type_ref, .match_expr, .method_call, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
                 // These expressions have fixed types that can't be influenced by context.
                 // Linearity tracking happens in inferExprType when needed.
             },
@@ -601,29 +609,15 @@ pub const TypeChecker = struct {
                     return error.ArgumentCountMismatch;
                 }
 
-                // Check argument types
+                // Check argument types using inferExprType to track linearity
+                // (we avoid checkExprWithExpectedType here because it would be called twice)
                 for (call.args, 0..) |arg, i| {
                     const expected_type = sig.params[i];
-
-                    // Use checkExprWithExpectedType to allow integer literals to coerce
-                    try self.checkExprWithExpectedType(arg, expected_type);
-
-                    // Now verify the actual type matches or can convert
                     const arg_type = try self.inferExprType(arg);
                     if (!self.canImplicitlyConvert(arg_type, expected_type)) {
-                        const expected_str = switch (expected_type.kind) {
-                            .primitive => |p| @tagName(p),
-                            else => @tagName(expected_type.kind),
-                        };
-                        const got_str = switch (arg_type.kind) {
-                            .primitive => |p| @tagName(p),
-                            else => @tagName(arg_type.kind),
-                        };
-                        std.debug.print("Function {s} argument {d}: expected {s}, got {s}\n", .{
+                        std.debug.print("Function {s} argument {d}: type mismatch\n", .{
                             call.name,
                             i,
-                            expected_str,
-                            got_str,
                         });
                         return error.TypeMismatch;
                     }
