@@ -433,13 +433,13 @@ pub const TypeChecker = struct {
                     try self.checkExprWithExpectedType(binop.left, expected_type);
                     try self.checkExprWithExpectedType(binop.right, expected_type);
                 } else {
-                    // For comparison/logical ops, just validate without context
-                    _ = try self.inferExprType(expr);
+                    // For comparison/logical ops, track linearity in operands
+                    try self.trackLinearityInExpr(expr);
                 }
             },
             .unary_op => {
-                // For unary operations, just validate without context
-                _ = try self.inferExprType(expr);
+                // For unary operations, track linearity in operand
+                try self.trackLinearityInExpr(expr);
             },
             .if_expr => |*if_expr| {
                 // Check condition is bool and track linearity
@@ -482,13 +482,53 @@ pub const TypeChecker = struct {
                     }
                 }
             },
-            .function_call, .variable, .field_access, .method_call => {
-                // These need to track linearity by inferring their types
-                _ = try self.inferExprType(expr);
+            .variable => |name| {
+                // Track variable linearity
+                if (self.variables.getPtr(name)) |var_info| {
+                    var_info.use_count += 1;
+                }
+            },
+            .field_access, .function_call, .method_call => {
+                // Track linearity in sub-expressions
+                try self.trackLinearityInExpr(expr);
             },
             .bool_literal, .constructor_call, .dependent_type_ref, .match_expr, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
                 // These expressions have fixed types that can't be influenced by context.
                 // Linearity tracking happens in inferExprType when needed.
+            },
+        }
+    }
+
+    fn trackLinearityInExpr(self: *TypeChecker, expr: *const Expr) !void {
+        switch (expr.*) {
+            .variable => |name| {
+                if (self.variables.getPtr(name)) |var_info| {
+                    var_info.use_count += 1;
+                }
+            },
+            .field_access => |fa| {
+                try self.trackLinearityInExpr(fa.object);
+            },
+            .function_call => |call| {
+                for (call.args) |arg| {
+                    try self.trackLinearityInExpr(arg);
+                }
+            },
+            .method_call => |mc| {
+                try self.trackLinearityInExpr(mc.object);
+                for (mc.args) |arg| {
+                    try self.trackLinearityInExpr(arg);
+                }
+            },
+            .binary_op => |binop| {
+                try self.trackLinearityInExpr(binop.left);
+                try self.trackLinearityInExpr(binop.right);
+            },
+            .unary_op => |unop| {
+                try self.trackLinearityInExpr(unop.operand);
+            },
+            else => {
+                // For other expressions, nothing to track
             },
         }
     }
@@ -527,7 +567,7 @@ pub const TypeChecker = struct {
             },
             .variable => |name| {
                 if (self.variables.getPtr(name)) |var_info| {
-                    var_info.use_count += 1;
+                    // Don't track linearity in inferExprType - only in checkExprWithExpectedType
                     return var_info.var_type;
                 }
                 std.debug.print("Undefined variable: {s}\n", .{name});
@@ -609,18 +649,10 @@ pub const TypeChecker = struct {
                     return error.ArgumentCountMismatch;
                 }
 
-                // Check argument types using inferExprType to track linearity
-                // (we avoid checkExprWithExpectedType here because it would be called twice)
+                // Check argument types and track linearity
                 for (call.args, 0..) |arg, i| {
                     const expected_type = sig.params[i];
-                    const arg_type = try self.inferExprType(arg);
-                    if (!self.canImplicitlyConvert(arg_type, expected_type)) {
-                        std.debug.print("Function {s} argument {d}: type mismatch\n", .{
-                            call.name,
-                            i,
-                        });
-                        return error.TypeMismatch;
-                    }
+                    try self.checkExprWithExpectedType(arg, expected_type);
                 }
 
                 return sig.return_type;
