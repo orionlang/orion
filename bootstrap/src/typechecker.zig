@@ -313,6 +313,8 @@ pub const TypeChecker = struct {
                     std.debug.print("While condition must be bool, got {any}\n", .{condition_type});
                     return error.TypeMismatch;
                 }
+                // Track linearity in condition
+                try self.trackLinearityInExpr(while_stmt.condition);
                 _ = try self.inferExprType(while_stmt.body);
             },
             .if_stmt => |if_stmt| {
@@ -321,6 +323,8 @@ pub const TypeChecker = struct {
                     std.debug.print("If condition must be bool, got {any}\n", .{condition_type});
                     return error.TypeMismatch;
                 }
+                // Track linearity in condition
+                try self.trackLinearityInExpr(if_stmt.condition);
                 for (if_stmt.then_stmts) |*then_stmt| {
                     try self.checkStatement(then_stmt.*, func_return_type);
                 }
@@ -467,12 +471,17 @@ pub const TypeChecker = struct {
                 }
             },
             .struct_literal => |lit| {
-                // Propagate expected types to struct fields
+                // Propagate expected types to struct fields for type checking
                 // For generic types, resolve with substitution first
                 const resolved = self.resolveType(expected_type);
-                if (resolved.kind != .struct_type) return;
+                if (resolved.kind != .struct_type) {
+                    // Can't resolve type, so track linearity directly in fields
+                    try self.trackLinearityInExpr(expr);
+                    return;
+                }
 
                 // Propagate expected types to each field
+                // This will also track linearity via recursive checkExprWithExpectedType calls
                 for (lit.fields) |field| {
                     for (resolved.kind.struct_type) |type_field| {
                         if (std.mem.eql(u8, field.name, type_field.name)) {
@@ -527,8 +536,33 @@ pub const TypeChecker = struct {
             .unary_op => |unop| {
                 try self.trackLinearityInExpr(unop.operand);
             },
+            .if_expr => |if_expr| {
+                try self.trackLinearityInExpr(if_expr.condition);
+                try self.trackLinearityInExpr(if_expr.then_branch);
+                if (if_expr.else_branch) |else_branch| {
+                    try self.trackLinearityInExpr(else_branch);
+                }
+            },
+            .block_expr => |block| {
+                if (block.result) |result| {
+                    try self.trackLinearityInExpr(result);
+                }
+            },
+            .tuple_literal => |elements| {
+                for (elements) |elem| {
+                    try self.trackLinearityInExpr(elem);
+                }
+            },
+            .tuple_index => |index| {
+                try self.trackLinearityInExpr(index.tuple);
+            },
+            .struct_literal => |lit| {
+                for (lit.fields) |field| {
+                    try self.trackLinearityInExpr(field.value);
+                }
+            },
             else => {
-                // For other expressions, nothing to track
+                // For other expressions (literals, constructor calls, etc), nothing to track
             },
         }
     }

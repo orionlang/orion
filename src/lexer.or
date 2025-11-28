@@ -42,7 +42,7 @@ pub fn new_lexer(source: str) Lexer {
 }
 
 // Peek at current character without advancing (returns 255 if at end)
-fn peek(lexer: Lexer@5) u8 {
+fn peek(lexer: Lexer@4) u8 {
   if lexer.pos < lexer.source.len() {
     return lexer.source.char_at(lexer.pos)
   }
@@ -50,7 +50,7 @@ fn peek(lexer: Lexer@5) u8 {
 }
 
 // Peek at next character (returns 255 if at end)
-fn peek_ahead(lexer: Lexer@5, n: i64@3) u8 {
+fn peek_ahead(lexer: Lexer@4, n: i64@2) u8 {
   if (lexer.pos + n) < lexer.source.len() {
     return lexer.source.char_at(lexer.pos + n)
   }
@@ -58,8 +58,8 @@ fn peek_ahead(lexer: Lexer@5, n: i64@3) u8 {
 }
 
 // Advance to next character
-fn advance(lexer: Lexer@5) Lexer {
-  let c: u8 = peek(lexer)
+fn advance(lexer: Lexer@9) Lexer {
+  let c: u8@2 = peek(lexer)
   if c == 255 {  // end of input
     return lexer
   }
@@ -81,8 +81,8 @@ fn advance(lexer: Lexer@5) Lexer {
 }
 
 // Skip whitespace and comments
-fn skip_whitespace(lexer: Lexer@3) Lexer {
-  let c: u8 = peek(lexer)
+fn skip_whitespace(lexer: Lexer@7) Lexer {
+  let c: u8@2 = peek(lexer)
   if c == 255 {  // end of input
     return lexer
   }
@@ -113,11 +113,11 @@ fn skip_whitespace(lexer: Lexer@3) Lexer {
 }
 
 // Tokenize source code and return token
-pub fn next_token(lexer: Lexer@2) (Token, Lexer) {
-  let l = skip_whitespace(lexer)
-  let line = l.line
-  let column = l.column
-  let c: u8 = peek(l)
+pub fn next_token(lexer: Lexer@1) (Token, Lexer) {
+  let l: Lexer@15 = skip_whitespace(lexer)
+  let line: i64@12 = l.line
+  let column: i64@12 = l.column
+  let c: u8@11 = peek(l)
 
   if c == 255 {  // end of input
     return (Token { kind: Eof, lexeme: "", line: line, column: column }, l)
