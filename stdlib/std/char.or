@@ -3,8 +3,8 @@
 
 // Check if character is an ASCII letter (a-z, A-Z)
 pub fn is_alpha(c: u8@4) bool {
-  let lower: bool = c >= 97 && c <= 122
-  let upper: bool = c >= 65 && c <= 90
+  let lower: bool = c >= 97 && c <= 122  // a-z (2 uses)
+  let upper: bool = c >= 65 && c <= 90   // A-Z (2 uses)
   return lower || upper
 }
 
