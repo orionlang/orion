@@ -1,0 +1,162 @@
+// Orion Lexer - tokenizes Orion source code
+// Produces a stream of tokens for the parser
+
+import std.option
+import std.string
+
+// Token kinds - covers all Orion language constructs
+pub type TokenKind =
+  | Fn | Let | Var | Return | If | Else | While | Match | Type | Class | Instance | Pub | Unsafe | Async
+  | Identifier(str) | Number(u64) | String(str) | Float(str)
+  | Equal | Plus | Minus | Star | Slash | Percent
+  | EqualEqual | NotEqual | Less | Greater | LessEqual | GreaterEqual
+  | And | Or | Not | Ampersand | Pipe | Caret | Tilde | At
+  | Colon | Semicolon | Comma | Dot | Arrow | FatArrow | LeftArrow
+  | LeftParen | RightParen | LeftBracket | RightBracket | LeftBrace | RightBrace
+  | Import | Eof
+
+// Token with position info for error reporting
+pub type Token = {
+  kind: TokenKind,
+  lexeme: str,
+  line: u64,
+  column: u64,
+}
+
+// Lexer state for tokenization
+pub type Lexer = {
+  source: str,
+  pos: u64,
+  line: u64,
+  column: u64,
+}
+
+// Create a new lexer for source code
+pub fn new_lexer(source: str) Lexer {
+  return Lexer {
+    source: source,
+    pos: 0,
+    line: 1,
+    column: 0,
+  }
+}
+
+// Peek at current character without advancing
+fn peek(lexer: Lexer) Option[u8] {
+  if lexer.pos < std.string.len(lexer.source) {
+    return Some(std.string.char_at(lexer.source, lexer.pos))
+  }
+  return None
+}
+
+// Peek at next character
+fn peek_ahead(lexer: Lexer, n: u64) Option[u8] {
+  let pos = lexer.pos + n
+  if pos < std.string.len(lexer.source) {
+    return Some(std.string.char_at(lexer.source, pos))
+  }
+  return None
+}
+
+// Advance to next character
+fn advance(lexer: Lexer@2) Lexer {
+  match peek(lexer) {
+    Some(c) => {
+      if c == 10 {  // newline
+        return Lexer {
+          source: lexer.source,
+          pos: lexer.pos + 1,
+          line: lexer.line + 1,
+          column: 0,
+        }
+      } else {
+        return Lexer {
+          source: lexer.source,
+          pos: lexer.pos + 1,
+          line: lexer.line,
+          column: lexer.column + 1,
+        }
+      }
+    },
+    None => lexer,
+  }
+}
+
+// Skip whitespace and comments
+fn skip_whitespace(lexer: Lexer@2) Lexer {
+  match peek(lexer) {
+    Some(c) => {
+      if std.char.is_whitespace(c) {
+        return skip_whitespace(advance(lexer))
+      }
+      // Handle line comments: //
+      if c == 47 {  // '/'
+        match peek_ahead(lexer, 1) {
+          Some(next) => {
+            if next == 47 {  // '//'
+              // Skip until newline
+              let mut l = advance(advance(lexer))
+              while match peek(l) {
+                Some(ch) => ch != 10,  // newline
+                None => false,
+              } {
+                l = advance(l)
+              }
+              return skip_whitespace(l)
+            },
+            None => lexer,
+          },
+          None => lexer,
+        }
+      }
+      lexer
+    },
+    None => lexer,
+  }
+}
+
+// Tokenize source code and return token
+pub fn next_token(lexer: Lexer@2) (Token, Lexer) {
+  let l = skip_whitespace(lexer)
+
+  let line = l.line
+  let column = l.column
+
+  match peek(l) {
+    Some(c) => {
+      // Single character tokens matched by ASCII code
+      let kind = match c {
+        40 => LeftParen,      // '('
+        41 => RightParen,     // ')'
+        91 => LeftBracket,    // '['
+        93 => RightBracket,   // ']'
+        123 => LeftBrace,     // '{'
+        125 => RightBrace,    // '}'
+        59 => Semicolon,      // ';'
+        44 => Comma,          // ','
+        46 => Dot,            // '.'
+        58 => Colon,          // ':'
+        _ => Eof,             // unrecognized
+      }
+
+      let lexeme = match kind {
+        LeftParen => "(",
+        RightParen => ")",
+        LeftBracket => "[",
+        RightBracket => "]",
+        LeftBrace => "{",
+        RightBrace => "}",
+        Semicolon => ";",
+        Comma => ",",
+        Dot => ".",
+        Colon => ":",
+        _ => "",
+      }
+
+      return (Token { kind: kind, lexeme: lexeme, line: line, column: column }, advance(l))
+    },
+    None => {
+      return (Token { kind: Eof, lexeme: "", line: line, column: column }, l)
+    },
+  }
+}
