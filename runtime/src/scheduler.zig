@@ -21,14 +21,14 @@ const orion_coro_done = if (builtin.is_test)
         }
     }.f
 else
-    @extern(*const fn (Task) bool, .{ .name = "orion_coro_done" }).*;
+    @extern(*const fn (Task) callconv(.c) bool, .{ .name = "orion_coro_done" }).*;
 
 const orion_coro_resume = if (builtin.is_test)
     struct {
         fn f(_: Task) void {} // Stub: no-op for tests
     }.f
 else
-    @extern(*const fn (Task) void, .{ .name = "orion_coro_resume" }).*;
+    @extern(*const fn (Task) callconv(.c) void, .{ .name = "orion_coro_resume" }).*;
 
 // Work-stealing deque for per-worker local queues
 // Lock-free for push/pop by owner, lock for steal by others
@@ -268,12 +268,11 @@ pub export fn init() void {
     }
 
     // Start worker threads (except worker 0 which is the main thread)
-    // TEMPORARILY DISABLED for debugging
-    // for (1..num) |i| {
-    //     if (global.workers[i]) |worker| {
-    //         worker.thread = Thread.spawn(.{}, Worker.run, .{worker}) catch null;
-    //     }
-    // }
+    for (1..num) |i| {
+        if (global.workers[i]) |worker| {
+            worker.thread = Thread.spawn(.{}, Worker.run, .{worker}) catch null;
+        }
+    }
 }
 
 pub export fn spawn(task: Task) void {
