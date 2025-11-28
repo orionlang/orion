@@ -482,11 +482,11 @@ pub const TypeChecker = struct {
                     }
                 }
             },
-            .function_call, .variable, .field_access => {
-                // Function calls, variables, and field accesses need to track linearity
+            .function_call, .variable, .field_access, .method_call => {
+                // These need to track linearity by inferring their types
                 _ = try self.inferExprType(expr);
             },
-            .bool_literal, .constructor_call, .dependent_type_ref, .match_expr, .method_call, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
+            .bool_literal, .constructor_call, .dependent_type_ref, .match_expr, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
                 // These expressions have fixed types that can't be influenced by context.
                 // Linearity tracking happens in inferExprType when needed.
             },
