@@ -279,7 +279,7 @@ pub fn main() !void {
     const exe_path = try getExecutablePath(allocator, input_path);
     defer allocator.free(exe_path);
 
-    try linkExecutable(allocator, obj_path, exe_path, target_triple);
+    try linkExecutable(allocator, obj_path, exe_path, target_triple, codegen.needs_scheduler);
 
     std.debug.print("Generated executable: {s}\n", .{exe_path});
 }
@@ -331,27 +331,67 @@ fn generateObjectFile(allocator: std.mem.Allocator, ir_path: []const u8, obj_pat
     );
 }
 
-fn linkExecutable(allocator: std.mem.Allocator, obj_path: []const u8, exe_path: []const u8, target: TargetTriple) !void {
+fn linkExecutable(allocator: std.mem.Allocator, obj_path: []const u8, exe_path: []const u8, target: TargetTriple, link_runtime: bool) !void {
     const target_info = target.getTargetInfo();
 
+    // Find the runtime library path (relative to compiler location or installed)
+    // For now, use a path relative to the project root
+    const runtime_lib = "zig-out/lib/liborion_runtime.a";
+
     if (target_info.is_linux) {
-        // Linux: use gcc as linker driver
-        // gcc finds crt1.o, crti.o, crtn.o, and links with glibc
-        try runCommand(
-            allocator,
-            &[_][]const u8{ "gcc", obj_path, "-o", exe_path, "-no-pie" },
-            "gcc",
-            error.LinkingFailed,
-        );
+        // Linux: use lld directly with our generated _start
+        // No crt files needed - we generate _start in the LLVM IR
+        if (link_runtime) {
+            try runCommand(
+                allocator,
+                &[_][]const u8{
+                    "ld.lld",
+                    "-o",
+                    exe_path,
+                    obj_path,
+                    runtime_lib,
+                    "-L/usr/lib",
+                    "-lc",
+                    "-lpthread",
+                    "--dynamic-linker=/lib64/ld-linux-x86-64.so.2",
+                },
+                "ld.lld",
+                error.LinkingFailed,
+            );
+        } else {
+            try runCommand(
+                allocator,
+                &[_][]const u8{
+                    "ld.lld",
+                    "-o",
+                    exe_path,
+                    obj_path,
+                    "-L/usr/lib",
+                    "-lc",
+                    "--dynamic-linker=/lib64/ld-linux-x86-64.so.2",
+                },
+                "ld.lld",
+                error.LinkingFailed,
+            );
+        }
     } else if (target_info.is_macos) {
         // macOS: use clang as linker driver
         // clang finds crt1.o and links with libSystem.dylib
-        try runCommand(
-            allocator,
-            &[_][]const u8{ "clang", obj_path, "-o", exe_path },
-            "clang",
-            error.LinkingFailed,
-        );
+        if (link_runtime) {
+            try runCommand(
+                allocator,
+                &[_][]const u8{ "clang", obj_path, runtime_lib, "-lpthread", "-o", exe_path },
+                "clang",
+                error.LinkingFailed,
+            );
+        } else {
+            try runCommand(
+                allocator,
+                &[_][]const u8{ "clang", obj_path, "-o", exe_path },
+                "clang",
+                error.LinkingFailed,
+            );
+        }
     } else if (target_info.is_windows) {
         // Windows: try clang-cl first (MSVC-compatible clang), fall back to MinGW
         // clang-cl links with UCRT (Universal C Runtime)
@@ -380,12 +420,21 @@ fn linkExecutable(allocator: std.mem.Allocator, obj_path: []const u8, exe_path: 
         }
     } else {
         // Fallback: try gcc as linker driver
-        try runCommand(
-            allocator,
-            &[_][]const u8{ "gcc", obj_path, "-o", exe_path },
-            "gcc",
-            error.LinkingFailed,
-        );
+        if (link_runtime) {
+            try runCommand(
+                allocator,
+                &[_][]const u8{ "gcc", obj_path, runtime_lib, "-lpthread", "-o", exe_path },
+                "gcc",
+                error.LinkingFailed,
+            );
+        } else {
+            try runCommand(
+                allocator,
+                &[_][]const u8{ "gcc", obj_path, "-o", exe_path },
+                "gcc",
+                error.LinkingFailed,
+            );
+        }
     }
 }
 

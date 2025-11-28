@@ -215,7 +215,7 @@ test "integration: complex nested expressions" {
     const llvm_ir = try compile(source, testing.allocator);
     defer testing.allocator.free(llvm_ir);
 
-    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%t") != null);
+    try testing.expect(std.mem.indexOf(u8, llvm_ir, "%.t") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "add i32 1, 2") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "mul i32") != null);
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "sub i32") != null);
