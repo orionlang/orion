@@ -19,16 +19,16 @@ pub type TokenKind =
 pub type Token = {
   kind: TokenKind,
   lexeme: str,
-  line: u64,
-  column: u64,
+  line: i64,
+  column: i64,
 }
 
 // Lexer state for tokenization
 pub type Lexer = {
   source: str,
-  pos: u64,
-  line: u64,
-  column: u64,
+  pos: i64,
+  line: i64,
+  column: i64,
 }
 
 // Create a new lexer for source code
@@ -41,126 +41,109 @@ pub fn new_lexer(source: str) Lexer {
   }
 }
 
-// Peek at current character without advancing
-fn peek(lexer: Lexer) Option[u8] {
-  if lexer.pos < std.string.len(lexer.source) {
-    return Some(std.string.char_at(lexer.source, lexer.pos))
+// Peek at current character without advancing (returns 255 if at end)
+fn peek(lexer: Lexer@4) u8 {
+  if lexer.pos < lexer.source.len() {
+    return lexer.source.char_at(lexer.pos)
   }
-  return None
+  return 255
 }
 
-// Peek at next character
-fn peek_ahead(lexer: Lexer, n: u64) Option[u8] {
-  let pos = lexer.pos + n
-  if pos < std.string.len(lexer.source) {
-    return Some(std.string.char_at(lexer.source, pos))
+// Peek at next character (returns 255 if at end)
+fn peek_ahead(lexer: Lexer@4, n: i64@2) u8 {
+  if (lexer.pos + n) < lexer.source.len() {
+    return lexer.source.char_at(lexer.pos + n)
   }
-  return None
+  return 255
 }
 
 // Advance to next character
-fn advance(lexer: Lexer@2) Lexer {
-  match peek(lexer) {
-    Some(c) => {
-      if c == 10 {  // newline
-        return Lexer {
-          source: lexer.source,
-          pos: lexer.pos + 1,
-          line: lexer.line + 1,
-          column: 0,
-        }
-      } else {
-        return Lexer {
-          source: lexer.source,
-          pos: lexer.pos + 1,
-          line: lexer.line,
-          column: lexer.column + 1,
-        }
-      }
-    },
-    None => lexer,
+fn advance(lexer: Lexer@6) Lexer {
+  let c: u8 = peek(lexer)
+  if c == 255 {  // end of input
+    return lexer
+  }
+  if c == 10 {  // newline
+    return Lexer {
+      source: lexer.source,
+      pos: lexer.pos + 1,
+      line: lexer.line + 1,
+      column: 0,
+    }
+  } else {
+    return Lexer {
+      source: lexer.source,
+      pos: lexer.pos + 1,
+      line: lexer.line,
+      column: lexer.column + 1,
+    }
   }
 }
 
 // Skip whitespace and comments
-fn skip_whitespace(lexer: Lexer@2) Lexer {
-  match peek(lexer) {
-    Some(c) => {
-      {
-        // Check if whitespace (space=32, tab=9, newline=10, carriage return=13)
-        let is_whitespace = c == 32 || c == 9 || c == 10 || c == 13
-        if is_whitespace {
-          skip_whitespace(advance(lexer))
-        } else if c == 47 {  // '/'
-          match peek_ahead(lexer, 1) {
-            Some(next) => {
-              if next == 47 {  // '//'
-                // Skip until newline
-                let mut l = advance(advance(lexer))
-                while match peek(l) {
-                  Some(ch) => ch != 10,
-                  None => false,
-                } {
-                  l = advance(l)
-                }
-                skip_whitespace(l)
-              } else {
-                lexer
-              }
-            },
-            None => lexer,
-          }
-        } else {
-          lexer
-        }
-      }
-    },
-    None => lexer,
+fn skip_whitespace(lexer: Lexer@3) Lexer {
+  let c: u8 = peek(lexer)
+  if c == 255 {  // end of input
+    return lexer
   }
+
+  // Check if whitespace (space=32, tab=9, newline=10, carriage return=13)
+  let is_whitespace = c == 32 || c == 9 || c == 10 || c == 13
+  if is_whitespace {
+    return skip_whitespace(advance(lexer))
+  }
+
+  if c == 47 {  // '/'
+    let next: u8 = peek_ahead(lexer, 1)
+    if next == 47 {  // '//'
+      // Skip until newline
+      var l = advance(advance(lexer))
+      var ch: u8 = peek(l)
+      while ch != 255 && ch != 10 {
+        l = advance(l)
+        ch = peek(l)
+      }
+      return skip_whitespace(l)
+    } else {
+      return lexer
+    }
+  }
+
+  return lexer
 }
 
 // Tokenize source code and return token
 pub fn next_token(lexer: Lexer@2) (Token, Lexer) {
   let l = skip_whitespace(lexer)
-
   let line = l.line
   let column = l.column
+  let c: u8 = peek(l)
 
-  match peek(l) {
-    Some(c) => {
-      // Single character tokens matched by ASCII code
-      let kind = match c {
-        40 => LeftParen,      // '('
-        41 => RightParen,     // ')'
-        91 => LeftBracket,    // '['
-        93 => RightBracket,   // ']'
-        123 => LeftBrace,     // '{'
-        125 => RightBrace,    // '}'
-        59 => Semicolon,      // ';'
-        44 => Comma,          // ','
-        46 => Dot,            // '.'
-        58 => Colon,          // ':'
-        _ => Eof,             // unrecognized
-      }
+  if c == 255 {  // end of input
+    return (Token { kind: Eof, lexeme: "", line: line, column: column }, l)
+  }
 
-      let lexeme = match kind {
-        LeftParen => "(",
-        RightParen => ")",
-        LeftBracket => "[",
-        RightBracket => "]",
-        LeftBrace => "{",
-        RightBrace => "}",
-        Semicolon => ";",
-        Comma => ",",
-        Dot => ".",
-        Colon => ":",
-        _ => "",
-      }
-
-      return (Token { kind: kind, lexeme: lexeme, line: line, column: column }, advance(l))
-    },
-    None => {
-      return (Token { kind: Eof, lexeme: "", line: line, column: column }, l)
-    },
+  if c == 40 {  // '('
+    return (Token { kind: LeftParen, lexeme: "(", line: line, column: column }, advance(l))
+  } elseif c == 41 {  // ')'
+    return (Token { kind: RightParen, lexeme: ")", line: line, column: column }, advance(l))
+  } elseif c == 91 {  // '['
+    return (Token { kind: LeftBracket, lexeme: "[", line: line, column: column }, advance(l))
+  } elseif c == 93 {  // ']'
+    return (Token { kind: RightBracket, lexeme: "]", line: line, column: column }, advance(l))
+  } elseif c == 123 {  // '{'
+    return (Token { kind: LeftBrace, lexeme: "{", line: line, column: column }, advance(l))
+  } elseif c == 125 {  // '}'
+    return (Token { kind: RightBrace, lexeme: "}", line: line, column: column }, advance(l))
+  } elseif c == 59 {  // ';'
+    return (Token { kind: Semicolon, lexeme: ";", line: line, column: column }, advance(l))
+  } elseif c == 44 {  // ','
+    return (Token { kind: Comma, lexeme: ",", line: line, column: column }, advance(l))
+  } elseif c == 46 {  // '.'
+    return (Token { kind: Dot, lexeme: ".", line: line, column: column }, advance(l))
+  } elseif c == 58 {  // ':'
+    return (Token { kind: Colon, lexeme: ":", line: line, column: column }, advance(l))
+  } else {
+    return (Token { kind: Eof, lexeme: "", line: line, column: column }, advance(l))
   }
 }

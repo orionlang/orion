@@ -1753,6 +1753,62 @@ pub const Parser = struct {
         };
     }
 
+    fn parseElseContinuation(self: *Parser) ParseError!?[]Stmt {
+        // Parse elseif, else if, or else block and return it wrapped in a statement list
+        if (self.check(.elseif_keyword)) {
+            // elseif as single token - parse condition and body, then recursively parse continuation
+            _ = try self.expect(.elseif_keyword);
+            const condition = try self.parseExpressionPtr(&.{});
+            _ = try self.expect(.left_brace);
+            var then_list = std.ArrayList(Stmt).empty;
+            errdefer then_list.deinit(self.allocator);
+
+            while (!self.check(.right_brace) and !self.isAtEnd()) {
+                const stmt = try self.parseStatement();
+                try then_list.append(self.allocator, stmt);
+            }
+            _ = try self.expect(.right_brace);
+            const then_stmts = try then_list.toOwnedSlice(self.allocator);
+
+            // Recursively parse further else/elseif
+            const nested_else = try self.parseElseContinuation();
+
+            var result_list = std.ArrayList(Stmt).empty;
+            try result_list.append(self.allocator, .{
+                .if_stmt = .{
+                    .condition = condition,
+                    .then_stmts = then_stmts,
+                    .else_stmts = nested_else,
+                },
+            });
+            return try result_list.toOwnedSlice(self.allocator);
+        } else if (self.check(.else_keyword)) {
+            _ = try self.expect(.else_keyword);
+
+            if (self.check(.if_keyword)) {
+                // else if (two tokens) - parse as nested if statement
+                const nested_if = try self.parseIfStatement();
+                var else_list = std.ArrayList(Stmt).empty;
+                try else_list.append(self.allocator, nested_if);
+                return try else_list.toOwnedSlice(self.allocator);
+            } else {
+                // else block
+                _ = try self.expect(.left_brace);
+                var else_list = std.ArrayList(Stmt).empty;
+                errdefer else_list.deinit(self.allocator);
+
+                while (!self.check(.right_brace) and !self.isAtEnd()) {
+                    const stmt = try self.parseStatement();
+                    try else_list.append(self.allocator, stmt);
+                }
+                _ = try self.expect(.right_brace);
+                return try else_list.toOwnedSlice(self.allocator);
+            }
+        }
+
+        return null;
+    }
+
     fn parseIfStatement(self: *Parser) ParseError!Stmt {
         _ = try self.expect(.if_keyword);
 
@@ -1771,31 +1827,8 @@ pub const Parser = struct {
         _ = try self.expect(.right_brace);
         const then_stmts = try then_list.toOwnedSlice(self.allocator);
 
-        // Parse optional else/elseif
-        var else_statements: ?[]Stmt = null;
-        if (self.check(.else_keyword)) {
-            _ = try self.expect(.else_keyword);
-
-            if (self.check(.if_keyword)) {
-                // elseif - parse as nested if statement
-                const nested_if = try self.parseIfStatement();
-                var else_list = std.ArrayList(Stmt).empty;
-                try else_list.append(self.allocator, nested_if);
-                else_statements = try else_list.toOwnedSlice(self.allocator);
-            } else {
-                // else block
-                _ = try self.expect(.left_brace);
-                var else_list = std.ArrayList(Stmt).empty;
-                errdefer else_list.deinit(self.allocator);
-
-                while (!self.check(.right_brace) and !self.isAtEnd()) {
-                    const stmt = try self.parseStatement();
-                    try else_list.append(self.allocator, stmt);
-                }
-                _ = try self.expect(.right_brace);
-                else_statements = try else_list.toOwnedSlice(self.allocator);
-            }
-        }
+        // Parse optional else/elseif continuation
+        const else_statements = try self.parseElseContinuation();
 
         self.skipOptionalSemicolon();
 

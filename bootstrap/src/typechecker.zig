@@ -580,6 +580,10 @@ pub const TypeChecker = struct {
 
                 // For arithmetic operators, both operands must be the same type
                 if (!self.typesMatch(left_type, right_type)) {
+                    std.debug.print("Binary operator type mismatch: left is {s}, right is {s}\n", .{
+                        @tagName(left_type.kind),
+                        @tagName(right_type.kind),
+                    });
                     return error.TypeMismatch;
                 }
 
@@ -769,11 +773,8 @@ pub const TypeChecker = struct {
                     var found = false;
                     for (typedef.kind.struct_type) |type_field| {
                         if (std.mem.eql(u8, field.name, type_field.name)) {
-                            const field_value_type = try self.inferExprType(field.value);
-                            if (!self.typesMatch(field_value_type, type_field.field_type.*)) {
-                                std.debug.print("Struct field {s} has wrong type\n", .{field.name});
-                                return error.TypeMismatch;
-                            }
+                            // Use contextual typing to check field value against expected type
+                            try self.checkExprWithExpectedType(field.value, type_field.field_type.*);
                             found = true;
                             break;
                         }
