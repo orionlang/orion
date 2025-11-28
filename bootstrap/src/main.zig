@@ -15,6 +15,25 @@ const TargetTriple = target_module.TargetTriple;
 const ModuleResolver = @import("module.zig").ModuleResolver;
 const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
 
+/// Resolve the stdlib directory relative to the executable
+fn getStdlibDirectory(allocator: std.mem.Allocator, exe_path: []const u8) ![]const u8 {
+    // Get the directory containing the executable
+    const exe_dir = std.fs.path.dirname(exe_path) orelse ".";
+
+    // Stdlib is 3 levels up from bin/orion: ../../../stdlib
+    // We build the path relative to the exe directory
+    const stdlib_relative = "../../stdlib";
+
+    // Resolve the real path
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const real_path = try std.fs.realpath(
+        try std.fs.path.join(allocator, &.{ exe_dir, stdlib_relative }),
+        &buf,
+    );
+
+    return try allocator.dupe(u8, real_path);
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -22,6 +41,10 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
+
+    // Get stdlib directory relative to executable (argv[0])
+    const stdlib_dir = try getStdlibDirectory(allocator, args[0]);
+    defer allocator.free(stdlib_dir);
 
     if (args.len < 2) {
         std.debug.print("Usage: orion <input.or> [options]\n", .{});
@@ -78,21 +101,12 @@ pub fn main() !void {
     }
 
     // Load and parse stdlib prelude
-    const prelude_path = "stdlib/prelude.or";
+    const prelude_path = try std.fs.path.join(allocator, &.{ stdlib_dir, "prelude.or" });
+    defer allocator.free(prelude_path);
+
     const prelude_source = std.fs.cwd().readFileAlloc(allocator, prelude_path, 1024 * 1024) catch |err| {
-        std.debug.print("Warning: Could not load stdlib prelude: {}\n", .{err});
-        std.debug.print("Continuing without stdlib...\n", .{});
-        // Create empty prelude AST
-        const empty_ast = AST{
-            .imports = std.ArrayList(parser_module.ImportDecl).empty,
-            .extern_functions = std.ArrayList(ExternFunctionDecl).empty,
-            .type_defs = std.ArrayList(TypeDef).empty,
-            .class_defs = std.ArrayList(ClassDef).empty,
-            .instances = std.ArrayList(InstanceDecl).empty,
-            .functions = std.ArrayList(FunctionDecl).empty,
-        };
-        _ = empty_ast;
-        @panic("TODO: handle missing stdlib");
+        std.debug.print("Error: Could not load stdlib prelude from {s}: {}\n", .{ prelude_path, err });
+        return err;
     };
     defer allocator.free(prelude_source);
 
@@ -124,7 +138,7 @@ pub fn main() !void {
     };
 
     // Discover all modules via dependency graph
-    var resolver = ModuleResolver.init(allocator, src_dir, "stdlib", include_dirs.items);
+    var resolver = ModuleResolver.init(allocator, src_dir, stdlib_dir, include_dirs.items);
     var dep_graph = DependencyGraph.init(allocator, resolver);
     defer dep_graph.deinit();
 

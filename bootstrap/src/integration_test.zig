@@ -38,6 +38,7 @@ fn compileWithStdlib(source: []const u8, allocator: std.mem.Allocator) ![]const 
         .input_source = source,
         .input_path = tmp_path,
         .src_dir = ".",
+        .stdlib_dir = "../stdlib",
         .include_dirs = &[_][]const u8{},
         .target = target,
     });

@@ -21,6 +21,7 @@ pub const CompileOptions = struct {
     input_source: []const u8,
     input_path: []const u8,
     src_dir: []const u8,
+    stdlib_dir: []const u8,
     include_dirs: []const []const u8,
     target: TargetTriple,
 };
@@ -31,7 +32,9 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
     const allocator = options.allocator;
 
     // Load and parse stdlib prelude
-    const prelude_path = "stdlib/prelude.or";
+    const prelude_path = try std.fs.path.join(allocator, &.{ options.stdlib_dir, "prelude.or" });
+    defer allocator.free(prelude_path);
+
     const prelude_source = try std.fs.cwd().readFileAlloc(allocator, prelude_path, 1024 * 1024);
     defer allocator.free(prelude_source);
 
@@ -52,7 +55,7 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
     }
 
     // Discover all modules via dependency graph
-    var resolver = ModuleResolver.init(allocator, options.src_dir, "stdlib", options.include_dirs);
+    var resolver = ModuleResolver.init(allocator, options.src_dir, options.stdlib_dir, options.include_dirs);
     var dep_graph = DependencyGraph.init(allocator, resolver);
     defer dep_graph.deinit();
 

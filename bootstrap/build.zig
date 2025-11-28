@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
         .name = "orion_runtime",
         .linkage = .static,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("runtime/src/main.zig"),
+            .root_source_file = b.path("../runtime/src/main.zig"),
             .target = target,
             .optimize = optimize,
             .link_libc = true,
@@ -42,7 +42,7 @@ pub fn build(b: *std.Build) void {
         .name = "orion_runtime",
         .linkage = .dynamic,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("runtime/src/main.zig"),
+            .root_source_file = b.path("../runtime/src/main.zig"),
             .target = target,
             .optimize = optimize,
             .link_libc = true,
@@ -73,7 +73,7 @@ pub fn build(b: *std.Build) void {
     // Tests - runtime
     const runtime_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("runtime/src/main.zig"),
+            .root_source_file = b.path("../runtime/src/main.zig"),
             .target = target,
             .optimize = optimize,
             .link_libc = true,
