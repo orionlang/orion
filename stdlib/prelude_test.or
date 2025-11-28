@@ -5,7 +5,7 @@
 class Pointer {
   read: fn(ptr, Type) ptr;
   write: fn(ptr, ptr) ();
-  offset: fn(ptr, U64) ptr;
+  offset: fn(ptr, u64) ptr;
 }
 
 // Pointer instance implementation for primitive ptr type
@@ -18,7 +18,7 @@ instance Pointer[ptr] {
     return @ptr_write(self, value)
   }
 
-  offset = fn(self: ptr, off: U64) ptr {
+  offset = fn(self: ptr, off: u64) ptr {
     return @ptr_offset(self, off)
   }
 }

@@ -54,25 +54,25 @@ Access: .
 
 **Integer literals:**
 ```orion
-42          // Type inferred from context, defaults to I32
-let x: I8 = 42;     // Literal infers I8 from context
-let y: U64 = 1000;  // Literal infers U64 from context
-let z = 42;         // No context: defaults to I32
+42          // Type inferred from context, defaults to i32
+let x: i8 = 42;     // Literal infers i8 from context
+let y: u64 = 1000;  // Literal infers u64 from context
+let z = 42;         // No context: defaults to i32
 ```
 
 **Semantics:**
 - Integer literals are untyped until type inference
 - Type is inferred from context (variable type annotation, function parameter type, etc.)
-- When no context is available, literals default to I32
+- When no context is available, literals default to i32
 - Compile-time range checking ensures literals fit in target type
 - Out-of-range literals cause compile error
 
 **Examples:**
 ```orion
-let a: I8 = 127;    // OK: 127 fits in I8 (-128 to 127)
-let b: I8 = 200;    // ERROR: 200 doesn't fit in I8
-let c: U8 = 255;    // OK: 255 fits in U8 (0 to 255)
-let d: U8 = 300;    // ERROR: 300 doesn't fit in U8
+let a: i8 = 127;    // OK: 127 fits in i8 (-128 to 127)
+let b: i8 = 200;    // ERROR: 200 doesn't fit in i8
+let c: u8 = 255;    // OK: 255 fits in u8 (0 to 255)
+let d: u8 = 300;    // ERROR: 300 doesn't fit in u8
 ```
 
 **Not yet implemented:**
@@ -84,7 +84,7 @@ let d: U8 = 300;    // ERROR: 300 doesn't fit in U8
 
 **String literals:**
 ```orion
-"hello"     // Null-terminated C string, type Ptr[U8]
+"hello"     // Null-terminated C string, type Ptr[u8]
 ```
 
 **Boolean literals:**
@@ -100,20 +100,20 @@ false
 ### 2.1 Primitive Types
 
 ```orion
-Bool        // Boolean (1 bit, represented as i1 in LLVM)
-I32         // 32-bit signed integer
-I64         // 64-bit signed integer
-U64         // 64-bit unsigned integer
-U8          // 8-bit unsigned (for byte operations)
+bool        // Boolean (1 bit, represented as i1 in LLVM)
+i32         // 32-bit signed integer
+i64         // 64-bit signed integer
+u64         // 64-bit unsigned integer
+u8          // 8-bit unsigned (for byte operations)
 Unit        // Empty type, written as ()
 ```
 
 **LLVM Representation:**
-- `Bool` → `i1`
-- `I32` → `i32`
-- `I64` → `i64`
-- `U64` → `i64` (unsigned)
-- `U8` → `i8`
+- `bool` → `i1`
+- `i32` → `i32`
+- `i64` → `i64`
+- `u64` → `i64` (unsigned)
+- `u8` → `i8`
 - `Unit` → `i32` (always value 0)
 
 ### 2.2 Pointer Types
@@ -134,8 +134,8 @@ Ptr[T]      // Mutable pointer to T
 
 ```orion
 type Point = {
-    x: I32,
-    y: I32,
+    x: i32,
+    y: i32,
 }
 ```
 
@@ -153,11 +153,11 @@ type Point = {
 ```orion
 type Option =
     | None
-    | Some(I32)
+    | Some(i32)
 
 type Result =
-    | Ok(I32)
-    | Err(I32)
+    | Ok(i32)
+    | Err(i32)
 ```
 
 **LLVM Representation:**
@@ -177,7 +177,7 @@ struct ADT {
 ### 2.5 Function Types
 
 ```orion
-fn(I32, I32) I64    // Function taking two I32s, returning I64
+fn(i32, i32) i64    // Function taking two I32s, returning i64
 ```
 
 **LLVM Representation:**
@@ -192,9 +192,9 @@ fn(I32, I32) I64    // Function taking two I32s, returning I64
 ### 2.6 Tuple Types
 
 ```orion
-(I32, I64)              // Pair of I32 and I64
+(i32, i64)              // Pair of i32 and i64
 ()                      // Unit type (empty tuple)
-(Bool, I32, Ptr[U8])   // Triple
+(bool, i32, Ptr[u8])   // Triple
 ```
 
 **LLVM Representation:**
@@ -217,7 +217,7 @@ Bootstrap Orion uses **linear types** to enforce resource safety and prevent ali
 - Once a value is used, it cannot be used again
 
 **Copy Types (Exceptions):**
-- Primitive types are Copy: `Bool`, `I32`, `I64`, `U64`, `U8`
+- Primitive types are Copy: `bool`, `i32`, `i64`, `u64`, `u8`
 - Unit type `()` is Copy
 - Copy types can be used multiple times without explicit copying
 
@@ -235,7 +235,7 @@ Bootstrap Orion uses **linear types** to enforce resource safety and prevent ali
 **Example:**
 ```orion
 // Primitives are Copy - can use multiple times
-let x: I32 = 42;
+let x: i32 = 42;
 let y = x + x;  // OK: x is Copy type
 
 // Structs are linear - consumed on use
@@ -262,31 +262,31 @@ Bootstrap Orion includes minimal dependent types sufficient for expressing fixed
 
 **Type Definition with Parameters:**
 ```orion
-type Vec[A, n: U64] = I32
-type Matrix[A, rows: U64, cols: U64] = I32
+type Vec[A, n: u64] = i32
+type Matrix[A, rows: u64, cols: u64] = i32
 ```
 
 **Type Parameters:**
 - Type parameters (e.g., `A`) - compile-time erased type variables
-- Value parameters (e.g., `n: U64`) - compile-time constant values with types
+- Value parameters (e.g., `n: u64`) - compile-time constant values with types
 
 **Using Dependent Types:**
 ```orion
-fn make_vec() Vec[I32, 5] {
+fn make_vec() Vec[i32, 5] {
     return 42
 }
 
-let v: Vec[I32, 5] = make_vec()
+let v: Vec[i32, 5] = make_vec()
 ```
 
 **Instance Methods on Dependent Types:**
 ```orion
 class VecOps {
-    get_value: fn(Vec[A, n]) I32;
+    get_value: fn(Vec[A, n]) i32;
 }
 
-instance VecOps[Vec[I32, 5]] {
-    get_value = fn(v: Vec[I32, 5]) I32 {
+instance VecOps[Vec[i32, 5]] {
+    get_value = fn(v: Vec[i32, 5]) i32 {
         return v
     }
 }
@@ -297,7 +297,7 @@ let result = v.get_value()  // Calls Vec$$i32$5$$__get_value
 **Name Mangling:**
 - Dependent type instances use `$$` delimiter mangling
 - Format: `TypeName$$type_param$value_param$$__method_name`
-- Example: `Vec[I32, 5]` methods → `Vec$$i32$5$$__method_name`
+- Example: `Vec[i32, 5]` methods → `Vec$$i32$5$$__method_name`
 
 **Limitations:**
 - No type-level computation (can't do `Vec[A, n+1]`)
@@ -308,7 +308,7 @@ let result = v.get_value()  // Calls Vec$$i32$5$$__get_value
 
 **LLVM Representation:**
 - Dependent types resolve to their underlying type definition
-- `Vec[I32, 5]` compiles identically to bare `I32` in this example
+- `Vec[i32, 5]` compiles identically to bare `i32` in this example
 - Type parameters only affect name mangling for instance methods
 
 ---
@@ -321,7 +321,7 @@ let result = v.get_value()  // Calls Vec$$i32$5$$__get_value
 42              // Integer
 true            // Boolean
 false           // Boolean
-"hello"         // String (Ptr[U8])
+"hello"         // String (Ptr[u8])
 ()              // Unit
 ```
 
@@ -387,7 +387,7 @@ module.f(x)     // Qualified function call
 
 **Example:**
 ```orion
-fn process_and_return(p: Point) (I32, Point) {
+fn process_and_return(p: Point) (i32, Point) {
     let sum = p.x + p.y;
     (sum, p)  // Return result + original value
 }
@@ -426,7 +426,7 @@ tuple.0         // Tuple element access
 **Example:**
 ```orion
 // Copy type fields
-let x: I32 = 42;
+let x: i32 = 42;
 let y = x;  // x is Copy, can still use it
 let z = x;  // OK
 
@@ -436,7 +436,7 @@ let x_val = p.x;  // p consumed, cannot use p again
 // let y_val = p.y;  // ERROR: p already consumed
 
 // To access multiple fields, destructure or thread through
-fn get_both(p: Point) (I32, I32, Point) {
+fn get_both(p: Point) (i32, i32, Point) {
     let x = p.x;
     let y = p.y;
     (x, y, p)
@@ -509,7 +509,7 @@ let result = match opt {
 // opt is consumed, cannot use it here
 
 // Thread value through match
-fn inspect_option(opt: Option) (Bool, Option) {
+fn inspect_option(opt: Option) (bool, Option) {
     let has_value = match opt {
         None => false,
         Some(_) => true,
@@ -602,7 +602,7 @@ unsafe {
 
 ```orion
 let x = expr;               // Immutable binding
-let x: I32 = expr;         // With type annotation
+let x: i32 = expr;         // With type annotation
 let (a, b) = tuple;        // Tuple destructuring
 ```
 
@@ -617,9 +617,9 @@ let (a, b) = tuple;        // Tuple destructuring
 **Linearity Semantics:**
 ```orion
 // Copy types can be used multiple times
-let x: I32 = 42;
+let x: i32 = 42;
 let y = x;
-let z = x;  // OK: I32 is Copy
+let z = x;  // OK: i32 is Copy
 
 // Linear types consumed on use
 let p = Point { x: 10, y: 20 };
@@ -654,12 +654,12 @@ counter = counter + 1;
 
 **Example:**
 ```orion
-fn main() I32 {
-    var x: I32 = 5;   // Mutable variable
+fn main() i32 {
+    var x: i32 = 5;   // Mutable variable
     x = 10;           // OK: reassign to new value
     x = x * 2;        // OK: use and reassign
 
-    let y: I32 = 5;   // Immutable binding
+    let y: i32 = 5;   // Immutable binding
     // y = 10;        // ERROR: cannot assign to immutable variable
 
     return x
@@ -682,8 +682,8 @@ some_function();
 **Struct types:**
 ```orion
 type Point = {
-    x: I32,
-    y: I32,
+    x: i32,
+    y: i32,
 }
 
 pub type Rect = {
@@ -696,16 +696,16 @@ pub type Rect = {
 ```orion
 type Option =
     | None
-    | Some(I32)
+    | Some(i32)
 
 type Result =
-    | Ok(I32)
-    | Err(I32)
+    | Ok(i32)
+    | Err(i32)
 ```
 
 **Type aliases:**
 ```orion
-type Size = U64
+type Size = u64
 ```
 
 **Semantics:**
@@ -716,15 +716,15 @@ type Size = U64
 ### 5.2 Function Definitions
 
 ```orion
-fn add(x: I32, y: I32) I32 {
+fn add(x: i32, y: i32) i32 {
     x + y
 }
 
-pub fn multiply(x: I32, y: I32) I32 {
+pub fn multiply(x: i32, y: i32) i32 {
     x * y
 }
 
-unsafe fn read_ptr(ptr: Ptr[I32]) I32 {
+unsafe fn read_ptr(ptr: Ptr[i32]) i32 {
     @ptr_read(ptr)
 }
 ```
@@ -740,7 +740,7 @@ unsafe fn read_ptr(ptr: Ptr[I32]) I32 {
 **Linearity & Ownership:**
 ```orion
 // Simple ownership transfer
-fn consume(p: Point) I32 {
+fn consume(p: Point) i32 {
     p.x + p.y  // p consumed here
 }
 
@@ -749,7 +749,7 @@ let sum = consume(point);  // point consumed, can't use it after
 // let x = point.x;  // ERROR: point already consumed
 
 // Threading pattern - inspect and return
-fn inspect_point(p: Point) (I32, Point) {
+fn inspect_point(p: Point) (i32, Point) {
     let sum = p.x + p.y;
     (sum, p)  // Return result and original value
 }
@@ -777,13 +777,13 @@ let p3 = combine(p1, p2);  // Both p1 and p2 consumed
 
 ```orion
 extern "C" {
-    fn malloc(size: U64) Ptr[U8]
-    fn free(ptr: Ptr[U8])
-    fn printf(fmt: Ptr[U8], ...) I32
+    fn malloc(size: u64) Ptr[u8]
+    fn free(ptr: Ptr[u8])
+    fn printf(fmt: Ptr[u8], ...) i32
 }
 
 pub extern "C" {
-    fn exported_func(x: I32) I32
+    fn exported_func(x: i32) i32
 }
 ```
 
@@ -807,11 +807,11 @@ class Copy {
 }
 
 class Eq {
-    eq: fn(Self, Self) Bool
+    eq: fn(Self, Self) bool
 }
 
 class Display {
-    display: fn(Self) Ptr[U8]
+    display: fn(Self) Ptr[u8]
 }
 ```
 
@@ -825,8 +825,8 @@ class Display {
 **Instance Blocks:**
 ```orion
 type Point = {
-    x: I32,
-    y: I32,
+    x: i32,
+    y: i32,
 }
 
 instance Copy[Point] {
@@ -836,7 +836,7 @@ instance Copy[Point] {
 }
 
 instance Eq[Point] {
-    eq = fn(self: Point, other: Point) Bool {
+    eq = fn(self: Point, other: Point) bool {
         self.x == other.x && self.y == other.y
     }
 }
@@ -987,7 +987,7 @@ unsafe {
 ### 7.4 @ptr_offset
 
 ```orion
-@ptr_offset(ptr: Ptr[T], offset: I64) Ptr[T]
+@ptr_offset(ptr: Ptr[T], offset: i64) Ptr[T]
 ```
 
 **Semantics:**
@@ -1049,7 +1049,7 @@ Bootstrap Orion has no ownership system:
 **Integer literals:**
 - Integer literals are untyped until inference
 - Type inferred from context (variable annotation, parameter type, etc.)
-- Defaults to I32 when no context available
+- Defaults to i32 when no context available
 - Compile-time range checking validates literal fits in target type
 
 **Function return types:**
@@ -1065,7 +1065,7 @@ Bootstrap Orion has no ownership system:
 - No implicit conversions between different types
 - No subtyping
 - Exact type match required (exception: contextual typing of literals)
-- Bool can be used in integer contexts (converts to 0 or 1)
+- bool can be used in integer contexts (converts to 0 or 1)
 
 ### 9.3 Linearity Checking
 
@@ -1077,7 +1077,7 @@ The type checker must enforce linear type discipline:
 - Error if never used (unused value)
 
 **Copy Type Detection:**
-- Primitives (`Bool`, `I32`, `I64`, `U64`, `U8`) are Copy
+- Primitives (`bool`, `i32`, `i64`, `u64`, `u8`) are Copy
 - Unit `()` is Copy
 - Types that `instance Copy` are Copy
 - All other types are linear
@@ -1090,9 +1090,9 @@ let x = p->x;                      // p consumed here
 let y = p->y;                      // ERROR: p already consumed
 
 // OK with Copy type
-let n: I32 = 42;  // n: I32 (Copy)
+let n: i32 = 42;  // n: i32 (Copy)
 let a = n;        // n still available
-let b = n;        // OK: I32 is Copy
+let b = n;        // OK: i32 is Copy
 ```
 
 **Function Call Checking:**
@@ -1150,12 +1150,12 @@ Example:
 
 Bootstrap programs must have:
 ```orion
-fn main() I32 {
+fn main() i32 {
     // Program entry point
 }
 ```
 
-Returns I32 exit code (0 = success).
+Returns i32 exit code (0 = success).
 
 ---
 
@@ -1168,9 +1168,9 @@ Bootstrap standard library provides only:
 ```orion
 // In module: std.mem
 extern "C" {
-    fn malloc(size: U64) Ptr[U8]
-    fn free(ptr: Ptr[U8])
-    fn memcpy(dest: Ptr[U8], src: Ptr[U8], n: U64) Ptr[U8]
+    fn malloc(size: u64) Ptr[u8]
+    fn free(ptr: Ptr[u8])
+    fn memcpy(dest: Ptr[u8], src: Ptr[u8], n: u64) Ptr[u8]
 }
 ```
 
@@ -1179,9 +1179,9 @@ extern "C" {
 ```orion
 // In module: std.io
 extern "C" {
-    fn putchar(c: I32) I32
-    fn puts(s: Ptr[U8]) I32
-    fn printf(fmt: Ptr[U8], ...) I32
+    fn putchar(c: i32) i32
+    fn puts(s: Ptr[u8]) i32
+    fn printf(fmt: Ptr[u8], ...) i32
 }
 ```
 
@@ -1192,11 +1192,11 @@ extern "C" {
 
 type Option =
     | None
-    | Some(I32)
+    | Some(i32)
 
 type Result =
-    | Ok(I32)
-    | Err(I32)
+    | Ok(i32)
+    | Err(i32)
 ```
 
 That's it. Everything else (strings, vectors, hash maps, etc.) must be implemented by the bootstrap compiler as needed.
@@ -1215,7 +1215,7 @@ Bootstrap Orion intentionally **does not have**:
 - ❌ Closures (cannot capture environment)
 - ❌ Trait objects / dynamic dispatch
 - ❌ Automatic memory management
-- ❌ String type (use `Ptr[U8]`)
+- ❌ String type (use `Ptr[u8]`)
 - ❌ For loops (use `while`)
 - ❌ Break/continue
 - ❌ Defer statements
@@ -1241,7 +1241,7 @@ Bootstrap Orion intentionally **does not have**:
 ```orion
 import std.io
 
-fn main() I32 {
+fn main() i32 {
     unsafe {
         io.puts("Hello, World!")
     }
@@ -1251,7 +1251,7 @@ fn main() I32 {
 ### 13.2 Factorial
 
 ```orion
-fn factorial(n: I32) I32 {
+fn factorial(n: i32) i32 {
     if n <= 1 {
         1
     } else {
@@ -1259,7 +1259,7 @@ fn factorial(n: I32) I32 {
     }
 }
 
-fn main() I32 {
+fn main() i32 {
     factorial(5)
 }
 ```
@@ -1269,9 +1269,9 @@ fn main() I32 {
 ```orion
 type Option =
     | None
-    | Some(I32)
+    | Some(i32)
 
-fn divide(a: I32, b: I32) Option {
+fn divide(a: i32, b: i32) Option {
     if b == 0 {
         None
     } else {
@@ -1279,7 +1279,7 @@ fn divide(a: I32, b: I32) Option {
     }
 }
 
-fn main() I32 {
+fn main() i32 {
     let result = divide(10, 2);
     match result {
         None => 0,
@@ -1293,8 +1293,8 @@ fn main() I32 {
 
 ```orion
 type Point = {
-    x: I32,
-    y: I32,
+    x: i32,
+    y: i32,
 }
 
 // Implement Copy class to allow explicit copying
@@ -1305,14 +1305,14 @@ instance Copy[Point] {
 }
 
 // Function consumes Point, returns result and Point
-fn distance_squared(p: Point) (I32, Point) {
+fn distance_squared(p: Point) (i32, Point) {
     let dx = p.x;
     let dy = p.y;
     let dist = dx * dx + dy * dy;
     (dist, p)
 }
 
-fn main() I32 {
+fn main() i32 {
     let p1 = Point { x: 3, y: 4 };
 
     // Thread p1 through to keep using it
@@ -1336,9 +1336,9 @@ import std.mem
 
 type List =
     | Nil
-    | Cons(I32, Ptr[List])
+    | Cons(i32, Ptr[List])
 
-fn cons(value: I32, rest: Ptr[List]) Ptr[List] {
+fn cons(value: i32, rest: Ptr[List]) Ptr[List] {
     unsafe {
         let node = mem.malloc(16);  // size of List struct
         let list_ptr = node;
@@ -1352,7 +1352,7 @@ fn cons(value: I32, rest: Ptr[List]) Ptr[List] {
     }
 }
 
-fn sum_list(list: Ptr[List]) I32 {
+fn sum_list(list: Ptr[List]) i32 {
     unsafe {
         let tag = @ptr_read(list);
         if tag == 0 {
@@ -1494,7 +1494,7 @@ qualified_name = IDENT { "." IDENT } ;
 
 **Orion:**
 ```orion
-fn add(x: I32, y: I32) I32 {
+fn add(x: i32, y: i32) i32 {
     x + y
 }
 ```
@@ -1512,9 +1512,9 @@ entry:
 
 **Orion:**
 ```orion
-type Point = { x: I32, y: I32 }
+type Point = { x: i32, y: i32 }
 
-fn make_point(x: I32, y: I32) Point {
+fn make_point(x: i32, y: i32) Point {
     Point { x: x, y: y }
 }
 ```
@@ -1535,7 +1535,7 @@ entry:
 
 **Orion:**
 ```orion
-type Option = None | Some(I32)
+type Option = None | Some(i32)
 ```
 
 **LLVM IR:**

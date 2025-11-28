@@ -24,11 +24,11 @@ Currently implemented:
 - Assignment statements
 - Block expressions
 - Expression statements (expressions as statements for side effects)
-- Integer types: `I8`, `I16`, `I32`, `I64`, `U8`, `U16`, `U32`, `U64`
+- Integer types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`
 - Contextual integer typing (literals infer type from context)
 - Integer literal range validation
 - Implicit integer widening conversions
-- Boolean type: `Bool`
+- Boolean type: `bool`
 - Binary and unary operators
 - Function calls with parameters
 - Tuples: literals, indexing, destructuring
@@ -100,9 +100,9 @@ Requirements:
 ### Factorial
 
 ```orion
-fn factorial(n: I32) I32 {
-    var result: I32 = 1
-    var counter: I32 = n
+fn factorial(n: i32) i32 {
+    var result: i32 = 1
+    var counter: i32 = n
     while counter > 1 {
         result = result * counter
         counter = counter - 1
@@ -110,7 +110,7 @@ fn factorial(n: I32) I32 {
     return result
 }
 
-fn main() I32 {
+fn main() i32 {
     return factorial(5)
 }
 ```
@@ -118,9 +118,9 @@ fn main() I32 {
 ### Sum Types (ADTs)
 
 ```orion
-type Option = | None | Some(I32)
+type Option = | None | Some(i32)
 
-fn divide(a: I32, b: I32) Option {
+fn divide(a: i32, b: i32) Option {
     if b == 0 {
         return None
     } else {
@@ -128,7 +128,7 @@ fn divide(a: I32, b: I32) Option {
     }
 }
 
-fn main() I32 {
+fn main() i32 {
     let result = divide(10, 2)
     return match result {
         None => 0,
@@ -140,8 +140,8 @@ fn main() I32 {
 ### Type Classes and Standard Library
 
 ```orion
-fn main() I32 {
-    let x: I32@* = 100
+fn main() i32 {
+    let x: i32@* = 100
     let p: ptr@* = @ptr_of(x)
     p.write(42)
     return p.read()

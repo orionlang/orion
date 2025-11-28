@@ -1350,18 +1350,18 @@ pub const Parser = struct {
     }
 
     const type_name_map = std.StaticStringMap(PrimitiveType).initComptime(.{
-        .{ "Bool", .bool },
-        .{ "I8", .i8 },
-        .{ "I16", .i16 },
-        .{ "I32", .i32 },
-        .{ "I64", .i64 },
+        .{ "bool", .bool },
+        .{ "i8", .i8 },
+        .{ "i16", .i16 },
+        .{ "i32", .i32 },
+        .{ "i64", .i64 },
         .{ "ptr", .ptr },
         .{ "str", .str },
         .{ "Type", .type },
-        .{ "U8", .u8 },
-        .{ "U16", .u16 },
-        .{ "U32", .u32 },
-        .{ "U64", .u64 },
+        .{ "u8", .u8 },
+        .{ "u16", .u16 },
+        .{ "u32", .u32 },
+        .{ "u64", .u64 },
     });
 
     fn parseUsageAnnotation(self: *Parser) !UsageAnnotation {
@@ -2884,7 +2884,7 @@ test "parser: simple function" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { return 42 }";
+    const source = "fn main() i32 { return 42 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -2911,7 +2911,7 @@ test "parser: binary addition" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { return 1 + 2 }";
+    const source = "fn main() i32 { return 1 + 2 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -2933,7 +2933,7 @@ test "parser: operator precedence" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { return 1 + 2 * 3 }";
+    const source = "fn main() i32 { return 1 + 2 * 3 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -2961,10 +2961,10 @@ test "parser: arithmetic operators" {
     const Lexer = @import("lexer.zig").Lexer;
 
     const cases = [_]struct { src: []const u8, op: BinaryOp }{
-        .{ .src = "fn f() I32 { return 5 - 3 }", .op = .subtract },
-        .{ .src = "fn f() I32 { return 5 * 3 }", .op = .multiply },
-        .{ .src = "fn f() I32 { return 5 / 3 }", .op = .divide },
-        .{ .src = "fn f() I32 { return 5 % 3 }", .op = .modulo },
+        .{ .src = "fn f() i32 { return 5 - 3 }", .op = .subtract },
+        .{ .src = "fn f() i32 { return 5 * 3 }", .op = .multiply },
+        .{ .src = "fn f() i32 { return 5 / 3 }", .op = .divide },
+        .{ .src = "fn f() i32 { return 5 % 3 }", .op = .modulo },
     };
 
     for (cases) |case| {
@@ -2986,12 +2986,12 @@ test "parser: comparison operators" {
     const Lexer = @import("lexer.zig").Lexer;
 
     const cases = [_]struct { src: []const u8, op: BinaryOp }{
-        .{ .src = "fn f() I32 { return 5 == 3 }", .op = .equal },
-        .{ .src = "fn f() I32 { return 5 != 3 }", .op = .not_equal },
-        .{ .src = "fn f() I32 { return 5 < 3 }", .op = .less_than },
-        .{ .src = "fn f() I32 { return 5 > 3 }", .op = .greater_than },
-        .{ .src = "fn f() I32 { return 5 <= 3 }", .op = .less_equal },
-        .{ .src = "fn f() I32 { return 5 >= 3 }", .op = .greater_equal },
+        .{ .src = "fn f() i32 { return 5 == 3 }", .op = .equal },
+        .{ .src = "fn f() i32 { return 5 != 3 }", .op = .not_equal },
+        .{ .src = "fn f() i32 { return 5 < 3 }", .op = .less_than },
+        .{ .src = "fn f() i32 { return 5 > 3 }", .op = .greater_than },
+        .{ .src = "fn f() i32 { return 5 <= 3 }", .op = .less_equal },
+        .{ .src = "fn f() i32 { return 5 >= 3 }", .op = .greater_equal },
     };
 
     for (cases) |case| {
@@ -3013,8 +3013,8 @@ test "parser: logical operators" {
     const Lexer = @import("lexer.zig").Lexer;
 
     const cases = [_]struct { src: []const u8, op: BinaryOp }{
-        .{ .src = "fn f() I32 { return 5 && 3 }", .op = .logical_and },
-        .{ .src = "fn f() I32 { return 5 || 3 }", .op = .logical_or },
+        .{ .src = "fn f() i32 { return 5 && 3 }", .op = .logical_and },
+        .{ .src = "fn f() i32 { return 5 || 3 }", .op = .logical_or },
     };
 
     for (cases) |case| {
@@ -3036,9 +3036,9 @@ test "parser: bitwise operators" {
     const Lexer = @import("lexer.zig").Lexer;
 
     const cases = [_]struct { src: []const u8, op: BinaryOp }{
-        .{ .src = "fn f() I32 { return 5 & 3 }", .op = .bitwise_and },
-        .{ .src = "fn f() I32 { return 5 | 3 }", .op = .bitwise_or },
-        .{ .src = "fn f() I32 { return 5 ^ 3 }", .op = .bitwise_xor },
+        .{ .src = "fn f() i32 { return 5 & 3 }", .op = .bitwise_and },
+        .{ .src = "fn f() i32 { return 5 | 3 }", .op = .bitwise_or },
+        .{ .src = "fn f() i32 { return 5 ^ 3 }", .op = .bitwise_xor },
     };
 
     for (cases) |case| {
@@ -3060,8 +3060,8 @@ test "parser: shift operators" {
     const Lexer = @import("lexer.zig").Lexer;
 
     const cases = [_]struct { src: []const u8, op: BinaryOp }{
-        .{ .src = "fn f() I32 { return 5 << 3 }", .op = .shift_left },
-        .{ .src = "fn f() I32 { return 5 >> 3 }", .op = .shift_right },
+        .{ .src = "fn f() i32 { return 5 << 3 }", .op = .shift_left },
+        .{ .src = "fn f() i32 { return 5 >> 3 }", .op = .shift_right },
     };
 
     for (cases) |case| {
@@ -3082,7 +3082,7 @@ test "parser: parentheses" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { return (1 + 2) * 3 }";
+    const source = "fn main() i32 { return (1 + 2) * 3 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3109,9 +3109,9 @@ test "parser: unary operators" {
     const Lexer = @import("lexer.zig").Lexer;
 
     const cases = [_]struct { src: []const u8, op: UnaryOp }{
-        .{ .src = "fn f() I32 { return -5 }", .op = .negate },
-        .{ .src = "fn f() I32 { return !5 }", .op = .logical_not },
-        .{ .src = "fn f() I32 { return ~5 }", .op = .bitwise_not },
+        .{ .src = "fn f() i32 { return -5 }", .op = .negate },
+        .{ .src = "fn f() i32 { return !5 }", .op = .logical_not },
+        .{ .src = "fn f() i32 { return ~5 }", .op = .bitwise_not },
     };
 
     for (cases) |case| {
@@ -3134,7 +3134,7 @@ test "parser: nested unary operators" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return --5 }";
+    const source = "fn f() i32 { return --5 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3158,7 +3158,7 @@ test "parser: unary with binary operators" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return -5 + 3 }";
+    const source = "fn f() i32 { return -5 + 3 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3184,7 +3184,7 @@ test "parser: bool literals" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() Bool { return true }";
+    const source = "fn f() bool { return true }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3202,7 +3202,7 @@ test "parser: simple if expression" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return if true { 1 } else { 2 } }";
+    const source = "fn f() i32 { return if true { 1 } else { 2 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3237,7 +3237,7 @@ test "parser: if expression with comparison condition" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return if 10 > 5 { 1 } else { 0 } }";
+    const source = "fn f() i32 { return if 10 > 5 { 1 } else { 0 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3259,7 +3259,7 @@ test "parser: elseif chain" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
+    const source = "fn f() i32 { return if false { 1 } elseif true { 2 } else { 3 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3297,7 +3297,7 @@ test "parser: multiple elseif chain" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return if false { 1 } elseif false { 2 } elseif true { 3 } else { 4 } }";
+    const source = "fn f() i32 { return if false { 1 } elseif false { 2 } elseif true { 3 } else { 4 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3335,7 +3335,7 @@ test "parser: nested if expressions" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { return if true { if false { 1 } else { 2 } } else { 3 } }";
+    const source = "fn f() i32 { return if true { if false { 1 } else { 2 } } else { 3 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3367,7 +3367,7 @@ test "parser: simple while loop" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { while true { 42 }; return 0 }";
+    const source = "fn f() i32 { while true { 42 }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3389,7 +3389,7 @@ test "parser: while loop with comparison condition" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { while 5 > 3 { 1 }; return 0 }";
+    const source = "fn f() i32 { while 5 > 3 { 1 }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3410,7 +3410,7 @@ test "parser: nested while loops" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn f() I32 { while true { while false { 1 } }; return 0 }";
+    const source = "fn f() i32 { while true { while false { 1 } }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3437,7 +3437,7 @@ test "parser: empty tuple literal" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { return () }";
+    const source = "fn main() i32 { return () }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3456,7 +3456,7 @@ test "parser: simple tuple literal" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { return (1, 2) }";
+    const source = "fn main() i32 { return (1, 2) }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3479,7 +3479,7 @@ test "parser: nested tuple literal" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { return (1, (2, 3)) }";
+    const source = "fn main() i32 { return (1, (2, 3)) }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3506,7 +3506,7 @@ test "parser: tuple with mixed types" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { return (42, true, 100) }";
+    const source = "fn main() i32 { return (42, true, 100) }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3530,7 +3530,7 @@ test "parser: tuple indexing" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { let x = (1, 2); return x.0 }";
+    const source = "fn main() i32 { let x = (1, 2); return x.0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3552,7 +3552,7 @@ test "parser: nested tuple indexing" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { let x = (1, (2, 3)); return x.1.0 }";
+    const source = "fn main() i32 { let x = (1, (2, 3)); return x.1.0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3576,7 +3576,7 @@ test "parser: simple tuple type" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() (I32, Bool) { return (42, true) }";
+    const source = "fn main() (i32, bool) { return (42, true) }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3598,7 +3598,7 @@ test "parser: nested tuple type" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() (I32, (Bool, I64)) { return (1, (true, 2)) }";
+    const source = "fn main() (i32, (bool, i64)) { return (1, (true, 2)) }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3626,7 +3626,7 @@ test "parser: simple tuple destructuring" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { let (a, b) = (1, 2); return a }";
+    const source = "fn main() i32 { let (a, b) = (1, 2); return a }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3652,7 +3652,7 @@ test "parser: nested tuple destructuring" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { let (x, (y, z)) = (1, (2, 3)); return x }";
+    const source = "fn main() i32 { let (x, (y, z)) = (1, (2, 3)); return x }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3680,7 +3680,7 @@ test "parser: tuple with type annotation" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { let x: (I32, Bool) = (42, true); return 0 }";
+    const source = "fn main() i32 { let x: (i32, bool) = (42, true); return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3705,7 +3705,7 @@ test "parser: parenthesized expression vs tuple" {
     const testing = std.testing;
     const Lexer = @import("lexer.zig").Lexer;
 
-    const source = "fn main() I32 { return (42) }";
+    const source = "fn main() i32 { return (42) }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);

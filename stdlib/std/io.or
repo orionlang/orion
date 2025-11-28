@@ -4,15 +4,15 @@
 import std.alloc
 
 // File ADT with state variants
-type File = | Open(I32) | Closed
+type File = | Open(i32) | Closed
 
 // C file operations
 extern "C" {
-  fn open(path: str, flags: I32, mode: I32) I32;
-  fn read(fd: I32, buf: ptr, count: U64) I64;
-  fn write(fd: I32, buf: str, count: U64) I64;
-  fn close(fd: I32) I32;
-  fn lseek(fd: I32, offset: I64, whence: I32) I64;
+  fn open(path: str, flags: i32, mode: i32) i32;
+  fn read(fd: i32, buf: ptr, count: u64) i64;
+  fn write(fd: i32, buf: str, count: u64) i64;
+  fn close(fd: i32) i32;
+  fn lseek(fd: i32, offset: i64, whence: i32) i64;
 }
 
 // File open flags (from fcntl.h) - inlined as constants
@@ -31,21 +31,21 @@ extern "C" {
 class FileOps {
   open_read: fn(str) File;
   open_write: fn(str) File;
-  read: fn(File, ptr, U64) (I64, File);
+  read: fn(File, ptr, u64) (i64, File);
   read_all: fn(File, Arena) (str, File, Arena);
-  write: fn(File, str) (I64, File);
+  write: fn(File, str) (i64, File);
   close: fn(File) File;
-  size: fn(File) (I64, File);
+  size: fn(File) (i64, File);
 }
 
 instance FileOps[File] {
   // Open file for reading
   open_read = fn(path: str) File {
     unsafe {
-      var fd: I32 = open(path, 0, 0)  // O_RDONLY = 0
+      var fd: i32 = open(path, 0, 0)  // O_RDONLY = 0
 
       // Check if open failed (returns -1 on error)
-      var failed: Bool = fd == -1
+      var failed: bool = fd == -1
 
       // Work around: can't use ADT constructors in if-expression yet
       var result: File = Closed
@@ -62,14 +62,14 @@ instance FileOps[File] {
   // Open file for writing (create if doesn't exist, truncate if exists)
   open_write = fn(path: str) File {
     unsafe {
-      var flags: I32 = 1  // O_WRONLY
+      var flags: i32 = 1  // O_WRONLY
       flags = flags | 64  // O_CREAT
       flags = flags | 512  // O_TRUNC
-      var mode: I32 = 420  // 0644 in octal (rw-r--r--)
+      var mode: i32 = 420  // 0644 in octal (rw-r--r--)
 
-      var fd: I32 = open(path, flags, mode)
+      var fd: i32 = open(path, flags, mode)
 
-      var failed: Bool = fd == -1
+      var failed: bool = fd == -1
 
       var result: File = Closed
       if failed {
@@ -83,11 +83,11 @@ instance FileOps[File] {
   }
 
   // Read up to count bytes into buffer
-  read = fn(file: File, buf: ptr, count: U64) (I64, File) {
+  read = fn(file: File, buf: ptr, count: u64) (i64, File) {
     return match file {
       Open(fd) => {
         unsafe {
-          var bytes: I64 = read(fd, buf, count)
+          var bytes: i64 = read(fd, buf, count)
 
           // If read failed or EOF, keep file open
           return (bytes, Open(fd))
@@ -103,26 +103,26 @@ instance FileOps[File] {
       Open(fd) => {
         unsafe {
           // Get file size first
-          var file_size: I64 = lseek(fd, 0, 2)  // SEEK_END
-          var _: I64 = lseek(fd, 0, 0)  // SEEK_SET - reset to beginning
+          var file_size: i64 = lseek(fd, 0, 2)  // SEEK_END
+          var _: i64 = lseek(fd, 0, 0)  // SEEK_SET - reset to beginning
 
           // Handle empty file or error
-          let is_empty: Bool = file_size <= 0
+          let is_empty: bool = file_size <= 0
 
           return if is_empty {
             ("", Open(fd), arena)
           } else {
             // Allocate buffer for file contents + null terminator
-            // Cast I64 to U64 via ptr (hacky but works)
+            // Cast i64 to u64 via ptr (hacky but works)
             let size_ptr: ptr = @int_to_ptr(file_size)
-            let size_u64: U64 = @ptr_to_int(size_ptr)
-            let alloc_size: U64 = size_u64 + 1
+            let size_u64: u64 = @ptr_to_int(size_ptr)
+            let alloc_size: u64 = size_u64 + 1
             let alloc_result: (ptr, Arena) = arena.alloc(alloc_size)
             let buffer: ptr = alloc_result.0
             let arena2: Arena = alloc_result.1
-            let bytes_read: I64 = read(fd, buffer, size_u64)
+            let bytes_read: i64 = read(fd, buffer, size_u64)
             let null_offset: ptr = @ptr_offset(buffer, size_u64)
-            let zero: U8 = 0
+            let zero: u8 = 0
             let _write: () = @ptr_write(null_offset, zero)
             (buffer, Open(fd), arena2)
           }
@@ -133,15 +133,15 @@ instance FileOps[File] {
   }
 
   // Write string data to file
-  write = fn(file: File, data: str) (I64, File) {
+  write = fn(file: File, data: str) (i64, File) {
     return match file {
       Open(fd) => {
         unsafe {
-          var len: I64 = data.len()
-          // Cast I64 to U64 via ptr
+          var len: i64 = data.len()
+          // Cast i64 to u64 via ptr
           var len_ptr: ptr = @int_to_ptr(len)
-          var len_u64: U64 = @ptr_to_int(len_ptr)
-          var bytes: I64 = write(fd, data, len_u64)
+          var len_u64: u64 = @ptr_to_int(len_ptr)
+          var bytes: i64 = write(fd, data, len_u64)
 
           return (bytes, Open(fd))
         }
@@ -155,7 +155,7 @@ instance FileOps[File] {
     return match file {
       Open(fd) => {
         unsafe {
-          var _: I32 = close(fd)
+          var _: i32 = close(fd)
           return Closed
         }
       },
@@ -164,13 +164,13 @@ instance FileOps[File] {
   }
 
   // Get file size in bytes
-  size = fn(file: File) (I64, File) {
+  size = fn(file: File) (i64, File) {
     return match file {
       Open(fd) => {
         unsafe {
-          var current_pos: I64 = lseek(fd, 0, 1)  // SEEK_CUR - save position
-          var file_size: I64 = lseek(fd, 0, 2)    // SEEK_END - seek to end
-          var _: I64 = lseek(fd, current_pos, 0)  // SEEK_SET - restore position
+          var current_pos: i64 = lseek(fd, 0, 1)  // SEEK_CUR - save position
+          var file_size: i64 = lseek(fd, 0, 2)    // SEEK_END - seek to end
+          var _: i64 = lseek(fd, current_pos, 0)  // SEEK_SET - restore position
 
           return (file_size, Open(fd))
         }

@@ -13,7 +13,7 @@ type TaskError =
   | TaskCancelled
   | TaskPanicked
 
-// Task frame layout: { status: I8, result: T }
+// Task frame layout: { status: i8, result: T }
 // Status values: 0 = pending, 1 = completed, 2 = cancelled
 type Task[T] = {
   frame: ptr,  // Pointer to task frame allocated by spawn
@@ -32,14 +32,14 @@ instance Joinable[Task[T]] {
       let task: Task[T] = self
 
       // Read status from frame (offset 0)
-      let status: I8 = @ptr_read(task.frame, @type(I8))
+      let status: i8 = @ptr_read(task.frame, @type(i8))
 
       // For synchronous spawn implementation, status should always be 1 (completed)
       // Full async implementation would wait/poll here
 
       // Read result from frame (offset 1, after status byte)
       // Note: In real impl, need to handle alignment properly
-      let result_offset: U64 = 8  // Aligned to 8 bytes for most types
+      let result_offset: u64 = 8  // Aligned to 8 bytes for most types
       let result_ptr: ptr = @ptr_offset(task.frame, result_offset)
 
       // Return the result (type T)

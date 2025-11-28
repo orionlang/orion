@@ -557,7 +557,7 @@ pub const Codegen = struct {
     }
 
     /// Substitute type parameters in a type with concrete types
-    /// Used for generic struct instantiation: Box[T] with T=I32 -> Box[I32]
+    /// Used for generic struct instantiation: Box[T] with T=i32 -> Box[i32]
     fn substituteTypeParams(self: *Codegen, typ: Type, substitutions: std.StringHashMap(Type)) Type {
         switch (typ.kind) {
             .named => |name| {
@@ -1203,7 +1203,7 @@ pub const Codegen = struct {
             return temp;
         }
 
-        // Bool uses zero extension (unsigned)
+        // bool uses zero extension (unsigned)
         if (from_type.kind == .primitive and from_type.kind.primitive == .bool) {
             const temp = try self.allocTempName();
             try self.output.writer(self.allocator).print("  {s} = zext i1 {s} to {s}\n", .{ temp, value, to_llvm });
@@ -2017,15 +2017,15 @@ pub const Codegen = struct {
                     };
 
                     // Map type names to integer constants
-                    const type_id: i64 = if (std.mem.eql(u8, type_name, "Bool")) 1
-                        else if (std.mem.eql(u8, type_name, "I8")) 2
-                        else if (std.mem.eql(u8, type_name, "I16")) 3
-                        else if (std.mem.eql(u8, type_name, "I32")) 4
-                        else if (std.mem.eql(u8, type_name, "I64")) 5
-                        else if (std.mem.eql(u8, type_name, "U8")) 6
-                        else if (std.mem.eql(u8, type_name, "U16")) 7
-                        else if (std.mem.eql(u8, type_name, "U32")) 8
-                        else if (std.mem.eql(u8, type_name, "U64")) 9
+                    const type_id: i64 = if (std.mem.eql(u8, type_name, "bool")) 1
+                        else if (std.mem.eql(u8, type_name, "i8")) 2
+                        else if (std.mem.eql(u8, type_name, "i16")) 3
+                        else if (std.mem.eql(u8, type_name, "i32")) 4
+                        else if (std.mem.eql(u8, type_name, "i64")) 5
+                        else if (std.mem.eql(u8, type_name, "u8")) 6
+                        else if (std.mem.eql(u8, type_name, "u16")) 7
+                        else if (std.mem.eql(u8, type_name, "u32")) 8
+                        else if (std.mem.eql(u8, type_name, "u64")) 9
                         else if (std.mem.eql(u8, type_name, "ptr")) 10
                         else unreachable;
 
@@ -2047,15 +2047,15 @@ pub const Codegen = struct {
                             else => unreachable,
                         };
 
-                        const type_str = if (std.mem.eql(u8, type_name, "I8")) "i8"
-                            else if (std.mem.eql(u8, type_name, "I16")) "i16"
-                            else if (std.mem.eql(u8, type_name, "I32")) "i32"
-                            else if (std.mem.eql(u8, type_name, "I64")) "i64"
-                            else if (std.mem.eql(u8, type_name, "U8")) "i8"
-                            else if (std.mem.eql(u8, type_name, "U16")) "i16"
-                            else if (std.mem.eql(u8, type_name, "U32")) "i32"
-                            else if (std.mem.eql(u8, type_name, "U64")) "i64"
-                            else if (std.mem.eql(u8, type_name, "Bool")) "i1"
+                        const type_str = if (std.mem.eql(u8, type_name, "i8")) "i8"
+                            else if (std.mem.eql(u8, type_name, "i16")) "i16"
+                            else if (std.mem.eql(u8, type_name, "i32")) "i32"
+                            else if (std.mem.eql(u8, type_name, "i64")) "i64"
+                            else if (std.mem.eql(u8, type_name, "u8")) "i8"
+                            else if (std.mem.eql(u8, type_name, "u16")) "i16"
+                            else if (std.mem.eql(u8, type_name, "u32")) "i32"
+                            else if (std.mem.eql(u8, type_name, "u64")) "i64"
+                            else if (std.mem.eql(u8, type_name, "bool")) "i1"
                             else if (std.mem.eql(u8, type_name, "ptr")) "ptr"
                             else unreachable;
 
@@ -2072,9 +2072,9 @@ pub const Codegen = struct {
                             loaded_val
                         else blk: {
                             const extended = try self.allocTempName();
-                            const is_signed = std.mem.eql(u8, type_name, "I8") or
-                                            std.mem.eql(u8, type_name, "I16") or
-                                            std.mem.eql(u8, type_name, "I32");
+                            const is_signed = std.mem.eql(u8, type_name, "i8") or
+                                            std.mem.eql(u8, type_name, "i16") or
+                                            std.mem.eql(u8, type_name, "i32");
                             const ext_op = if (is_signed) "sext" else "zext";
                             try self.output.writer(self.allocator).print("  {s} = {s} {s} {s} to i64\n",
                                 .{ extended, ext_op, type_str, loaded_val });
@@ -2108,7 +2108,7 @@ pub const Codegen = struct {
 
                         try self.output.writer(self.allocator).print("  br i1 {s}, label %{s}, label %{s}\n\n", .{ type_id_temp, bool_label, i8_label });
 
-                        // Bool case (type ID 1)
+                        // bool case (type ID 1)
                         try self.output.writer(self.allocator).print("{s}:\n", .{bool_label});
                         const bool_val = try self.allocTempName();
                         defer self.allocator.free(bool_val);
@@ -2119,7 +2119,7 @@ pub const Codegen = struct {
                         try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ self.target_info.native_int_type, bool_ext, result_temp });
                         try self.output.writer(self.allocator).print("  br label %{s}\n\n", .{continue_label});
 
-                        // I8 case (type ID 2) - continue with other types
+                        // i8 case (type ID 2) - continue with other types
                         try self.output.writer(self.allocator).print("{s}:\n", .{i8_label});
                         const i8_check = try self.allocTempName();
                         defer self.allocator.free(i8_check);
@@ -2140,7 +2140,7 @@ pub const Codegen = struct {
                         try self.output.writer(self.allocator).print("  store {s} {s}, ptr {s}\n", .{ self.target_info.native_int_type, i8_ext, result_temp });
                         try self.output.writer(self.allocator).print("  br label %{s}\n\n", .{continue_label});
 
-                        // Generate remaining type cases (I16, I32, I64, U8, U16, U32, U64)
+                        // Generate remaining type cases (i16, i32, i64, u8, u16, u32, u64)
                         // For simplicity, defaulting to native int load for now
                         try self.output.writer(self.allocator).print("{s}:\n", .{i16_label});
                         const default_val = try self.allocTempName();
@@ -2244,15 +2244,15 @@ pub const Codegen = struct {
                     };
 
                     const llvm_type_map = std.StaticStringMap([]const u8).initComptime(.{
-                        .{ "I8", "i8" },
-                        .{ "I16", "i16" },
-                        .{ "I32", "i32" },
-                        .{ "I64", "i64" },
-                        .{ "U8", "i8" },
-                        .{ "U16", "i16" },
-                        .{ "U32", "i32" },
-                        .{ "U64", "i64" },
-                        .{ "Bool", "i1" },
+                        .{ "i8", "i8" },
+                        .{ "i16", "i16" },
+                        .{ "i32", "i32" },
+                        .{ "i64", "i64" },
+                        .{ "u8", "i8" },
+                        .{ "u16", "i16" },
+                        .{ "u32", "i32" },
+                        .{ "u64", "i64" },
+                        .{ "bool", "i1" },
                         .{ "ptr", "ptr" },
                     });
                     const result_type_str = llvm_type_map.get(type_name) orelse unreachable;
@@ -2409,7 +2409,7 @@ pub const Codegen = struct {
                             try self.output.writer(self.allocator).print("  {s} = alloca i64\n", .{binding_ptr});
                             try self.output.writer(self.allocator).print("  store i64 0, ptr {s} ; placeholder recv\n", .{binding_ptr});
 
-                            // Register binding in scope (I64 placeholder type)
+                            // Register binding in scope (i64 placeholder type)
                             const binding_ptr_dupe = try self.allocator.dupe(u8, binding_ptr);
                             try self.variables.put(binding_name, .{
                                 .llvm_ptr = binding_ptr_dupe,
@@ -2896,7 +2896,7 @@ pub const Codegen = struct {
                         // For ptr, we return ptr
                         if (std.mem.eql(u8, type_name, "ptr")) {
                             return .{ .kind = .{ .primitive = .ptr }, .usage = .once };
-                        } else if (std.mem.eql(u8, type_name, "Bool")) {
+                        } else if (std.mem.eql(u8, type_name, "bool")) {
                             return .{ .kind = .{ .primitive = .bool }, .usage = .once };
                         } else {
                             // Integer types get extended to i64
@@ -2992,7 +2992,7 @@ test "codegen: simple function" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn main() I32 { return 42 }";
+    const source = "fn main() i32 { return 42 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3018,7 +3018,7 @@ test "codegen: binary addition" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn main() I32 { return 1 + 2 }";
+    const source = "fn main() i32 { return 1 + 2 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3043,10 +3043,10 @@ test "codegen: all arithmetic operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected: []const u8 }{
-        .{ .src = "fn f() I32 { return 10 - 5 }", .expected = "sub i32 10, 5" },
-        .{ .src = "fn f() I32 { return 10 * 5 }", .expected = "mul i32 10, 5" },
-        .{ .src = "fn f() I32 { return 10 / 5 }", .expected = "sdiv i32 10, 5" },
-        .{ .src = "fn f() I32 { return 10 % 5 }", .expected = "srem i32 10, 5" },
+        .{ .src = "fn f() i32 { return 10 - 5 }", .expected = "sub i32 10, 5" },
+        .{ .src = "fn f() i32 { return 10 * 5 }", .expected = "mul i32 10, 5" },
+        .{ .src = "fn f() i32 { return 10 / 5 }", .expected = "sdiv i32 10, 5" },
+        .{ .src = "fn f() i32 { return 10 % 5 }", .expected = "srem i32 10, 5" },
     };
 
     for (cases) |case| {
@@ -3075,12 +3075,12 @@ test "codegen: comparison operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected: []const u8 }{
-        .{ .src = "fn f() I32 { return 5 == 3 }", .expected = "icmp eq i32 5, 3" },
-        .{ .src = "fn f() I32 { return 5 != 3 }", .expected = "icmp ne i32 5, 3" },
-        .{ .src = "fn f() I32 { return 5 < 3 }", .expected = "icmp slt i32 5, 3" },
-        .{ .src = "fn f() I32 { return 5 > 3 }", .expected = "icmp sgt i32 5, 3" },
-        .{ .src = "fn f() I32 { return 5 <= 3 }", .expected = "icmp sle i32 5, 3" },
-        .{ .src = "fn f() I32 { return 5 >= 3 }", .expected = "icmp sge i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 == 3 }", .expected = "icmp eq i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 != 3 }", .expected = "icmp ne i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 < 3 }", .expected = "icmp slt i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 > 3 }", .expected = "icmp sgt i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 <= 3 }", .expected = "icmp sle i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 >= 3 }", .expected = "icmp sge i32 5, 3" },
     };
 
     for (cases) |case| {
@@ -3109,11 +3109,11 @@ test "codegen: bitwise and shift operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected: []const u8 }{
-        .{ .src = "fn f() I32 { return 5 & 3 }", .expected = "and i32 5, 3" },
-        .{ .src = "fn f() I32 { return 5 | 3 }", .expected = "or i32 5, 3" },
-        .{ .src = "fn f() I32 { return 5 ^ 3 }", .expected = "xor i32 5, 3" },
-        .{ .src = "fn f() I32 { return 5 << 3 }", .expected = "shl i32 5, 3" },
-        .{ .src = "fn f() I32 { return 5 >> 3 }", .expected = "ashr i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 & 3 }", .expected = "and i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 | 3 }", .expected = "or i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 ^ 3 }", .expected = "xor i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 << 3 }", .expected = "shl i32 5, 3" },
+        .{ .src = "fn f() i32 { return 5 >> 3 }", .expected = "ashr i32 5, 3" },
     };
 
     for (cases) |case| {
@@ -3142,9 +3142,9 @@ test "codegen: unary operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected: []const u8 }{
-        .{ .src = "fn f() I32 { return -5 }", .expected = "= sub i32 0, 5" },
-        .{ .src = "fn f() I32 { return !5 }", .expected = "= icmp eq i32 0, 5" },
-        .{ .src = "fn f() I32 { return ~5 }", .expected = "= xor i32 -1, 5" },
+        .{ .src = "fn f() i32 { return -5 }", .expected = "= sub i32 0, 5" },
+        .{ .src = "fn f() i32 { return !5 }", .expected = "= icmp eq i32 0, 5" },
+        .{ .src = "fn f() i32 { return ~5 }", .expected = "= xor i32 -1, 5" },
     };
 
     for (cases) |case| {
@@ -3173,8 +3173,8 @@ test "codegen: logical operators" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_]struct { src: []const u8, expected_conversions: []const u8, expected_op: []const u8 }{
-        .{ .src = "fn f() I32 { return 5 && 3 }", .expected_conversions = "icmp ne i32", .expected_op = "and i1" },
-        .{ .src = "fn f() I32 { return 5 || 3 }", .expected_conversions = "icmp ne i32", .expected_op = "or i1" },
+        .{ .src = "fn f() i32 { return 5 && 3 }", .expected_conversions = "icmp ne i32", .expected_op = "and i1" },
+        .{ .src = "fn f() i32 { return 5 || 3 }", .expected_conversions = "icmp ne i32", .expected_op = "or i1" },
     };
 
     for (cases) |case| {
@@ -3207,7 +3207,7 @@ test "codegen: bool literals" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return if true { 1 } else { 0 } }";
+    const source = "fn f() i32 { return if true { 1 } else { 0 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3223,7 +3223,7 @@ test "codegen: bool literals" {
     const llvm_ir = try codegen.generate(&ast);
     defer testing.allocator.free(llvm_ir);
 
-    // Bool literal should be used directly in br
+    // bool literal should be used directly in br
     try testing.expect(std.mem.indexOf(u8, llvm_ir, "br i1 1") != null);
 }
 
@@ -3232,7 +3232,7 @@ test "codegen: simple if expression" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return if true { 42 } else { 0 } }";
+    const source = "fn f() i32 { return if true { 42 } else { 0 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3264,7 +3264,7 @@ test "codegen: if with integer condition" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return if 5 { 1 } else { 0 } }";
+    const source = "fn f() i32 { return if 5 { 1 } else { 0 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3289,7 +3289,7 @@ test "codegen: if with comparison condition" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return if 10 > 5 { 1 } else { 0 } }";
+    const source = "fn f() i32 { return if 10 > 5 { 1 } else { 0 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3315,7 +3315,7 @@ test "codegen: nested if expressions" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return if true { if false { 1 } else { 2 } } else { 3 } }";
+    const source = "fn f() i32 { return if true { if false { 1 } else { 2 } } else { 3 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3347,7 +3347,7 @@ test "codegen: elseif creates nested if" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
+    const source = "fn f() i32 { return if false { 1 } elseif true { 2 } else { 3 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3380,7 +3380,7 @@ test "codegen: basic block tracking in elseif" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { return if false { 1 } elseif true { 2 } else { 3 } }";
+    const source = "fn f() i32 { return if false { 1 } elseif true { 2 } else { 3 } }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3406,7 +3406,7 @@ test "codegen: simple while loop" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { while true { 42 }; return 0 }";
+    const source = "fn f() i32 { while true { 42 }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3442,7 +3442,7 @@ test "codegen: while loop with comparison condition" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { while 5 > 3 { 1 }; return 0 }";
+    const source = "fn f() i32 { while 5 > 3 { 1 }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -3467,7 +3467,7 @@ test "codegen: nested while loops" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn f() I32 { while true { while false { 1 } }; return 0 }";
+    const source = "fn f() i32 { while true { while false { 1 } }; return 0 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);

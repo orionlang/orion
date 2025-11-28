@@ -444,7 +444,7 @@ pub const TypeChecker = struct {
             },
             .binary_op => |*binop| {
                 // For arithmetic binary operations, propagate expected type to both operands
-                // This allows `let x: U32 = 10 + 5` to type both literals as U32
+                // This allows `let x: u32 = 10 + 5` to type both literals as u32
                 if (!binop.op.returns_bool()) {
                     try self.checkExprWithExpectedType(binop.left, expected_type);
                     try self.checkExprWithExpectedType(binop.right, expected_type);
@@ -453,12 +453,12 @@ pub const TypeChecker = struct {
             },
             .unary_op => |*unop| {
                 // Propagate expected type to operand for unary minus
-                // Example: `let x: I64 = -42` should type the literal 42 as I64 before negating
+                // Example: `let x: i64 = -42` should type the literal 42 as i64 before negating
                 try self.checkExprWithExpectedType(unop.operand, expected_type);
             },
             .if_expr => |*if_expr| {
                 // Propagate expected type to both branches
-                // Example: `let x: I64 = if cond { 42 } else { 100 }` should type both literals as I64
+                // Example: `let x: i64 = if cond { 42 } else { 100 }` should type both literals as i64
                 try self.checkExprWithExpectedType(if_expr.then_branch, expected_type);
                 if (if_expr.else_branch) |else_branch| {
                     try self.checkExprWithExpectedType(else_branch, expected_type);
@@ -466,7 +466,7 @@ pub const TypeChecker = struct {
             },
             .block_expr => |*block| {
                 // Propagate expected type to result expression
-                // Example: `let x: I64 = { stmt; stmt; 42 }` should type 42 as I64
+                // Example: `let x: i64 = { stmt; stmt; 42 }` should type 42 as i64
                 if (block.result) |result| {
                     try self.checkExprWithExpectedType(result, expected_type);
                 }
@@ -495,7 +495,7 @@ pub const TypeChecker = struct {
             },
             .bool_literal, .variable, .function_call, .field_access, .constructor_call, .dependent_type_ref, .match_expr, .method_call, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
                 // These expressions have fixed types that can't be influenced by context:
-                // - bool_literal: always Bool
+                // - bool_literal: always bool
                 // - variable: type determined at declaration
                 // - function_call: return type is fixed by function signature
                 // - field_access: type determined by field type
@@ -1128,9 +1128,9 @@ pub const TypeChecker = struct {
             .intrinsic_call => |call| {
                 // Type check intrinsic calls
                 // @ptr_of(value: T) -> Ptr[T]  (for now, returns a named type "Ptr")
-                // @ptr_read(ptr: Ptr[T]) -> T  (for now, returns I32)
+                // @ptr_read(ptr: Ptr[T]) -> T  (for now, returns i32)
                 // @ptr_write(ptr: Ptr[T], value: T) -> ()
-                // @ptr_offset(ptr: Ptr[T], offset: I32) -> Ptr[T]
+                // @ptr_offset(ptr: Ptr[T], offset: i32) -> Ptr[T]
 
                 if (std.mem.eql(u8, call.name, "@ptr_of")) {
                     if (call.args.len != 1) {
@@ -1172,15 +1172,15 @@ pub const TypeChecker = struct {
 
                     // Map type name to primitive type using parser's type_name_map
                     const type_map = std.StaticStringMap(parser.PrimitiveType).initComptime(.{
-                        .{ "Bool", .bool },
-                        .{ "I8", .i8 },
-                        .{ "I16", .i16 },
-                        .{ "I32", .i32 },
-                        .{ "I64", .i64 },
-                        .{ "U8", .u8 },
-                        .{ "U16", .u16 },
-                        .{ "U32", .u32 },
-                        .{ "U64", .u64 },
+                        .{ "bool", .bool },
+                        .{ "i8", .i8 },
+                        .{ "i16", .i16 },
+                        .{ "i32", .i32 },
+                        .{ "i64", .i64 },
+                        .{ "u8", .u8 },
+                        .{ "u16", .u16 },
+                        .{ "u32", .u32 },
+                        .{ "u64", .u64 },
                     });
 
                     const prim_type = type_map.get(type_name) orelse {
@@ -1265,15 +1265,15 @@ pub const TypeChecker = struct {
 
                     // Map type names to primitives
                     const type_map = std.StaticStringMap(parser.PrimitiveType).initComptime(.{
-                        .{ "I8", .i8 },
-                        .{ "I16", .i16 },
-                        .{ "I32", .i32 },
-                        .{ "I64", .i64 },
-                        .{ "U8", .u8 },
-                        .{ "U16", .u16 },
-                        .{ "U32", .u32 },
-                        .{ "U64", .u64 },
-                        .{ "Bool", .bool },
+                        .{ "i8", .i8 },
+                        .{ "i16", .i16 },
+                        .{ "i32", .i32 },
+                        .{ "i64", .i64 },
+                        .{ "u8", .u8 },
+                        .{ "u16", .u16 },
+                        .{ "u32", .u32 },
+                        .{ "u64", .u64 },
+                        .{ "bool", .bool },
                         .{ "ptr", .ptr },
                     });
 
@@ -1364,7 +1364,7 @@ pub const TypeChecker = struct {
         // Exact match is always allowed
         if (resolved_from.eql(resolved_to)) return true;
 
-        // Bool can convert to any integer type (safe: 0 or 1)
+        // bool can convert to any integer type (safe: 0 or 1)
         if (resolved_from.kind == .primitive and resolved_from.kind.primitive == .bool and resolved_to.isInteger()) return true;
 
         // Allow widening conversions between integer types (no data loss)
@@ -1382,7 +1382,7 @@ pub const TypeChecker = struct {
     }
 
     /// Resolve dependent and named types to their underlying type definition
-    /// For generic types like Box[I32], substitutes type parameters
+    /// For generic types like Box[i32], substitutes type parameters
     fn resolveType(self: *TypeChecker, typ: Type) Type {
         switch (typ.kind) {
             .dependent => |dep| {
@@ -1425,7 +1425,7 @@ pub const TypeChecker = struct {
     }
 
     /// Substitute type parameters in a type with concrete types
-    /// Used for generic struct instantiation: Box[T] with T=I32 -> Box[I32]
+    /// Used for generic struct instantiation: Box[T] with T=i32 -> Box[i32]
     fn substituteTypeParams(self: *TypeChecker, typ: Type, substitutions: std.StringHashMap(Type)) Type {
         switch (typ.kind) {
             .named => |name| {
@@ -1529,18 +1529,18 @@ pub const TypeChecker = struct {
     }
 
     const type_name_map = std.StaticStringMap(parser.PrimitiveType).initComptime(.{
-        .{ "Bool", .bool },
-        .{ "I8", .i8 },
-        .{ "I16", .i16 },
-        .{ "I32", .i32 },
-        .{ "I64", .i64 },
+        .{ "bool", .bool },
+        .{ "i8", .i8 },
+        .{ "i16", .i16 },
+        .{ "i32", .i32 },
+        .{ "i64", .i64 },
         .{ "ptr", .ptr },
         .{ "str", .str },
         .{ "Type", .type },
-        .{ "U8", .u8 },
-        .{ "U16", .u16 },
-        .{ "U32", .u32 },
-        .{ "U64", .u64 },
+        .{ "u8", .u8 },
+        .{ "u16", .u16 },
+        .{ "u32", .u32 },
+        .{ "u64", .u64 },
     });
 
     /// Evaluate @type(TypeName) expression at compile time to extract the Type
@@ -1580,7 +1580,7 @@ test "typechecker: valid function" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn main() I32 { return 42 }";
+    const source = "fn main() i32 { return 42 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -1608,7 +1608,7 @@ test "typechecker: bool return type" {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    const source = "fn main() Bool { return 5 > 3 }";
+    const source = "fn main() bool { return 5 > 3 }";
     var lex = Lexer.init(source);
     var tokens = try lex.tokenize(testing.allocator);
     defer tokens.deinit(testing.allocator);
@@ -1629,12 +1629,12 @@ test "typechecker: comparison operators return bool" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_][]const u8{
-        "fn f() Bool { return 5 == 3 }",
-        "fn f() Bool { return 5 != 3 }",
-        "fn f() Bool { return 5 < 3 }",
-        "fn f() Bool { return 5 > 3 }",
-        "fn f() Bool { return 5 <= 3 }",
-        "fn f() Bool { return 5 >= 3 }",
+        "fn f() bool { return 5 == 3 }",
+        "fn f() bool { return 5 != 3 }",
+        "fn f() bool { return 5 < 3 }",
+        "fn f() bool { return 5 > 3 }",
+        "fn f() bool { return 5 <= 3 }",
+        "fn f() bool { return 5 >= 3 }",
     };
 
     for (cases) |case| {
@@ -1659,9 +1659,9 @@ test "typechecker: logical operators on integers return integers" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_][]const u8{
-        "fn f() I32 { return 5 && 3 }",
-        "fn f() I32 { return 5 || 3 }",
-        "fn f() I32 { return !5 }",
+        "fn f() i32 { return 5 && 3 }",
+        "fn f() i32 { return 5 || 3 }",
+        "fn f() i32 { return !5 }",
     };
 
     for (cases) |case| {
@@ -1686,10 +1686,10 @@ test "typechecker: logical operators on bools return bool" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_][]const u8{
-        "fn f() Bool { return (5 > 3) && (2 < 4) }",
-        "fn f() Bool { return (5 > 3) || (2 < 4) }",
-        "fn f() Bool { return true && false }",
-        "fn f() Bool { return true || false }",
+        "fn f() bool { return (5 > 3) && (2 < 4) }",
+        "fn f() bool { return (5 > 3) || (2 < 4) }",
+        "fn f() bool { return true && false }",
+        "fn f() bool { return true || false }",
     };
 
     for (cases) |case| {
@@ -1714,9 +1714,9 @@ test "typechecker: bool to i32 implicit conversion" {
     const Parser = @import("parser.zig").Parser;
 
     const cases = [_][]const u8{
-        "fn f() I32 { return 5 > 3 }",
-        "fn f() I32 { return 5 && 3 }",
-        "fn f() I32 { return !5 }",
+        "fn f() i32 { return 5 > 3 }",
+        "fn f() i32 { return 5 && 3 }",
+        "fn f() i32 { return !5 }",
     };
 
     for (cases) |case| {

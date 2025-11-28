@@ -1,6 +1,6 @@
-type Option = | None | Some(I32)
+type Option = | None | Some(i32)
 
-fn divide(a: I32, b: I32) Option {
+fn divide(a: i32, b: i32) Option {
     if b == 0 {
         return None
     } else {
@@ -8,7 +8,7 @@ fn divide(a: I32, b: I32) Option {
     }
 }
 
-fn main() I32 {
+fn main() i32 {
     let result = divide(10, 2)
     return match result {
         None => 0,

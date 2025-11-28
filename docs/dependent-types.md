@@ -40,7 +40,7 @@ Any dependent type syntax added now must be compatible with the full system. We 
 2. **Dependent type syntax in expressions**
    ```orion
    let v: Vec[Int, 5]
-   fn foo(m: Matrix[Float, 3, 4]) I32
+   fn foo(m: Matrix[Float, 3, 4]) i32
    ```
    - Parser looks up type constructor to determine parameter kinds
    - No case convention needed - type definitions specify what each parameter is
@@ -69,9 +69,9 @@ Any dependent type syntax added now must be compatible with the full system. We 
 
 5. **Constant evaluation for @type(...)**
    ```orion
-   let val = ptr_read(p, @type(U64))  // Type checker extracts U64
+   let val = ptr_read(p, @type(u64))  // Type checker extracts u64
    ```
-   - Type checker evaluates `@type(U64)` at compile time
+   - Type checker evaluates `@type(u64)` at compile time
    - Extracts concrete type for monomorphization
 
 6. **Call-site monomorphization**
@@ -79,7 +79,7 @@ Any dependent type syntax added now must be compatible with the full system. We 
    fn ptr_read(ptr: Ptr, typ: Type) typ
 
    // Call site:
-   let x = ptr_read(p, @type(U64))  // Generates ptr_read_U64: fn(Ptr) U64
+   let x = ptr_read(p, @type(u64))  // Generates ptr_read_U64: fn(Ptr) u64
    ```
    - Track all call sites during type checking
    - Infer concrete type arguments at each call
@@ -89,7 +89,7 @@ Any dependent type syntax added now must be compatible with the full system. We 
 7. **Updated instance syntax**
    ```orion
    // Non-dependent (current)
-   instance Pointer for I32 { ... }
+   instance Pointer for i32 { ... }
 
    // Dependent (new)
    instance Pointer[T] for Vec[T, n] { ... }
@@ -225,7 +225,7 @@ pub const InstanceDecl = struct {
 @ptr_read: fn(ptr: Ptr, typ: Type) typ
 
 // Usage (unchanged):
-let val = @ptr_read(ptr, @type(U64))  // Type checker knows return type is U64
+let val = @ptr_read(ptr, @type(u64))  // Type checker knows return type is u64
 ```
 
 The intrinsic is still special-cased in codegen (generates LLVM load instruction), but the type checker can now properly express and validate its return type through the dependent type system.

@@ -104,20 +104,20 @@ mylib = { path = "../mylib" }
 
 ```orion
 // Private by default (module-local)
-fn helper() I32 { 42 }
+fn helper() i32 { 42 }
 
 type InternalState = {
-    counter: I32,
+    counter: i32,
 }
 
 // Public (exported from module)
-pub fn tokenize(source: Ptr[U8]) Ptr[Token] {
+pub fn tokenize(source: Ptr[u8]) Ptr[Token] {
     helper()  // Can call private functions internally
 }
 
 pub type Token = {
     kind: TokenKind,
-    value: U64,
+    value: u64,
 }
 ```
 
@@ -286,14 +286,14 @@ Contains:
 Export {
   module: "lexer",
   name: "tokenize",
-  signature: "fn(Ptr[U8]) Ptr[Token]",
+  signature: "fn(Ptr[u8]) Ptr[Token]",
   mangled_name: "lexer__tokenize",
 }
 
 Export {
   module: "lexer",
   name: "Token",
-  type_def: struct { kind: TokenKind, value: U64 },
+  type_def: struct { kind: TokenKind, value: u64 },
 }
 ```
 
@@ -309,7 +309,7 @@ mylib = { path = "../mylib" }
 ```orion
 import mylib.lexer.tokenize
 
-fn main() I32 {
+fn main() i32 {
     let tokens = tokenize(source)
     0
 }

@@ -50,7 +50,7 @@ type Chan[T] = struct {
 
 instance Chan[T] {
     // Create buffered channel
-    new: fn(capacity: I64) Chan[T]
+    new: fn(capacity: i64) Chan[T]
 
     // Create unbuffered (rendezvous) channel
     rendezvous: fn() Chan[T]
@@ -106,14 +106,14 @@ let result = select {
 
 ```orion
 // INVALID - compile error
-fn bad() Task[I64] {
+fn bad() Task[i64] {
     async {
         return spawn { 42 }  // ERROR: Task cannot escape async scope
     }
 }
 
 // VALID
-fn good() I64 {
+fn good() i64 {
     async {
         let t = spawn { 42 }
         return t.join()  // Task consumed within scope
@@ -244,7 +244,7 @@ fn worker_pool[T, U](
     work: Chan[T],
     results: Chan[U],
     f: fn(T) U,
-    num_workers: I64
+    num_workers: i64
 ) {
     async {
         let workers = (0..num_workers).map(fn(_) {

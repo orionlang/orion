@@ -2,12 +2,12 @@
 
 // Copy size bytes from src to dest
 // Returns unit type
-fn memcpy(dest: ptr, src: ptr, size: U64) () {
+fn memcpy(dest: ptr, src: ptr, size: u64) () {
   unsafe {
-    var i: U64 = 0
+    var i: u64 = 0
     while i < size {
       let src_byte_ptr: ptr = @ptr_offset(src, i)
-      let byte: U8 = @ptr_read(src_byte_ptr, @type(U8))
+      let byte: u8 = @ptr_read(src_byte_ptr, @type(u8))
       let dest_byte_ptr: ptr = @ptr_offset(dest, i)
       let _: () = @ptr_write(dest_byte_ptr, byte)
       i = i + 1

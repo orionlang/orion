@@ -1,16 +1,16 @@
 // Vec[A, n] - Dynamic array type
 // n represents initial capacity (not enforced at runtime)
 
-type Vec[A, n: U64] = {
+type Vec[A, n: u64] = {
   data: ptr,      // Pointer to heap-allocated array
-  len: U64,       // Current number of elements
-  cap: U64,       // Current capacity
+  len: u64,       // Current number of elements
+  cap: u64,       // Current capacity
 }
 
 // Memory allocation functions (C stdlib)
 extern "C" {
-  fn malloc(size: U64) ptr;
-  fn realloc(ptr: ptr, size: U64) ptr;
+  fn malloc(size: u64) ptr;
+  fn realloc(ptr: ptr, size: u64) ptr;
   fn free(ptr: ptr) ();
 }
 
@@ -19,10 +19,10 @@ class VecOps {
   new: fn() Vec[A, n];
   push: fn(Vec[A, n], ptr) Vec[A, n];
   pop: fn(Vec[A, n]) (ptr, Vec[A, n]);
-  get: fn(Vec[A, n], U64) ptr;
-  set: fn(Vec[A, n], U64, ptr) Vec[A, n];
-  length: fn(Vec[A, n]) U64;
-  capacity: fn(Vec[A, n]) U64;
+  get: fn(Vec[A, n], u64) ptr;
+  set: fn(Vec[A, n], u64, ptr) Vec[A, n];
+  length: fn(Vec[A, n]) u64;
+  capacity: fn(Vec[A, n]) u64;
   free: fn(Vec[A, n]) ();
 }
 
@@ -31,8 +31,8 @@ instance VecOps[Vec[ptr, 8]] {
   new = fn() Vec[ptr, 8] {
     unsafe {
       // Allocate initial capacity for 8 pointers
-      var initial_cap: U64 = 8
-      var size: U64 = initial_cap * 8  // 8 bytes per pointer
+      var initial_cap: u64 = 8
+      var size: u64 = initial_cap * 8  // 8 bytes per pointer
       var data: ptr = malloc(size)
 
       return Vec[ptr, 8] {
@@ -48,13 +48,13 @@ instance VecOps[Vec[ptr, 8]] {
       var v: Vec[ptr, 8] = self
 
       // Check if we need to grow
-      var needs_grow: Bool = v.len >= v.cap
+      var needs_grow: bool = v.len >= v.cap
 
       v = if needs_grow {
         {
           // Double the capacity
-          var new_cap: U64 = v.cap * 2
-          var new_size: U64 = new_cap * 8
+          var new_cap: u64 = v.cap * 2
+          var new_size: u64 = new_cap * 8
           var new_data: ptr = realloc(v.data, new_size)
 
           Vec[ptr, 8] {
@@ -68,7 +68,7 @@ instance VecOps[Vec[ptr, 8]] {
       }
 
       // Write element at end
-      var offset: U64 = v.len
+      var offset: u64 = v.len
       var elem_ptr: ptr = @ptr_offset(v.data, offset)
       @ptr_write(elem_ptr, elem)
 
@@ -85,7 +85,7 @@ instance VecOps[Vec[ptr, 8]] {
       var v: Vec[ptr, 8] = self
 
       // Check if empty
-      var is_empty: Bool = v.len == 0
+      var is_empty: bool = v.len == 0
 
       var result: ptr = if is_empty {
         // Return null pointer if empty
@@ -93,14 +93,14 @@ instance VecOps[Vec[ptr, 8]] {
       } else {
         {
           // Get last element
-          var last_idx: U64 = v.len - 1
+          var last_idx: u64 = v.len - 1
           var elem_ptr: ptr = @ptr_offset(v.data, last_idx)
           @ptr_read(elem_ptr, @type(ptr))
         }
       }
 
-      var zero: U64 = 0
-      var new_len: U64 = if is_empty { zero } else { v.len - 1 }
+      var zero: u64 = 0
+      var new_len: u64 = if is_empty { zero } else { v.len - 1 }
 
       var new_v: Vec[ptr, 8] = Vec[ptr, 8] {
         data: v.data,
@@ -112,12 +112,12 @@ instance VecOps[Vec[ptr, 8]] {
     }
   }
 
-  get = fn(self: Vec[ptr, 8], index: U64) ptr {
+  get = fn(self: Vec[ptr, 8], index: u64) ptr {
     unsafe {
       var v: Vec[ptr, 8] = self
 
       // Bounds check (return null if out of bounds)
-      var in_bounds: Bool = index < v.len
+      var in_bounds: bool = index < v.len
 
       var null_ptr: ptr = @ptr_offset(v.data, 0)
       var result: ptr = if in_bounds {
@@ -133,13 +133,13 @@ instance VecOps[Vec[ptr, 8]] {
     }
   }
 
-  set = fn(self: Vec[ptr, 8], index: U64, elem: ptr) Vec[ptr, 8] {
+  set = fn(self: Vec[ptr, 8], index: u64, elem: ptr) Vec[ptr, 8] {
     unsafe {
       var v: Vec[ptr, 8] = self
-      var in_bounds: Bool = index < v.len
+      var in_bounds: bool = index < v.len
 
       var elem_ptr: ptr = @ptr_offset(v.data, index)
-      var should_write: Bool = in_bounds
+      var should_write: bool = in_bounds
 
       if should_write {
         @ptr_write(elem_ptr, elem)
@@ -151,12 +151,12 @@ instance VecOps[Vec[ptr, 8]] {
     }
   }
 
-  length = fn(self: Vec[ptr, 8]) U64 {
+  length = fn(self: Vec[ptr, 8]) u64 {
     var v: Vec[ptr, 8] = self
     return v.len
   }
 
-  capacity = fn(self: Vec[ptr, 8]) U64 {
+  capacity = fn(self: Vec[ptr, 8]) u64 {
     var v: Vec[ptr, 8] = self
     return v.cap
   }

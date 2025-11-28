@@ -1,5 +1,5 @@
 import math
 
-fn main() I32 {
+fn main() i32 {
     return add(5, 3)
 }

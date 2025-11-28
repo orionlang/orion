@@ -1,6 +1,6 @@
-fn factorial(n: I32) I32 {
-    var result: I32 = 1;
-    var counter: I32 = n;
+fn factorial(n: i32) i32 {
+    var result: i32 = 1;
+    var counter: i32 = n;
     while counter > 1 {
         result = result * counter;
         counter = counter - 1;
@@ -8,6 +8,6 @@ fn factorial(n: I32) I32 {
     return result
 }
 
-fn main() I32 {
+fn main() i32 {
     return factorial(5)
 }

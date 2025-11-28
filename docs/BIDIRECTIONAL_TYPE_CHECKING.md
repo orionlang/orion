@@ -18,17 +18,17 @@ This causes issues:
 
 1. **Polymorphic literals impossible** - `"hello"` always infers as `str`, can't adapt to context
 2. **Match arm coercion is hacky** - We post-hoc convert arm values instead of generating correct types upfront
-3. **Integer literals need explicit types** - `let x: I64 = 42` should just work, but `42` infers as `I32`
+3. **Integer literals need explicit types** - `let x: i64 = 42` should just work, but `42` infers as `i32`
 4. **No typeclass-based conversions** - Can't use `StringLike[Rope]` to convert literals automatically
 
 ### What Bidirectional Enables
 
 ```orion
 let r: Rope = "hello"           // Uses StringLike[Rope].from_str
-let n: I64 = 42                 // Literal adopts expected type
-let result: (I64, File) = match file {
+let n: i64 = 42                 // Literal adopts expected type
+let result: (i64, File) = match file {
   Open(fd) => (bytes, Open(fd)),
-  Closed => (0, Closed)         // 0 checks against I64, not inferred as I32
+  Closed => (0, Closed)         // 0 checks against i64, not inferred as i32
 }
 ```
 
@@ -39,15 +39,15 @@ let result: (I64, File) = match file {
 Bidirectional checking **helps** dependent types. When you write:
 
 ```orion
-let v: Vec[I64, 8] = ...
+let v: Vec[i64, 8] = ...
 ```
 
-The expected type `Vec[I64, 8]` flows down, so the RHS knows both the element type *and* the size parameter. Without bidirectional checking, we'd need to infer the size from the expression, which is harder.
+The expected type `Vec[i64, 8]` flows down, so the RHS knows both the element type *and* the size parameter. Without bidirectional checking, we'd need to infer the size from the expression, which is harder.
 
 Checking mode validates that value parameters match:
 
 ```orion
-let v: Vec[I64, 8] = make_vec[I64, 4]()  // Error: 8 != 4
+let v: Vec[i64, 8] = make_vec[i64, 4]()  // Error: 8 != 4
 ```
 
 ### Linear Types
@@ -83,7 +83,7 @@ The conversion *consumes* the original value. For linear types, this is correct 
 
 ```
 infer(expr) → Type                    // Synthesis: what type does this have?
-check(expr, expected) → Bool/Error    // Checking: does this match expected type?
+check(expr, expected) → bool/Error    // Checking: does this match expected type?
 ```
 
 ### Mode Selection Rules
@@ -97,7 +97,7 @@ check(expr, expected) → Bool/Error    // Checking: does this match expected ty
 | `if c { a } else { b }` | infer both, unify | Or check both against expected if available |
 | `match x { arms }` | check each arm against expected | Expected type flows into all arms |
 | `(a, b, c)` | check elements against expected tuple element types | Tuple type flows into elements |
-| Integer literal | adopt expected type if compatible | `42` becomes I64 if expected |
+| Integer literal | adopt expected type if compatible | `42` becomes i64 if expected |
 | String literal | check for StringLike instance | `"hi"` becomes Rope if StringLike[Rope] exists |
 
 ### Subsumption and Conversion
@@ -113,7 +113,7 @@ When checking `check(expr, expected)`:
 ### Conversion Priority
 
 1. Exact match (no conversion)
-2. Primitive widening (I32 → I64, etc.)
+2. Primitive widening (i32 → i64, etc.)
 3. Typeclass-based conversion (StringLike, Into, etc.)
 4. Error
 
@@ -147,7 +147,7 @@ When checking `check(expr, expected)`:
 **Goal:** Declared types flow into initializers.
 
 ```orion
-let x: I64 = 42  // 42 checks against I64
+let x: i64 = 42  // 42 checks against i64
 ```
 
 1. In `generateStatement` for `.var_decl`:
@@ -167,8 +167,8 @@ let x: I64 = 42  // 42 checks against I64
 **Goal:** Parameter types flow into arguments.
 
 ```orion
-fn foo(x: I64) { ... }
-foo(42)  // 42 checks against I64
+fn foo(x: i64) { ... }
+foo(42)  // 42 checks against i64
 ```
 
 1. Look up function signature before generating args
@@ -179,8 +179,8 @@ foo(42)  // 42 checks against I64
 **Goal:** Return type flows into returned expression.
 
 ```orion
-fn bar() I64 {
-  return 42  // 42 checks against I64
+fn bar() i64 {
+  return 42  // 42 checks against i64
 }
 ```
 
@@ -192,9 +192,9 @@ fn bar() I64 {
 **Goal:** Expected type flows into all arms, eliminating post-hoc conversion.
 
 ```orion
-let x: (I64, File) = match file {
+let x: (i64, File) = match file {
   Open(fd) => (bytes, Open(fd)),
-  Closed => (0, Closed)  // checks against (I64, File)
+  Closed => (0, Closed)  // checks against (i64, File)
 }
 ```
 
@@ -207,7 +207,7 @@ let x: (I64, File) = match file {
 **Goal:** Expected element types flow into tuple elements.
 
 ```orion
-let t: (I64, str) = (42, "hello")
+let t: (i64, str) = (42, "hello")
 ```
 
 1. If expected type is tuple, destructure it
@@ -257,12 +257,12 @@ let r: Rope = "hello"  // Desugars to Rope.from_str("hello")
 **Goal:** Value parameters validated during checking.
 
 ```orion
-let v: Vec[I64, 8] = make_vec[I64, n]()  // Check n == 8
+let v: Vec[i64, 8] = make_vec[i64, n]()  // Check n == 8
 ```
 
 1. When checking against dependent type, extract value parameters
 2. Compare value parameters for equality (or unify if variables)
-3. Report clear errors on mismatch: "expected Vec[I64, 8], got Vec[I64, 4]"
+3. Report clear errors on mismatch: "expected Vec[i64, 8], got Vec[i64, 4]"
 
 ### Phase 9: Cleanup
 
@@ -279,20 +279,20 @@ Each phase should have tests:
 
 ```orion
 // Phase 2: Let bindings
-let a: I64 = 42
-let b: I32 = 42
-let c: U8 = 255
+let a: i64 = 42
+let b: i32 = 42
+let c: u8 = 255
 
 // Phase 3: Function calls
-fn takes_i64(x: I64) I64 { return x }
-let r: I64 = takes_i64(42)
+fn takes_i64(x: i64) i64 { return x }
+let r: i64 = takes_i64(42)
 
 // Phase 4: Return
-fn returns_i64() I64 { return 42 }
+fn returns_i64() i64 { return 42 }
 
 // Phase 5: Match
-type Option = | Some(I64) | None
-fn unwrap_or(opt: Option, default: I64) I64 {
+type Option = | Some(i64) | None
+fn unwrap_or(opt: Option, default: i64) i64 {
   return match opt {
     Some(x) => x,
     None => default
@@ -300,13 +300,13 @@ fn unwrap_or(opt: Option, default: I64) I64 {
 }
 
 // Phase 6: Tuples
-let t: (I64, I64) = (1, 2)
+let t: (i64, i64) = (1, 2)
 
 // Phase 7: StringLike
 let r: Rope = "hello"
 
 // Phase 8: Dependent types
-let v: Vec[I64, 8] = Vec[I64, 8].new()
+let v: Vec[i64, 8] = Vec[i64, 8].new()
 ```
 
 ### Regression Tests
@@ -343,13 +343,13 @@ let converted: OtherType = linear_thing  // Should consume linear_thing
 1. **Should we allow ambiguous conversions?** If both `StringLike[T]` and `Into[str, T]` exist, which wins?
    - Proposal: Error on ambiguity, require explicit conversion
 
-2. **How deep does checking propagate?** For `let x: Vec[I64, 8] = vec_of_ints`, do we check element types?
+2. **How deep does checking propagate?** For `let x: Vec[i64, 8] = vec_of_ints`, do we check element types?
    - Proposal: Start shallow, deepen as needed
 
-3. **Interaction with type inference for generics?** If `fn id[T](x: T) T`, does `id(42)` infer T=I32 or adopt from context?
+3. **Interaction with type inference for generics?** If `fn id[T](x: T) T`, does `id(42)` infer T=i32 or adopt from context?
    - Proposal: Context wins if available, otherwise infer
 
-4. **Dependent type unification:** When checking `Vec[T, n]` against `Vec[I64, 8]`, do we unify T=I64 and n=8?
+4. **Dependent type unification:** When checking `Vec[T, n]` against `Vec[i64, 8]`, do we unify T=i64 and n=8?
    - Proposal: Yes, this enables inference of type/value parameters from context
 
 ## References

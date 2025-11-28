@@ -6,75 +6,75 @@ import std.mem
 // depending on their specific semantics (e.g., returning updated state)
 
 class Allocator {
-  alloc: fn(Self, U64) ptr;
+  alloc: fn(Self, u64) ptr;
   free: fn(Self, ptr) ();
-  realloc: fn(Self, ptr, U64) Bool;
-  remap: fn(Self, ptr, U64) ptr;
+  realloc: fn(Self, ptr, u64) bool;
+  remap: fn(Self, ptr, u64) ptr;
 }
 
 // System calls for memory management
 extern "C" {
-  fn mmap(addr: ptr, length: U64, prot: I32, flags: I32, fd: I32, offset: I64) ptr;
-  fn munmap(addr: ptr, length: U64) I32;
+  fn mmap(addr: ptr, length: u64, prot: i32, flags: i32, fd: i32, offset: i64) ptr;
+  fn munmap(addr: ptr, length: u64) i32;
 }
 
 // mmap constants
 // PROT flags
-// var PROT_READ: I32 = 1
-// var PROT_WRITE: I32 = 2
+// var PROT_READ: i32 = 1
+// var PROT_WRITE: i32 = 2
 // MAP flags
-// var MAP_PRIVATE: I32 = 2
-// var MAP_ANONYMOUS: I32 = 32
+// var MAP_PRIVATE: i32 = 2
+// var MAP_ANONYMOUS: i32 = 32
 
 // Page allocator - allocates memory in page-sized chunks using mmap
 // Each allocation is independent and can be freed with munmap
 type PageAllocator = {
-  page_size: U64,  // Standard page size (4096)
+  page_size: u64,  // Standard page size (4096)
 }
 
 instance Allocator[PageAllocator] {
-  alloc = fn(self: PageAllocator, num_pages: U64) ptr {
+  alloc = fn(self: PageAllocator, num_pages: u64) ptr {
     unsafe {
       var pa: PageAllocator = self
 
       // Calculate total size to allocate
-      var total_size: U64 = num_pages * pa.page_size
+      var total_size: u64 = num_pages * pa.page_size
 
       // mmap(NULL, length, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)
       // Use @int_to_ptr to create NULL pointer
-      var null_addr: U64 = 0
+      var null_addr: u64 = 0
       var addr: ptr = @int_to_ptr(null_addr)
-      var prot: I32 = 3  // PROT_READ | PROT_WRITE
-      var flags: I32 = 34  // MAP_PRIVATE | MAP_ANONYMOUS
-      var fd: I32 = -1
-      var offset: I64 = 0
+      var prot: i32 = 3  // PROT_READ | PROT_WRITE
+      var flags: i32 = 34  // MAP_PRIVATE | MAP_ANONYMOUS
+      var fd: i32 = -1
+      var offset: i64 = 0
 
       var ptr: ptr = mmap(addr, total_size, prot, flags, fd, offset)
       return ptr
     }
   }
 
-  free = fn(self: PageAllocator, ptr: ptr, num_pages: U64) () {
+  free = fn(self: PageAllocator, ptr: ptr, num_pages: u64) () {
     unsafe {
       var pa: PageAllocator = self
-      var total_size: U64 = num_pages * pa.page_size
-      var result: I32 = munmap(ptr, total_size)
+      var total_size: u64 = num_pages * pa.page_size
+      var result: i32 = munmap(ptr, total_size)
       return ()
     }
   }
 
-  realloc = fn(self: PageAllocator, ptr: ptr, new_size: U64) Bool {
+  realloc = fn(self: PageAllocator, ptr: ptr, new_size: u64) bool {
     // PageAllocator doesn't support in-place realloc
     return false
   }
 
-  remap = fn(self: PageAllocator, ptr: ptr, old_pages: U64, new_pages: U64) ptr {
+  remap = fn(self: PageAllocator, ptr: ptr, old_pages: u64, new_pages: u64) ptr {
     unsafe {
       let pa: PageAllocator = self
       // Allocate new mapping
       let new_ptr: ptr = pa.alloc(new_pages)
       // Copy old data to new_ptr
-      let old_size: U64 = old_pages * pa.page_size
+      let old_size: u64 = old_pages * pa.page_size
       memcpy(new_ptr, ptr, old_size)
       // Free old mapping
       pa.free(ptr, old_pages)
@@ -88,34 +88,34 @@ instance Allocator[PageAllocator] {
 type Arena = {
   parent: PageAllocator,  // Backing allocator
   buffer: ptr,
-  capacity: U64,
-  used: U64,
-  allocated_pages: U64,  // Number of pages allocated for buffer
+  capacity: u64,
+  used: u64,
+  allocated_pages: u64,  // Number of pages allocated for buffer
 }
 
 instance Allocator[Arena] {
-  alloc = fn(self: Arena, size: U64) (ptr, Arena) {
+  alloc = fn(self: Arena, size: u64) (ptr, Arena) {
     unsafe {
       var arena: Arena = self
 
       // Check if we need to grow the arena
-      var new_used: U64 = arena.used + size
-      var needs_grow: Bool = new_used > arena.capacity
+      var new_used: u64 = arena.used + size
+      var needs_grow: bool = new_used > arena.capacity
 
       // Handle arena growth
       var arena_updated: Arena = arena
       if needs_grow {
         // Allocate more pages from parent
         // Calculate how many pages we need for new total capacity
-        let page_size: U64 = arena.parent.page_size
-        let total_pages_needed: U64 = (new_used + page_size - 1) / page_size  // Round up
+        let page_size: u64 = arena.parent.page_size
+        let total_pages_needed: u64 = (new_used + page_size - 1) / page_size  // Round up
 
         // Allocate from parent
         let new_buffer: ptr = arena.parent.alloc(total_pages_needed)
-        let new_capacity: U64 = total_pages_needed * page_size
+        let new_capacity: u64 = total_pages_needed * page_size
 
         // Copy old data to new buffer if we had data
-        let has_old_data: Bool = arena.used > 0
+        let has_old_data: bool = arena.used > 0
         if has_old_data {
           let copy_result: () = memcpy(new_buffer, arena.buffer, arena.used)
           // Free old buffer
@@ -153,12 +153,12 @@ instance Allocator[Arena] {
     return ()
   }
 
-  realloc = fn(self: Arena, ptr: ptr, new_size: U64) Bool {
+  realloc = fn(self: Arena, ptr: ptr, new_size: u64) bool {
     // Arena doesn't support in-place realloc
     return false
   }
 
-  remap = fn(self: Arena, old_ptr: ptr, new_size: U64) ptr {
+  remap = fn(self: Arena, old_ptr: ptr, new_size: u64) ptr {
     // Arena can't remap
     unsafe {
       var arena: Arena = self
@@ -169,9 +169,9 @@ instance Allocator[Arena] {
 
 // General purpose allocator - maintains free list
 // Uses first-fit allocation strategy with simple free list
-// Block layout: [size: U64][next: ptr][user data...]
+// Block layout: [size: u64][next: ptr][user data...]
 type FreeBlock = {
-  size: U64,
+  size: u64,
   next: ptr,
 }
 
@@ -183,14 +183,14 @@ type GeneralPurposeAllocator = {
 }
 
 instance Allocator[GeneralPurposeAllocator] {
-  alloc = fn(self: GeneralPurposeAllocator, size: U64) (ptr, GeneralPurposeAllocator) {
+  alloc = fn(self: GeneralPurposeAllocator, size: u64) (ptr, GeneralPurposeAllocator) {
     unsafe {
       var gpa: GeneralPurposeAllocator = self
-      var header_size: U64 = 16  // Size of FreeBlock header
-      var total_size: U64 = size + header_size
+      var header_size: u64 = 16  // Size of FreeBlock header
+      var total_size: u64 = size + header_size
 
       // Search free list for first-fit block
-      let null_addr: U64 = 0
+      let null_addr: u64 = 0
       let null_ptr: ptr = @int_to_ptr(null_addr)
       var current: ptr = gpa.free_list
       var prev: ptr = null_ptr
@@ -201,8 +201,8 @@ instance Allocator[GeneralPurposeAllocator] {
 
       // Linear search through entire free list
       while current != null_ptr {
-        let block_size: U64 = @ptr_read(current, @type(U64))
-        let fits: Bool = block_size >= total_size
+        let block_size: u64 = @ptr_read(current, @type(u64))
+        let fits: bool = block_size >= total_size
 
         if fits {
           found_block = current
@@ -244,8 +244,8 @@ instance Allocator[GeneralPurposeAllocator] {
       } else {
         // No free block found, allocate from parent
         // Calculate how many pages we need
-        let page_size: U64 = gpa.parent.page_size
-        let pages_needed: U64 = (total_size + page_size - 1) / page_size  // Round up
+        let page_size: u64 = gpa.parent.page_size
+        let pages_needed: u64 = (total_size + page_size - 1) / page_size  // Round up
 
         let new_block: ptr = gpa.parent.alloc(pages_needed)
 
@@ -265,13 +265,13 @@ instance Allocator[GeneralPurposeAllocator] {
   free = fn(self: GeneralPurposeAllocator, ptr: ptr) GeneralPurposeAllocator {
     unsafe {
       var gpa: GeneralPurposeAllocator = self
-      var header_size: U64 = 16
+      var header_size: u64 = 16
 
       // Get block header by going backwards from user pointer
       // Convert ptr to int, subtract header size, convert back to ptr
-      var ptr_as_int: U64 = @ptr_to_int(ptr)
-      var header_size_as_int: U64 = 16
-      var block_start_int: U64 = ptr_as_int - header_size_as_int
+      var ptr_as_int: u64 = @ptr_to_int(ptr)
+      var header_size_as_int: u64 = 16
+      var block_start_int: u64 = ptr_as_int - header_size_as_int
       var block_start: ptr = @int_to_ptr(block_start_int)
 
       // Read current free list head
@@ -291,23 +291,23 @@ instance Allocator[GeneralPurposeAllocator] {
     }
   }
 
-  realloc = fn(self: GeneralPurposeAllocator, ptr: ptr, new_size: U64) Bool {
+  realloc = fn(self: GeneralPurposeAllocator, ptr: ptr, new_size: u64) bool {
     // Try to expand in-place
     // For bootstrap, always return false (not supported yet)
     return false
   }
 
-  remap = fn(self: GeneralPurposeAllocator, ptr: ptr, new_size: U64) (ptr, GeneralPurposeAllocator) {
+  remap = fn(self: GeneralPurposeAllocator, ptr: ptr, new_size: u64) (ptr, GeneralPurposeAllocator) {
     unsafe {
       let gpa: GeneralPurposeAllocator = self
 
       // Get old block size from header
-      let ptr_as_int: U64 = @ptr_to_int(ptr)
-      let header_size: U64 = 16
-      let block_start_int: U64 = ptr_as_int - header_size
+      let ptr_as_int: u64 = @ptr_to_int(ptr)
+      let header_size: u64 = 16
+      let block_start_int: u64 = ptr_as_int - header_size
       let block_start: ptr = @int_to_ptr(block_start_int)
-      let old_total_size: U64 = @ptr_read(block_start, @type(U64))
-      let old_size: U64 = old_total_size - header_size
+      let old_total_size: u64 = @ptr_read(block_start, @type(u64))
+      let old_size: u64 = old_total_size - header_size
 
       // Allocate new block
       let alloc_result: (ptr, GeneralPurposeAllocator) = gpa.alloc(new_size)
@@ -315,7 +315,7 @@ instance Allocator[GeneralPurposeAllocator] {
       let gpa2: GeneralPurposeAllocator = alloc_result.1
 
       // Copy old data to new location
-      let copy_size: U64 = if old_size < new_size { old_size } else { new_size }
+      let copy_size: u64 = if old_size < new_size { old_size } else { new_size }
       memcpy(new_ptr, ptr, copy_size)
 
       // Free old block
@@ -333,7 +333,7 @@ instance Allocator[GeneralPurposeAllocator] {
 // Arena starts with zero capacity and grows on demand
 fn arena_create(parent_alloc: PageAllocator) Arena {
   // Start with no buffer, will allocate on first alloc
-  var null_addr: U64 = 0
+  var null_addr: u64 = 0
   var null_ptr: ptr = unsafe { @int_to_ptr(null_addr) }
 
   return Arena {
@@ -360,7 +360,7 @@ fn arena_reset(arena: Arena@4) Arena {
 fn arena_destroy(arena: Arena@?) () {
   unsafe {
     // Free the arena buffer if it was allocated
-    var has_buffer: Bool = arena.allocated_pages > 0
+    var has_buffer: bool = arena.allocated_pages > 0
     if has_buffer {
       arena.parent.free(arena.buffer, arena.allocated_pages)
     }
@@ -378,7 +378,7 @@ fn page_allocator_create() PageAllocator {
 }
 
 fn gpa_create(parent_alloc: PageAllocator) GeneralPurposeAllocator {
-  var null_addr: U64 = 0
+  var null_addr: u64 = 0
   var null_ptr: ptr = unsafe { @int_to_ptr(null_addr) }
 
   return GeneralPurposeAllocator {

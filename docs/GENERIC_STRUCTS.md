@@ -6,7 +6,7 @@ Currently, type parameters in struct definitions aren't substituted when instant
 
 ```orion
 type Box[T] = { value: T }
-let b: Box[I32] = Box[I32] { value: 42 }  // ERROR: T not substituted
+let b: Box[i32] = Box[i32] { value: 42 }  // ERROR: T not substituted
 ```
 
 The typedef stores `{ value: T }` literally, and `T` remains an unresolved named type.
@@ -177,19 +177,19 @@ Currently it only stores `Type`, losing the parameter names needed for substitut
 
 ```orion
 type Box[T] = { value: T }
-let b: Box[I32] = Box[I32] { value: 42 }
+let b: Box[i32] = Box[i32] { value: 42 }
 ```
 
 1. **Parse**: `TypeDef{ name: "Box", params: [{name: "T", kind: .type_param}], type_value: {value: T} }`
 
 2. **Store**: `type_defs["Box"] = { params: [T], type_value: {value: T} }`
 
-3. **Resolve `Box[I32]`**:
+3. **Resolve `Box[i32]`**:
    - Look up "Box" → get typedef with params [T]
-   - Build substitution: `{T: I32}`
-   - Apply to `{value: T}` → `{value: I32}`
+   - Build substitution: `{T: i32}`
+   - Apply to `{value: T}` → `{value: i32}`
 
-4. **Type check**: Field `value` expects `I32`, literal `42` fits ✓
+4. **Type check**: Field `value` expects `i32`, literal `42` fits ✓
 
 ## Codegen Changes
 
@@ -213,21 +213,21 @@ The `mangledTypeName` already handles dependent types for naming, but field type
 ```orion
 // Basic generic struct
 type Box[T] = { value: T }
-let b: Box[I32] = Box[I32] { value: 42 }
+let b: Box[i32] = Box[i32] { value: 42 }
 assert(b.value == 42)
 
 // Multiple type params
 type Pair[A, B] = { first: A, second: B }
-let p: Pair[I32, Bool] = Pair[I32, Bool] { first: 1, second: true }
+let p: Pair[i32, bool] = Pair[i32, bool] { first: 1, second: true }
 
 // Nested generics
 type Wrapper[T] = { inner: Box[T] }
-let w: Wrapper[I64] = Wrapper[I64] { inner: Box[I64] { value: 100 } }
+let w: Wrapper[i64] = Wrapper[i64] { inner: Box[i64] { value: 100 } }
 
 // Generic with value param
-type Array[T, n: U64] = { data: ptr, len: U64 }
+type Array[T, n: u64] = { data: ptr, len: u64 }
 
 // Generic sum type
 type Option[T] = Some(T) | None
-let x: Option[I32] = Some(42)
+let x: Option[i32] = Some(42)
 ```
