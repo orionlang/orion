@@ -535,7 +535,6 @@ if_then252:
   %.t264 = extractvalue { ptr, i64, i64, i64 } %.t263, 1
   %.t265 = call i8 @str__char_at(ptr %.t262, i64 %.t264)
   ret i8 %.t265
-  br label %if_end254
 if_end254:
   ret i8 255
 }
@@ -564,7 +563,6 @@ if_then266:
   %.t282 = add i64 %.t280, %.t281
   %.t283 = call i8 @str__char_at(ptr %.t278, i64 %.t282)
   ret i8 %.t283
-  br label %if_end268
 if_end268:
   ret i8 255
 }
@@ -583,7 +581,6 @@ entry:
 if_then286:
   %.t291 = load { ptr, i64, i64, i64 }, ptr %lexer.addr
   ret { ptr, i64, i64, i64 } %.t291
-  br label %if_end288
 if_end288:
   %.t295 = load i8, ptr %c
   %.t296 = icmp eq i8 %.t295, 10
@@ -602,7 +599,6 @@ if_then292:
   %.t307 = insertvalue { ptr, i64, i64, i64 } %.t303, i64 %.t306, 2
   %.t308 = insertvalue { ptr, i64, i64, i64 } %.t307, i64 0, 3
   ret { ptr, i64, i64, i64 } %.t308
-  br label %if_end294
 if_else293:
   %.t309 = load { ptr, i64, i64, i64 }, ptr %lexer.addr
   %.t310 = extractvalue { ptr, i64, i64, i64 } %.t309, 0
@@ -619,8 +615,6 @@ if_else293:
   %.t321 = add i64 %.t320, 1
   %.t322 = insertvalue { ptr, i64, i64, i64 } %.t318, i64 %.t321, 3
   ret { ptr, i64, i64, i64 } %.t322
-  br label %if_end294
-if_end294:
 }
 
 define { ptr, i64, i64, i64 } @skip_whitespace({ ptr, i64, i64, i64 } %lexer) {
@@ -637,7 +631,6 @@ entry:
 if_then325:
   %.t330 = load { ptr, i64, i64, i64 }, ptr %lexer.addr
   ret { ptr, i64, i64, i64 } %.t330
-  br label %if_end327
 if_end327:
   %.t331 = load i8, ptr %c
   %.t332 = icmp eq i8 %.t331, 32
@@ -659,7 +652,6 @@ if_then342:
   %.t347 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t346)
   %.t348 = call { ptr, i64, i64, i64 } @skip_whitespace({ ptr, i64, i64, i64 } %.t347)
   ret { ptr, i64, i64, i64 } %.t348
-  br label %if_end344
 if_end344:
   %.t352 = load i8, ptr %c
   %.t353 = icmp eq i8 %.t352, 47
@@ -702,13 +694,9 @@ while_exit368:
   %.t378 = load { ptr, i64, i64, i64 }, ptr %l
   %.t379 = call { ptr, i64, i64, i64 } @skip_whitespace({ ptr, i64, i64, i64 } %.t378)
   ret { ptr, i64, i64, i64 } %.t379
-  br label %if_end358
 if_else357:
   %.t380 = load { ptr, i64, i64, i64 }, ptr %lexer.addr
   ret { ptr, i64, i64, i64 } %.t380
-  br label %if_end358
-if_end358:
-  br label %if_end351
 if_end351:
   %.t381 = load { ptr, i64, i64, i64 }, ptr %lexer.addr
   ret { ptr, i64, i64, i64 } %.t381
@@ -749,7 +737,6 @@ if_then390:
   %.t403 = load { ptr, i64, i64, i64 }, ptr %l
   %.t404 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t402, { ptr, i64, i64, i64 } %.t403, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t404
-  br label %if_end392
 if_end392:
   %.t408 = load i8, ptr %c
   %.t409 = icmp eq i8 %.t408, 40
@@ -767,7 +754,6 @@ if_then405:
   %.t419 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t418)
   %.t420 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t417, { ptr, i64, i64, i64 } %.t419, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t420
-  br label %if_end407
 if_else406:
   %.t424 = load i8, ptr %c
   %.t425 = icmp eq i8 %.t424, 41
@@ -785,7 +771,6 @@ if_then421:
   %.t435 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t434)
   %.t436 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t433, { ptr, i64, i64, i64 } %.t435, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t436
-  br label %if_end423
 if_else422:
   %.t440 = load i8, ptr %c
   %.t441 = icmp eq i8 %.t440, 91
@@ -803,7 +788,6 @@ if_then437:
   %.t451 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t450)
   %.t452 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t449, { ptr, i64, i64, i64 } %.t451, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t452
-  br label %if_end439
 if_else438:
   %.t456 = load i8, ptr %c
   %.t457 = icmp eq i8 %.t456, 93
@@ -821,7 +805,6 @@ if_then453:
   %.t467 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t466)
   %.t468 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t465, { ptr, i64, i64, i64 } %.t467, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t468
-  br label %if_end455
 if_else454:
   %.t472 = load i8, ptr %c
   %.t473 = icmp eq i8 %.t472, 123
@@ -839,7 +822,6 @@ if_then469:
   %.t483 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t482)
   %.t484 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t481, { ptr, i64, i64, i64 } %.t483, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t484
-  br label %if_end471
 if_else470:
   %.t488 = load i8, ptr %c
   %.t489 = icmp eq i8 %.t488, 125
@@ -857,7 +839,6 @@ if_then485:
   %.t499 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t498)
   %.t500 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t497, { ptr, i64, i64, i64 } %.t499, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t500
-  br label %if_end487
 if_else486:
   %.t504 = load i8, ptr %c
   %.t505 = icmp eq i8 %.t504, 59
@@ -875,7 +856,6 @@ if_then501:
   %.t515 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t514)
   %.t516 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t513, { ptr, i64, i64, i64 } %.t515, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t516
-  br label %if_end503
 if_else502:
   %.t520 = load i8, ptr %c
   %.t521 = icmp eq i8 %.t520, 44
@@ -893,7 +873,6 @@ if_then517:
   %.t531 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t530)
   %.t532 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t529, { ptr, i64, i64, i64 } %.t531, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t532
-  br label %if_end519
 if_else518:
   %.t536 = load i8, ptr %c
   %.t537 = icmp eq i8 %.t536, 46
@@ -911,7 +890,6 @@ if_then533:
   %.t547 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t546)
   %.t548 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t545, { ptr, i64, i64, i64 } %.t547, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t548
-  br label %if_end535
 if_else534:
   %.t552 = load i8, ptr %c
   %.t553 = icmp eq i8 %.t552, 58
@@ -929,7 +907,6 @@ if_then549:
   %.t563 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t562)
   %.t564 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t561, { ptr, i64, i64, i64 } %.t563, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t564
-  br label %if_end551
 if_else550:
   %.t565 = insertvalue { i64, [8 x i8] } undef, i64 52, 0
   %.t566 = insertvalue { { i64, [8 x i8] }, ptr, i64, i64 } undef, { i64, [8 x i8] } %.t565, 0
@@ -943,26 +920,6 @@ if_else550:
   %.t574 = call { ptr, i64, i64, i64 } @advance({ ptr, i64, i64, i64 } %.t573)
   %.t575 = insertvalue { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t572, { ptr, i64, i64, i64 } %.t574, 1
   ret { { { i64, [8 x i8] }, ptr, i64, i64 }, { ptr, i64, i64, i64 } } %.t575
-  br label %if_end551
-if_end551:
-  br label %if_end535
-if_end535:
-  br label %if_end519
-if_end519:
-  br label %if_end503
-if_end503:
-  br label %if_end487
-if_end487:
-  br label %if_end471
-if_end471:
-  br label %if_end455
-if_end455:
-  br label %if_end439
-if_end439:
-  br label %if_end423
-if_end423:
-  br label %if_end407
-if_end407:
 }
 
 

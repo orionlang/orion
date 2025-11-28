@@ -1040,24 +1040,41 @@ pub const Codegen = struct {
                 // Then block
                 try self.output.writer(self.allocator).print("{s}:\n", .{then_label});
                 try self.setCurrentBlock(then_label);
-                for (if_stmt.then_stmts) |*then_stmt| {
-                    try self.generateStatement(then_stmt, return_type);
-                }
-                try self.output.writer(self.allocator).print("  br label %{s}\n", .{end_label});
-
-                // Else block (if present)
-                if (if_stmt.else_stmts) |else_stmts| {
-                    try self.output.writer(self.allocator).print("{s}:\n", .{else_label});
-                    try self.setCurrentBlock(else_label);
-                    for (else_stmts) |*else_stmt| {
-                        try self.generateStatement(else_stmt, return_type);
+                const then_terminated = blk: {
+                    self.block_terminated = false; // Reset for then block
+                    for (if_stmt.then_stmts) |*then_stmt| {
+                        try self.generateStatement(then_stmt, return_type);
                     }
+                    break :blk self.block_terminated;
+                };
+                // Only branch to end if block wasn't terminated (e.g., by return)
+                if (!then_terminated) {
                     try self.output.writer(self.allocator).print("  br label %{s}\n", .{end_label});
                 }
 
-                // End block
-                try self.output.writer(self.allocator).print("{s}:\n", .{end_label});
-                try self.setCurrentBlock(end_label);
+                // Else block (if present)
+                var else_terminated = false;
+                if (if_stmt.else_stmts) |else_stmts| {
+                    try self.output.writer(self.allocator).print("{s}:\n", .{else_label});
+                    try self.setCurrentBlock(else_label);
+                    self.block_terminated = false; // Reset for else block
+                    for (else_stmts) |*else_stmt| {
+                        try self.generateStatement(else_stmt, return_type);
+                    }
+                    else_terminated = self.block_terminated;
+                    // Only branch to end if block wasn't terminated
+                    if (!else_terminated) {
+                        try self.output.writer(self.allocator).print("  br label %{s}\n", .{end_label});
+                    }
+                }
+
+                // End block - only needed if at least one path reaches here
+                if (!then_terminated or !else_terminated) {
+                    try self.output.writer(self.allocator).print("{s}:\n", .{end_label});
+                    try self.setCurrentBlock(end_label);
+                    // Both branches terminated means we won't reach here
+                    self.block_terminated = then_terminated and else_terminated and (if_stmt.else_stmts != null);
+                }
 
                 // Clean up labels
                 self.allocator.free(then_label);
