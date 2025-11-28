@@ -1,0 +1,157 @@
+// Option type for representing optional values
+// Used when a value may or may not be present
+
+// Option[T] - either Some(value) or None
+pub type Option[T] = | Some(T) | None
+
+// OptionOps typeclass for Option operations
+// Note: instances define concrete types; class just documents the interface
+class OptionOps {
+  is_some: fn(Self) bool;
+  is_none: fn(Self) bool;
+}
+
+// We need concrete instances since Orion doesn't have fully generic instances yet
+// Instance for Option[i64]
+instance OptionOps[Option[i64]] {
+  is_some = fn(opt: Option[i64]) bool {
+    return match opt {
+      Some(_) => true,
+      None => false
+    }
+  }
+
+  is_none = fn(opt: Option[i64]) bool {
+    return match opt {
+      Some(_) => false,
+      None => true
+    }
+  }
+
+  unwrap_or = fn(opt: Option[i64], fallback: i64) i64 {
+    return match opt {
+      Some(v) => v,
+      None => fallback
+    }
+  }
+}
+
+// Instance for Option[u64]
+instance OptionOps[Option[u64]] {
+  is_some = fn(opt: Option[u64]) bool {
+    return match opt {
+      Some(_) => true,
+      None => false
+    }
+  }
+
+  is_none = fn(opt: Option[u64]) bool {
+    return match opt {
+      Some(_) => false,
+      None => true
+    }
+  }
+
+  unwrap_or = fn(opt: Option[u64], fallback: u64) u64 {
+    return match opt {
+      Some(v) => v,
+      None => fallback
+    }
+  }
+}
+
+// Instance for Option[u8]
+instance OptionOps[Option[u8]] {
+  is_some = fn(opt: Option[u8]) bool {
+    return match opt {
+      Some(_) => true,
+      None => false
+    }
+  }
+
+  is_none = fn(opt: Option[u8]) bool {
+    return match opt {
+      Some(_) => false,
+      None => true
+    }
+  }
+
+  unwrap_or = fn(opt: Option[u8], fallback: u8) u8 {
+    return match opt {
+      Some(v) => v,
+      None => fallback
+    }
+  }
+}
+
+// Instance for Option[ptr]
+instance OptionOps[Option[ptr]] {
+  is_some = fn(opt: Option[ptr]) bool {
+    return match opt {
+      Some(_) => true,
+      None => false
+    }
+  }
+
+  is_none = fn(opt: Option[ptr]) bool {
+    return match opt {
+      Some(_) => false,
+      None => true
+    }
+  }
+
+  unwrap_or = fn(opt: Option[ptr], fallback: ptr) ptr {
+    return match opt {
+      Some(v) => v,
+      None => fallback
+    }
+  }
+}
+
+// Instance for Option[str]
+instance OptionOps[Option[str]] {
+  is_some = fn(opt: Option[str]) bool {
+    return match opt {
+      Some(_) => true,
+      None => false
+    }
+  }
+
+  is_none = fn(opt: Option[str]) bool {
+    return match opt {
+      Some(_) => false,
+      None => true
+    }
+  }
+
+  unwrap_or = fn(opt: Option[str], fallback: str) str {
+    return match opt {
+      Some(v) => v,
+      None => fallback
+    }
+  }
+}
+
+// Instance for Option[bool]
+instance OptionOps[Option[bool]] {
+  is_some = fn(opt: Option[bool]) bool {
+    return match opt {
+      Some(_) => true,
+      None => false
+    }
+  }
+
+  is_none = fn(opt: Option[bool]) bool {
+    return match opt {
+      Some(_) => false,
+      None => true
+    }
+  }
+
+  unwrap_or = fn(opt: Option[bool], fallback: bool) bool {
+    return match opt {
+      Some(v) => v,
+      None => fallback
+    }
+  }
+}

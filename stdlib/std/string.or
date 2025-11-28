@@ -5,16 +5,21 @@ class StringLike {
   from_str: fn(str) Self;
 }
 
+import std.alloc
+import std.mem
+
 // String type class for string operations
 class String {
   len: fn(str) i64;
   at: fn(str, i64) u8;
-  slice: fn(str, i64, i64) str;
+  slice: fn(str, i64, i64, Arena) (str, Arena);
   is_empty: fn(str) bool;
   equals: fn(str, str) bool;
   starts_with: fn(str, str) bool;
   ends_with: fn(str, str) bool;
   find: fn(str, str) i64;
+  contains: fn(str, str) bool;
+  char_at: fn(str, i64) u8;
 }
 
 // String instance implementation for primitive str type
@@ -39,10 +44,39 @@ instance String[str] {
     }
   }
 
-  slice = fn(self: str, start: i64, end: i64) str {
-    // TODO: This needs memory allocation to create a new string
-    // For now, we can't implement this without malloc
-    return self
+  slice = fn(self: str, start: i64, end: i64, arena: Arena) (str, Arena) {
+    unsafe {
+      // Calculate slice length
+      let slice_len: i64 = end - start
+
+      // Handle empty or invalid slice
+      let is_invalid: bool = slice_len <= 0
+
+      return if is_invalid {
+        ("", arena)
+      } else {
+        // Convert i64 to u64 for allocation
+        let len_ptr: ptr = @int_to_ptr(slice_len)
+        let len_u64: u64 = @ptr_to_int(len_ptr)
+        let alloc_size: u64 = len_u64 + 1  // +1 for null terminator
+
+        // Allocate buffer
+        let alloc_result: (ptr, Arena) = arena.alloc(alloc_size)
+        let buffer: ptr = alloc_result.0
+        let arena2: Arena = alloc_result.1
+
+        // Copy slice data
+        let src: ptr = @ptr_offset(self, start)
+        let _: () = memcpy(buffer, src, len_u64)
+
+        // Null-terminate
+        let null_pos: ptr = @ptr_offset(buffer, len_u64)
+        let zero: u8 = 0
+        let _: () = @ptr_write(null_pos, zero)
+
+        (buffer, arena2)
+      }
+    }
   }
 
   is_empty = fn(self: str) bool {
@@ -190,5 +224,14 @@ instance String[str] {
 
       return result
     }
+  }
+
+  contains = fn(self: str, needle: str) bool {
+    let pos: i64 = self.find(needle)
+    return pos >= 0
+  }
+
+  char_at = fn(self: str, index: i64) u8 {
+    return self.at(index)
   }
 }

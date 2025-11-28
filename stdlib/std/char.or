@@ -1,0 +1,113 @@
+// Character classification and manipulation functions
+// Works with u8 representing ASCII characters
+
+// Check if character is an ASCII letter (a-z, A-Z)
+pub fn is_alpha(c: u8@4) bool {
+  let lower: bool = c >= 97 && c <= 122  // a-z (2 uses)
+  let upper: bool = c >= 65 && c <= 90   // A-Z (2 uses)
+  return lower || upper
+}
+
+// Check if character is an ASCII digit (0-9)
+pub fn is_digit(c: u8@2) bool {
+  return c >= 48 && c <= 57  // '0' = 48, '9' = 57
+}
+
+// Check if character is alphanumeric (letter or digit)
+pub fn is_alphanumeric(c: u8@2) bool {
+  return is_alpha(c) || is_digit(c)
+}
+
+// Check if character is ASCII whitespace (space, tab, newline, carriage return)
+pub fn is_whitespace(c: u8@4) bool {
+  let space: bool = c == 32      // ' '
+  let tab: bool = c == 9         // '\t'
+  let newline: bool = c == 10    // '\n'
+  let carriage: bool = c == 13   // '\r'
+  return space || tab || newline || carriage
+}
+
+// Check if character is a hexadecimal digit (0-9, a-f, A-F)
+pub fn is_hex_digit(c: u8@5) bool {
+  let digit: bool = is_digit(c)
+  let lower_hex: bool = c >= 97 && c <= 102  // a-f (2 uses)
+  let upper_hex: bool = c >= 65 && c <= 70   // A-F (2 uses)
+  return digit || lower_hex || upper_hex
+}
+
+// Check if character is an octal digit (0-7)
+pub fn is_octal_digit(c: u8@2) bool {
+  return c >= 48 && c <= 55  // '0' = 48, '7' = 55
+}
+
+// Check if character is a binary digit (0-1)
+pub fn is_binary_digit(c: u8@2) bool {
+  return c == 48 || c == 49  // '0' or '1'
+}
+
+// Check if character is ASCII punctuation
+pub fn is_punctuation(c: u8@8) bool {
+  let range1: bool = c >= 33 && c <= 47   // (2 uses)
+  let range2: bool = c >= 58 && c <= 64   // (2 uses)
+  let range3: bool = c >= 91 && c <= 96   // (2 uses)
+  let range4: bool = c >= 123 && c <= 126 // (2 uses)
+  return range1 || range2 || range3 || range4
+}
+
+// Check if character is printable ASCII (32-126)
+pub fn is_printable(c: u8@2) bool {
+  return c >= 32 && c <= 126
+}
+
+// Check if character is ASCII control character (0-31, 127)
+pub fn is_control(c: u8@2) bool {
+  return c < 32 || c == 127
+}
+
+// Check if character is uppercase letter (A-Z)
+pub fn is_upper(c: u8@2) bool {
+  return c >= 65 && c <= 90
+}
+
+// Check if character is lowercase letter (a-z)
+pub fn is_lower(c: u8@2) bool {
+  return c >= 97 && c <= 122
+}
+
+// Convert uppercase letter to lowercase (returns unchanged if not uppercase)
+pub fn to_lower(c: u8@3) u8 {
+  return if is_upper(c) { c + 32 } else { c }
+}
+
+// Convert lowercase letter to uppercase (returns unchanged if not lowercase)
+pub fn to_upper(c: u8@3) u8 {
+  return if is_lower(c) { c - 32 } else { c }
+}
+
+// Convert hex digit to its numeric value (0-15), returns 0 for invalid
+pub fn hex_to_int(c: u8@8) u8 {
+  return if is_digit(c) {
+    c - 48
+  } elseif c >= 97 && c <= 102 {
+    c - 97 + 10  // a-f
+  } elseif c >= 65 && c <= 70 {
+    c - 65 + 10  // A-F
+  } else {
+    0
+  }
+}
+
+// Convert digit character to its numeric value (0-9), returns 0 for invalid
+pub fn digit_to_int(c: u8@2) u8 {
+  return if is_digit(c) { c - 48 } else { 0 }
+}
+
+// Check if character could start an identifier (letter or underscore)
+pub fn is_ident_start(c: u8@2) bool {
+  return is_alpha(c) || c == 95  // '_' = 95
+}
+
+// Check if character could continue an identifier (letter, digit, or underscore)
+pub fn is_ident_continue(c: u8@2) bool {
+  return is_alphanumeric(c) || c == 95  // '_' = 95
+}

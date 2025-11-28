@@ -53,6 +53,9 @@ pub const Codegen = struct {
     // Track allocations from substituteTypeParams for cleanup
     substituted_types: std.ArrayList(*Type),
     substituted_fields: std.ArrayList([]parser.StructField),
+    substituted_type_slices: std.ArrayList([]*Type),
+    substituted_variants: std.ArrayList([]parser.SumTypeVariant),
+    substituted_type_params: std.ArrayList([]parser.TypeParam),
     // Concurrency: track coroutines
     needs_coro_intrinsics: bool,
     next_coro: usize,
@@ -83,6 +86,9 @@ pub const Codegen = struct {
             .ast = null,
             .substituted_types = .empty,
             .substituted_fields = .empty,
+            .substituted_type_slices = .empty,
+            .substituted_variants = .empty,
+            .substituted_type_params = .empty,
             .needs_coro_intrinsics = false,
             .next_coro = 0,
             .next_suspend = 0,
@@ -135,6 +141,21 @@ pub const Codegen = struct {
             self.allocator.free(fields);
         }
         self.substituted_fields.deinit(self.allocator);
+
+        for (self.substituted_type_slices.items) |slice| {
+            self.allocator.free(slice);
+        }
+        self.substituted_type_slices.deinit(self.allocator);
+
+        for (self.substituted_variants.items) |variants| {
+            self.allocator.free(variants);
+        }
+        self.substituted_variants.deinit(self.allocator);
+
+        for (self.substituted_type_params.items) |params| {
+            self.allocator.free(params);
+        }
+        self.substituted_type_params.deinit(self.allocator);
 
         self.deferred_coros.deinit(self.allocator);
         self.output.deinit(self.allocator);
@@ -585,6 +606,7 @@ pub const Codegen = struct {
             .tuple => |elems| {
                 // Recursively substitute in each element type
                 const new_elems = self.allocator.alloc(*Type, elems.len) catch return typ;
+                self.substituted_type_slices.append(self.allocator, new_elems) catch {};
                 for (elems, 0..) |elem, i| {
                     const new_type = self.allocator.create(Type) catch return typ;
                     self.substituted_types.append(self.allocator, new_type) catch {};
@@ -596,8 +618,10 @@ pub const Codegen = struct {
             .sum_type => |variants| {
                 // Recursively substitute in variant payload types
                 const new_variants = self.allocator.alloc(parser.SumTypeVariant, variants.len) catch return typ;
+                self.substituted_variants.append(self.allocator, new_variants) catch {};
                 for (variants, 0..) |variant, i| {
                     const new_payloads = self.allocator.alloc(*Type, variant.payload_types.len) catch return typ;
+                    self.substituted_type_slices.append(self.allocator, new_payloads) catch {};
                     for (variant.payload_types, 0..) |payload, j| {
                         const new_type = self.allocator.create(Type) catch return typ;
                         self.substituted_types.append(self.allocator, new_type) catch {};
@@ -614,6 +638,7 @@ pub const Codegen = struct {
             .dependent => |dep| {
                 // Recursively substitute in type_params
                 const new_type_params = self.allocator.alloc(parser.TypeParam, dep.type_params.len) catch return typ;
+                self.substituted_type_params.append(self.allocator, new_type_params) catch {};
                 for (dep.type_params, 0..) |param, i| {
                     switch (param) {
                         .concrete => |t| {
@@ -1781,17 +1806,19 @@ pub const Codegen = struct {
 
                 // Generate code for each arm
                 var arm_vals = try self.allocator.alloc([]const u8, match_expr.arms.len);
+                @memset(arm_vals, ""); // Initialize to empty to avoid freeing garbage on error
                 defer {
                     for (arm_vals) |val| {
-                        self.allocator.free(val);
+                        if (val.len > 0) self.allocator.free(val);
                     }
                     self.allocator.free(arm_vals);
                 }
 
                 var arm_end_blocks = try self.allocator.alloc([]const u8, match_expr.arms.len);
+                @memset(arm_end_blocks, ""); // Initialize to empty to avoid freeing garbage on error
                 defer {
                     for (arm_end_blocks) |block| {
-                        self.allocator.free(block);
+                        if (block.len > 0) self.allocator.free(block);
                     }
                     self.allocator.free(arm_end_blocks);
                 }
@@ -1826,11 +1853,34 @@ pub const Codegen = struct {
                                 // We need to extract the data field and access payloads at byte offsets
 
                                 if (constructor.bindings.len > 0) {
+                                    // Substitute type parameters if scrutinee is a dependent type
+                                    var payload_types_to_use = variant.payload_types;
+                                    var substituted_payloads: ?[]*Type = null;
+                                    defer if (substituted_payloads) |payloads| self.allocator.free(payloads);
+
+                                    if (scrutinee_type.kind == .dependent) {
+                                        const dep = scrutinee_type.kind.dependent;
+                                        var substitutions = self.buildSubstitutionMap(typedef_info, dep);
+                                        defer substitutions.deinit();
+
+                                        // Create substituted payload types
+                                        substituted_payloads = self.allocator.alloc(*Type, variant.payload_types.len) catch null;
+                                        if (substituted_payloads) |payloads| {
+                                            for (variant.payload_types, 0..) |payload_type, idx| {
+                                                const new_type = self.allocator.create(Type) catch continue;
+                                                self.substituted_types.append(self.allocator, new_type) catch {};
+                                                new_type.* = self.substituteTypeParams(payload_type.*, substitutions);
+                                                payloads[idx] = new_type;
+                                            }
+                                            payload_types_to_use = payloads;
+                                        }
+                                    }
+
                                     try self.extractPayloadsSequentially(
                                         scrutinee_type_str,
                                         scrutinee_val,
                                         constructor.bindings,
-                                        variant.payload_types,
+                                        payload_types_to_use,
                                     );
                                 }
                             }

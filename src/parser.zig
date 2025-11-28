@@ -1584,8 +1584,10 @@ pub const Parser = struct {
                     type_ptr.* = Type{ .kind = .{ .primitive = prim }, .usage = .once };
                     try type_params.append(self.allocator, .{ .concrete = type_ptr });
                 } else {
-                    // Type variable
-                    try type_params.append(self.allocator, .{ .variable = ident.lexeme });
+                    // Named type (user-defined type like Error, Vec, etc.)
+                    const type_ptr = try self.allocator.create(Type);
+                    type_ptr.* = Type{ .kind = .{ .named = ident.lexeme }, .usage = .once };
+                    try type_params.append(self.allocator, .{ .concrete = type_ptr });
                 }
                 return;
             }

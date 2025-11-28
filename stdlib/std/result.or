@@ -1,0 +1,135 @@
+// Result type for representing success or failure
+// Used for operations that can fail with an error
+
+// Result[T, E] - either Ok(value) or Err(error)
+pub type Result[T, E] = | Ok(T) | Err(E)
+
+// Common error type for string error messages
+pub type Error = | Error(str)
+
+// ResultOps typeclass for Result operations
+// Note: instances define concrete types; class just documents the interface
+class ResultOps {
+  is_ok: fn(Self) bool;
+  is_err: fn(Self) bool;
+}
+
+// Instance for Result[i64, Error]
+instance ResultOps[Result[i64, Error]] {
+  is_ok = fn(res: Result[i64, Error]) bool {
+    return match res {
+      Ok(_) => true,
+      Err(_) => false
+    }
+  }
+
+  is_err = fn(res: Result[i64, Error]) bool {
+    return match res {
+      Ok(_) => false,
+      Err(_) => true
+    }
+  }
+
+  unwrap_or = fn(res: Result[i64, Error], fallback: i64) i64 {
+    return match res {
+      Ok(v) => v,
+      Err(_) => fallback
+    }
+  }
+}
+
+// Instance for Result[u64, Error]
+instance ResultOps[Result[u64, Error]] {
+  is_ok = fn(res: Result[u64, Error]) bool {
+    return match res {
+      Ok(_) => true,
+      Err(_) => false
+    }
+  }
+
+  is_err = fn(res: Result[u64, Error]) bool {
+    return match res {
+      Ok(_) => false,
+      Err(_) => true
+    }
+  }
+
+  unwrap_or = fn(res: Result[u64, Error], fallback: u64) u64 {
+    return match res {
+      Ok(v) => v,
+      Err(_) => fallback
+    }
+  }
+}
+
+// Instance for Result[str, Error]
+instance ResultOps[Result[str, Error]] {
+  is_ok = fn(res: Result[str, Error]) bool {
+    return match res {
+      Ok(_) => true,
+      Err(_) => false
+    }
+  }
+
+  is_err = fn(res: Result[str, Error]) bool {
+    return match res {
+      Ok(_) => false,
+      Err(_) => true
+    }
+  }
+
+  unwrap_or = fn(res: Result[str, Error], fallback: str) str {
+    return match res {
+      Ok(v) => v,
+      Err(_) => fallback
+    }
+  }
+}
+
+// Instance for Result[ptr, Error]
+instance ResultOps[Result[ptr, Error]] {
+  is_ok = fn(res: Result[ptr, Error]) bool {
+    return match res {
+      Ok(_) => true,
+      Err(_) => false
+    }
+  }
+
+  is_err = fn(res: Result[ptr, Error]) bool {
+    return match res {
+      Ok(_) => false,
+      Err(_) => true
+    }
+  }
+
+  unwrap_or = fn(res: Result[ptr, Error], fallback: ptr) ptr {
+    return match res {
+      Ok(v) => v,
+      Err(_) => fallback
+    }
+  }
+}
+
+// Instance for Result[bool, Error]
+instance ResultOps[Result[bool, Error]] {
+  is_ok = fn(res: Result[bool, Error]) bool {
+    return match res {
+      Ok(_) => true,
+      Err(_) => false
+    }
+  }
+
+  is_err = fn(res: Result[bool, Error]) bool {
+    return match res {
+      Ok(_) => false,
+      Err(_) => true
+    }
+  }
+
+  unwrap_or = fn(res: Result[bool, Error], fallback: bool) bool {
+    return match res {
+      Ok(v) => v,
+      Err(_) => fallback
+    }
+  }
+}

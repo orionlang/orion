@@ -1,0 +1,177 @@
+// StringBuilder for efficient string construction
+// Uses an Arena allocator for memory management
+
+import std.alloc
+import std.mem
+
+// StringBuilder type - a growable buffer for building strings
+pub type StringBuilder = {
+  arena: Arena,     // Arena for allocations
+  data: ptr,        // Current buffer
+  len: u64,         // Current length (not including null terminator)
+  cap: u64,         // Current capacity
+}
+
+// Initial capacity for new StringBuilders
+fn initial_capacity() u64 {
+  return 64
+}
+
+// C stdlib for realloc when we need to grow beyond arena
+extern "C" {
+  fn realloc(p: ptr, size: u64) ptr;
+}
+
+// StringBuilderOps typeclass
+class StringBuilderOps {
+  new: fn(Arena) (StringBuilder, Arena);
+  append_char: fn(StringBuilder, u8) StringBuilder;
+  append_str: fn(StringBuilder, str) StringBuilder;
+  to_string: fn(StringBuilder) str;
+  length: fn(StringBuilder) u64;
+  clear: fn(StringBuilder) StringBuilder;
+}
+
+instance StringBuilderOps[StringBuilder] {
+  // Create a new StringBuilder with the given arena
+  new = fn(arena: Arena) (StringBuilder, Arena) {
+    unsafe {
+      let cap: u64 = initial_capacity()
+      let alloc_result: (ptr, Arena) = arena.alloc(cap)
+      let buffer: ptr = alloc_result.0
+      let arena2: Arena = alloc_result.1
+
+      // Null-terminate the empty string
+      let zero: u8 = 0
+      let _: () = @ptr_write(buffer, zero)
+
+      let sb: StringBuilder = StringBuilder {
+        arena: arena2,
+        data: buffer,
+        len: 0,
+        cap: cap,
+      }
+
+      return (sb, arena2)
+    }
+  }
+
+  // Append a single character
+  append_char = fn(self: StringBuilder, c: u8) StringBuilder {
+    unsafe {
+      var sb: StringBuilder = self
+
+      // Check if we need to grow (need space for char + null terminator)
+      let needs_grow: bool = sb.len + 2 > sb.cap
+
+      sb = if needs_grow {
+        // Double capacity
+        let new_cap: u64 = sb.cap * 2
+        let new_data: ptr = realloc(sb.data, new_cap)
+
+        StringBuilder {
+          arena: sb.arena,
+          data: new_data,
+          len: sb.len,
+          cap: new_cap,
+        }
+      } else {
+        sb
+      }
+
+      // Write character at current position
+      let write_pos: ptr = @ptr_offset(sb.data, sb.len)
+      let _: () = @ptr_write(write_pos, c)
+
+      // Update length and null-terminate
+      let new_len: u64 = sb.len + 1
+      let null_pos: ptr = @ptr_offset(sb.data, new_len)
+      let zero: u8 = 0
+      let _: () = @ptr_write(null_pos, zero)
+
+      return StringBuilder {
+        arena: sb.arena,
+        data: sb.data,
+        len: new_len,
+        cap: sb.cap,
+      }
+    }
+  }
+
+  // Append a string
+  append_str = fn(self: StringBuilder, s: str) StringBuilder {
+    unsafe {
+      var sb: StringBuilder = self
+
+      // Get string length
+      let s_len: i64 = s.len()
+
+      // Convert i64 to u64
+      let len_ptr: ptr = @int_to_ptr(s_len)
+      let str_len: u64 = @ptr_to_int(len_ptr)
+
+      // Check if we need to grow
+      let needed: u64 = sb.len + str_len + 1  // +1 for null terminator
+      let needs_grow: bool = needed > sb.cap
+
+      sb = if needs_grow {
+        // Grow to at least double or needed size
+        let doubled: u64 = sb.cap * 2
+        let new_cap: u64 = if doubled > needed { doubled } else { needed }
+        let new_data: ptr = realloc(sb.data, new_cap)
+
+        StringBuilder {
+          arena: sb.arena,
+          data: new_data,
+          len: sb.len,
+          cap: new_cap,
+        }
+      } else {
+        sb
+      }
+
+      // Copy string data
+      let dest: ptr = @ptr_offset(sb.data, sb.len)
+      let _: () = memcpy(dest, s, str_len)
+
+      // Update length and null-terminate
+      let new_len: u64 = sb.len + str_len
+      let null_pos: ptr = @ptr_offset(sb.data, new_len)
+      let zero: u8 = 0
+      let _: () = @ptr_write(null_pos, zero)
+
+      return StringBuilder {
+        arena: sb.arena,
+        data: sb.data,
+        len: new_len,
+        cap: sb.cap,
+      }
+    }
+  }
+
+  // Convert to string (returns pointer to internal buffer)
+  to_string = fn(self: StringBuilder) str {
+    return self.data
+  }
+
+  // Get current length
+  length = fn(self: StringBuilder) u64 {
+    return self.len
+  }
+
+  // Clear the builder (reset to empty string)
+  clear = fn(self: StringBuilder) StringBuilder {
+    unsafe {
+      // Just reset length and null-terminate at start
+      let zero: u8 = 0
+      let _: () = @ptr_write(self.data, zero)
+
+      return StringBuilder {
+        arena: self.arena,
+        data: self.data,
+        len: 0,
+        cap: self.cap,
+      }
+    }
+  }
+}

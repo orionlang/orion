@@ -24,3 +24,6 @@ instance Pointer[ptr] {
 }
 
 import std.string
+import std.char
+import std.option
+import std.result
