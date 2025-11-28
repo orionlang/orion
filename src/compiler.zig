@@ -42,7 +42,9 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
     var prelude_parser = Parser.init(prelude_tokens.items, allocator);
     var prelude_ast = try prelude_parser.parse();
     defer {
+        // Don't deinit contents since they're moved to main ast
         prelude_ast.imports.deinit(allocator);
+        prelude_ast.extern_functions.deinit(allocator);
         prelude_ast.type_defs.deinit(allocator);
         prelude_ast.class_defs.deinit(allocator);
         prelude_ast.instances.deinit(allocator);
@@ -95,7 +97,9 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
     var module_asts = std.ArrayList(AST).empty;
     defer {
         for (module_asts.items) |*mod_ast| {
+            // Don't deinit contents since they're moved to main ast
             mod_ast.imports.deinit(allocator);
+            mod_ast.extern_functions.deinit(allocator);
             mod_ast.type_defs.deinit(allocator);
             mod_ast.class_defs.deinit(allocator);
             mod_ast.instances.deinit(allocator);
