@@ -26,6 +26,5 @@ all: bootstrap
 
 clean:
 	@echo "Cleaning build artifacts..."
-	cd bootstrap && zig build --prefix . clean || true
 	rm -rf bootstrap/.zig-cache bootstrap/zig-out
 	rm -rf .zig-cache zig-out
