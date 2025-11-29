@@ -357,7 +357,7 @@ fn arena_reset(arena: Arena@4) Arena {
 }
 
 // Destroy arena (free all memory)
-fn arena_destroy(arena: Arena@?) () {
+fn arena_destroy(arena: Arena) () {
   unsafe {
     // Free the arena buffer if it was allocated
     var has_buffer: bool = arena.allocated_pages > 0

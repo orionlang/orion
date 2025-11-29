@@ -136,9 +136,15 @@ pub const DependentType = struct {
     value_params: []Expr,
 };
 
+pub const AnnotationSource = enum {
+    explicit,  // User provided the annotation
+    inferred,  // Compiler inferred the annotation
+};
+
 pub const Type = struct {
     kind: TypeKind,
     usage: UsageAnnotation,
+    annotation_source: AnnotationSource = .inferred,
 
     pub const TypeKind = union(enum) {
         primitive: PrimitiveType,
@@ -1396,6 +1402,36 @@ pub const Parser = struct {
         return error.UnexpectedToken;
     }
 
+    fn parseUsageAnnotationWithSource(self: *Parser) !struct { usage: UsageAnnotation, source: AnnotationSource } {
+        if (!self.check(.at)) {
+            return .{ .usage = .once, .source = .inferred };
+        }
+        _ = try self.expect(.at);
+
+        var usage: UsageAnnotation = undefined;
+        if (self.check(.star)) {
+            _ = try self.expect(.star);
+            usage = .unlimited;
+        } else if (self.check(.question)) {
+            _ = try self.expect(.question);
+            usage = .optional;
+        } else if (self.check(.integer)) {
+            const num_token = try self.expect(.integer);
+            const n = try std.fmt.parseInt(u32, num_token.lexeme, 10);
+            usage = .{ .exactly = n };
+        } else {
+            const tok = self.current();
+            std.debug.print("Unexpected token in usage annotation at line {d}, column {d}: {s} ({s})\n", .{
+                tok.line,
+                tok.column,
+                tok.lexeme,
+                @tagName(tok.kind),
+            });
+            return error.UnexpectedToken;
+        }
+        return .{ .usage = usage, .source = .explicit };
+    }
+
     fn parseType(self: *Parser) ParseError!Type {
         if (self.check(.pipe)) {
             var variants: std.ArrayList(SumTypeVariant) = .empty;
@@ -1445,8 +1481,8 @@ pub const Parser = struct {
                 });
             }
 
-            const usage = try self.parseUsageAnnotation();
-            return Type{ .kind = .{ .sum_type = try variants.toOwnedSlice(self.allocator) }, .usage = usage };
+            const annotation = try self.parseUsageAnnotationWithSource();
+            return Type{ .kind = .{ .sum_type = try variants.toOwnedSlice(self.allocator) }, .usage = annotation.usage, .annotation_source = annotation.source };
         }
 
         if (self.check(.left_paren)) {
@@ -1463,8 +1499,8 @@ pub const Parser = struct {
 
             if (self.check(.right_paren)) {
                 _ = try self.expect(.right_paren);
-                const usage = try self.parseUsageAnnotation();
-                return Type{ .kind = .{ .tuple = try element_types.toOwnedSlice(self.allocator) }, .usage = usage };
+                const annotation = try self.parseUsageAnnotationWithSource();
+                return Type{ .kind = .{ .tuple = try element_types.toOwnedSlice(self.allocator) }, .usage = annotation.usage, .annotation_source = annotation.source };
             }
 
             const first_elem = try self.allocator.create(Type);
@@ -1479,8 +1515,8 @@ pub const Parser = struct {
             }
 
             _ = try self.expect(.right_paren);
-            const usage = try self.parseUsageAnnotation();
-            return Type{ .kind = .{ .tuple = try element_types.toOwnedSlice(self.allocator)  }, .usage = usage };
+            const annotation = try self.parseUsageAnnotationWithSource();
+            return Type{ .kind = .{ .tuple = try element_types.toOwnedSlice(self.allocator)  }, .usage = annotation.usage, .annotation_source = annotation.source };
         }
 
         if (self.check(.left_brace)) {
@@ -1512,8 +1548,8 @@ pub const Parser = struct {
             }
 
             _ = try self.expect(.right_brace);
-            const usage = try self.parseUsageAnnotation();
-            return Type{ .kind = .{ .struct_type = try fields.toOwnedSlice(self.allocator)  }, .usage = usage };
+            const annotation = try self.parseUsageAnnotationWithSource();
+            return Type{ .kind = .{ .struct_type = try fields.toOwnedSlice(self.allocator)  }, .usage = annotation.usage, .annotation_source = annotation.source };
         }
 
         const type_token = try self.expect(.identifier);
@@ -1545,7 +1581,7 @@ pub const Parser = struct {
             }
 
             _ = try self.expect(.right_bracket);
-            const usage = try self.parseUsageAnnotation();
+            const annotation = try self.parseUsageAnnotationWithSource();
 
             return Type{
                 .kind = .{
@@ -1555,15 +1591,16 @@ pub const Parser = struct {
                         .value_params = try value_params.toOwnedSlice(self.allocator),
                     },
                 },
-                .usage = usage,
+                .usage = annotation.usage,
+                .annotation_source = annotation.source,
             };
         }
 
-        const usage = try self.parseUsageAnnotation();
+        const annotation = try self.parseUsageAnnotationWithSource();
         if (type_name_map.get(type_token.lexeme)) |prim| {
-            return Type{ .kind = .{ .primitive = prim  }, .usage = usage };
+            return Type{ .kind = .{ .primitive = prim  }, .usage = annotation.usage, .annotation_source = annotation.source };
         } else {
-            return Type{ .kind = .{ .named = type_token.lexeme  }, .usage = usage };
+            return Type{ .kind = .{ .named = type_token.lexeme  }, .usage = annotation.usage, .annotation_source = annotation.source };
         }
     }
 
@@ -1581,12 +1618,12 @@ pub const Parser = struct {
                 if (type_name_map.get(ident.lexeme)) |prim| {
                     // Concrete primitive type
                     const type_ptr = try self.allocator.create(Type);
-                    type_ptr.* = Type{ .kind = .{ .primitive = prim }, .usage = .once };
+                    type_ptr.* = Type{ .kind = .{ .primitive = prim }, .usage = .once, .annotation_source = .inferred };
                     try type_params.append(self.allocator, .{ .concrete = type_ptr });
                 } else {
                     // Named type (user-defined type like Error, Vec, etc.)
                     const type_ptr = try self.allocator.create(Type);
-                    type_ptr.* = Type{ .kind = .{ .named = ident.lexeme }, .usage = .once };
+                    type_ptr.* = Type{ .kind = .{ .named = ident.lexeme }, .usage = .once, .annotation_source = .inferred };
                     try type_params.append(self.allocator, .{ .concrete = type_ptr });
                 }
                 return;

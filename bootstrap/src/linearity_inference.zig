@@ -17,6 +17,7 @@ pub const LinearityInferenceEngine = struct {
     parameter_uses: std.StringHashMap(u32), // parameter name -> use count
     in_unbounded_loop: bool, // tracks if we're in a loop with unknown iteration count
     loop_depth: u32, // for distinguishing nested loops
+    inferred_annotations: std.StringHashMap(UsageAnnotation), // parameter name -> inferred annotation
 
     pub fn init(allocator: std.mem.Allocator) LinearityInferenceEngine {
         return .{
@@ -25,11 +26,13 @@ pub const LinearityInferenceEngine = struct {
             .parameter_uses = std.StringHashMap(u32).init(allocator),
             .in_unbounded_loop = false,
             .loop_depth = 0,
+            .inferred_annotations = std.StringHashMap(UsageAnnotation).init(allocator),
         };
     }
 
     pub fn deinit(self: *LinearityInferenceEngine) void {
         self.parameter_uses.deinit();
+        self.inferred_annotations.deinit();
     }
 
     /// Infer multiplicities for all functions in the AST
@@ -43,6 +46,7 @@ pub const LinearityInferenceEngine = struct {
     fn inferFunction(self: *LinearityInferenceEngine, func: *FunctionDecl) !void {
         self.current_function = func;
         self.parameter_uses.clearRetainingCapacity();
+        self.inferred_annotations.clearRetainingCapacity();
         self.in_unbounded_loop = false;
         self.loop_depth = 0;
 
@@ -56,13 +60,68 @@ pub const LinearityInferenceEngine = struct {
             self.countStmtUses(stmt);
         }
 
-        // Assign inferred annotations to parameters
+        // Assign inferred annotations to parameters (respecting explicit annotations)
         for (func.params) |*param| {
             const param_name = param.name;
             if (self.parameter_uses.get(param_name)) |use_count| {
-                param.param_type.usage = self.usageFromCount(use_count);
+                const inferred = self.usageFromCount(use_count);
+
+                // Store inferred value for migration tool
+                try self.inferred_annotations.put(param_name, inferred);
+
+                if (param.param_type.annotation_source == .explicit) {
+                    // Validate explicit annotation matches inferred
+                    const explicit = param.param_type.usage;
+                    if (!self.annotationsMatch(explicit, inferred)) {
+                        // Suggest inferred annotation
+                        std.debug.print("suggestion: function '{s}' parameter '{s}' has annotation ", .{ func.name, param_name });
+                        self.printAnnotation(explicit);
+                        std.debug.print(" but inferred value is ", .{});
+                        self.printAnnotation(inferred);
+                        std.debug.print("\n", .{});
+                    }
+                } else {
+                    // Assign inferred annotation
+                    param.param_type.usage = inferred;
+                }
             }
         }
+    }
+
+    fn annotationsMatch(self: *LinearityInferenceEngine, explicit: parser.UsageAnnotation, inferred: parser.UsageAnnotation) bool {
+        _ = self;
+        return switch (explicit) {
+            .once => switch (inferred) {
+                .once => true,
+                else => false,
+            },
+            .optional => switch (inferred) {
+                .optional => true,
+                else => false,
+            },
+            .unlimited => switch (inferred) {
+                .unlimited => true,
+                else => false,
+            },
+            .exactly => |explicit_n| switch (inferred) {
+                .exactly => |inferred_n| explicit_n == inferred_n,
+                else => false,
+            },
+        };
+    }
+
+    fn printAnnotation(self: *LinearityInferenceEngine, annotation: parser.UsageAnnotation) void {
+        _ = self;
+        switch (annotation) {
+            .once => std.debug.print("@1", .{}),
+            .optional => std.debug.print("@?", .{}),
+            .unlimited => std.debug.print("@*", .{}),
+            .exactly => |n| std.debug.print("@{d}", .{n}),
+        }
+    }
+
+    pub fn getInferredAnnotation(self: *LinearityInferenceEngine, param_name: []const u8) ?UsageAnnotation {
+        return self.inferred_annotations.get(param_name);
     }
 
     /// Count parameter uses in a statement

@@ -24,6 +24,17 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
+    // Auto-migration tool
+    const migrate = b.addExecutable(.{
+        .name = "orion-migrate",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/migrate.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(migrate);
+
     // Runtime library - static (liborion_runtime.a)
     const runtime_static = b.addLibrary(.{
         .name = "orion_runtime",
