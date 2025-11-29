@@ -7,6 +7,7 @@ const Codegen = @import("codegen.zig").Codegen;
 const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
 const ModuleResolver = @import("module.zig").ModuleResolver;
 const TargetTriple = @import("target.zig").TargetTriple;
+const LinearityInferenceEngine = @import("linearity_inference.zig").LinearityInferenceEngine;
 
 const AST = parser_module.AST;
 const ImportDecl = parser_module.ImportDecl;
@@ -189,6 +190,11 @@ pub fn compileProgram(options: CompileOptions) ![]const u8 {
     try ast.class_defs.appendSlice(allocator, user_ast.class_defs.items);
     try ast.instances.appendSlice(allocator, user_ast.instances.items);
     try ast.functions.appendSlice(allocator, user_ast.functions.items);
+
+    // Infer multiplicities for all function parameters
+    var inference_engine = LinearityInferenceEngine.init(allocator);
+    defer inference_engine.deinit();
+    try inference_engine.inferAll(&ast);
 
     // Typecheck
     var typechecker = TypeChecker.init(allocator);
