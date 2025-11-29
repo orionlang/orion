@@ -374,7 +374,7 @@ test "integration: let binding with expression" {
 test "integration: let binding with bool type" {
     const testing = std.testing;
 
-    const source = "fn main() i32 { let x: bool = 5 > 3; return x }";
+    const source = "fn main() i32 { let x: bool = 5 > 3; if x { return 1 } else { return 0 } }";
     const llvm_ir = try compile(source, testing.allocator);
     defer testing.allocator.free(llvm_ir);
 
@@ -2250,7 +2250,7 @@ test "unsafe block bypasses linearity checks" {
         \\  let result: i32 = unsafe {
         \\    let y: i32 = x
         \\    let z: i32 = x
-        \\    return y + z
+        \\    y + z
         \\  }
         \\  return result
         \\}
@@ -2685,8 +2685,8 @@ test "string literals: basic string" {
     const result = try compileWithStdlib(source, testing.allocator);
     defer testing.allocator.free(result);
 
-    // Check for string constant declaration
-    try testing.expect(std.mem.indexOf(u8, result, "@.str.0") != null);
+    // Check for string constant declaration (using content-based hash for ID)
+    try testing.expect(std.mem.indexOf(u8, result, "@.str.") != null);
     try testing.expect(std.mem.indexOf(u8, result, "hello") != null);
 
     // Check string is null-terminated
@@ -2747,9 +2747,16 @@ test "string literals: multiple strings" {
     const result = try compileWithStdlib(source, testing.allocator);
     defer testing.allocator.free(result);
 
-    // Should have two different string constants
-    try testing.expect(std.mem.indexOf(u8, result, "@.str.0") != null);
-    try testing.expect(std.mem.indexOf(u8, result, "@.str.1") != null);
+    // Should have two different string constants (using content-based hashing)
+    // Count occurrences of "@.str." - should appear at least twice for two different strings
+    var count: usize = 0;
+    var pos: usize = 0;
+    while (std.mem.indexOf(u8, result[pos..], "@.str.")) |idx| {
+        count += 1;
+        pos += idx + 6; // Skip past this "@.str."
+        if (pos >= result.len) break;
+    }
+    try testing.expect(count >= 2);
     try testing.expect(std.mem.indexOf(u8, result, "first") != null);
     try testing.expect(std.mem.indexOf(u8, result, "second") != null);
 }

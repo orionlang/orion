@@ -266,11 +266,11 @@ pub const TypeChecker = struct {
             const use_count = var_info.use_count;
 
             if (!usage.isValid(use_count)) {
-                std.debug.print("Linearity violation for variable '{s}': ", .{name});
+                std.debug.print("Linearity violation in function scope for parameter '{s}': ", .{name});
                 switch (usage) {
-                    .once => std.debug.print("expected exactly 1 use, got {d}\n", .{use_count}),
-                    .exactly => |n| std.debug.print("expected exactly {d} uses, got {d}\n", .{ n, use_count }),
-                    .optional => std.debug.print("expected 0 or 1 uses, got {d}\n", .{use_count}),
+                    .once => std.debug.print("expected exactly 1 direct use, got {d}\n", .{use_count}),
+                    .exactly => |n| std.debug.print("expected exactly {d} direct uses, got {d}\n", .{ n, use_count }),
+                    .optional => std.debug.print("expected 0 or 1 direct uses, got {d}\n", .{use_count}),
                     .unlimited => unreachable, // unlimited is always valid
                 }
                 return error.LinearityViolation;
@@ -393,8 +393,9 @@ pub const TypeChecker = struct {
                     try self.checkExprWithExpectedType(elem, expected_elem_type.*);
                 }
             },
-            .tuple_index => {
-                // Tuple indexing result type is determined by the tuple structure, not expected type
+            .tuple_index => |index| {
+                // Track linearity for the tuple being indexed
+                try self.trackLinearityInExpr(index.tuple);
             },
             .integer_literal => |*lit| {
                 // Check if the value fits in the expected type
@@ -432,7 +433,28 @@ pub const TypeChecker = struct {
             },
             .binary_op => |*binop| {
                 if (!binop.op.returns_bool()) {
-                    // For arithmetic binary operations, propagate expected type to both operands
+                    // For arithmetic binary operations, validate operand types first
+                    // Variables have fixed types, literals can adopt the expected type
+
+                    // Check left operand
+                    if (binop.left.* == .variable) {
+                        if (self.variables.get(binop.left.*.variable)) |var_info| {
+                            if (!self.typesMatch(var_info.var_type, expected_type)) {
+                                return error.TypeMismatch;
+                            }
+                        }
+                    }
+
+                    // Check right operand
+                    if (binop.right.* == .variable) {
+                        if (self.variables.get(binop.right.*.variable)) |var_info| {
+                            if (!self.typesMatch(var_info.var_type, expected_type)) {
+                                return error.TypeMismatch;
+                            }
+                        }
+                    }
+
+                    // Now propagate expected type to both operands
                     // This allows `let x: u32 = 10 + 5` to type both literals as u32
                     try self.checkExprWithExpectedType(binop.left, expected_type);
                     try self.checkExprWithExpectedType(binop.right, expected_type);
@@ -446,6 +468,12 @@ pub const TypeChecker = struct {
                 try self.trackLinearityInExpr(expr);
             },
             .if_expr => |*if_expr| {
+                // If-expressions used as values must be complete (have both then and else branches)
+                // to guarantee that all code paths produce a value, but skip this check in unsafe blocks
+                if (!self.in_unsafe_block and if_expr.else_branch == null) {
+                    return error.TypeMismatch;
+                }
+
                 // Check condition is bool and track linearity
                 const bool_type = Type{ .kind = .{ .primitive = .bool }, .usage = .once };
                 try self.checkExprWithExpectedType(if_expr.condition, bool_type);
@@ -465,6 +493,16 @@ pub const TypeChecker = struct {
                 }
             },
             .unsafe_block => |*block| {
+                // Enter unsafe context for the block
+                const previous_unsafe = self.in_unsafe_block;
+                self.in_unsafe_block = true;
+                defer self.in_unsafe_block = previous_unsafe;
+
+                // Process statements inside unsafe block
+                for (block.statements) |stmt| {
+                    try self.checkStatement(stmt, null);
+                }
+
                 // Propagate expected type to result expression
                 if (block.result) |result| {
                     try self.checkExprWithExpectedType(result, expected_type);
@@ -492,18 +530,53 @@ pub const TypeChecker = struct {
                 }
             },
             .variable => |name| {
-                // Track variable linearity
+                // Track variable linearity for all uses
                 if (self.variables.getPtr(name)) |var_info| {
                     var_info.use_count += 1;
+                    // Variables used in unsafe blocks bypass linearity constraints
+                    if (self.in_unsafe_block) {
+                        var_info.var_type.usage = .unlimited;
+                    }
                 }
             },
-            .field_access, .function_call, .method_call => {
+            .function_call => |call| {
+                // Check that unsafe functions are only called from unsafe contexts
+                const sig = self.functions.get(call.name) orelse {
+                    std.debug.print("Undefined function: {s}\n", .{call.name});
+                    return error.UndefinedFunction;
+                };
+
+                if (sig.is_unsafe and !self.in_unsafe_block) {
+                    std.debug.print("Unsafe function '{s}' can only be called from unsafe blocks or unsafe functions\n", .{call.name});
+                    return error.UnsafeCallOutsideUnsafeContext;
+                }
+
+                // Check argument count
+                if (call.args.len != sig.params.len) {
+                    std.debug.print("Function {s} expects {d} arguments, got {d}\n", .{
+                        call.name,
+                        sig.params.len,
+                        call.args.len,
+                    });
+                    return error.ArgumentCountMismatch;
+                }
+
+                // Check argument types and track linearity
+                for (call.args, 0..) |arg, i| {
+                    const expected_arg_type = sig.params[i];
+                    try self.checkExprWithExpectedType(arg, expected_arg_type);
+                }
+            },
+            .field_access, .method_call => {
                 // Track linearity in sub-expressions
                 try self.trackLinearityInExpr(expr);
             },
-            .bool_literal, .constructor_call, .dependent_type_ref, .match_expr, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
-                // These expressions have fixed types that can't be influenced by context.
-                // Linearity tracking happens in inferExprType when needed.
+            .bool_literal, .dependent_type_ref => {
+                // Fixed types that can't be influenced by context
+            },
+            .match_expr, .constructor_call, .intrinsic_call, .async_expr, .spawn_expr, .select_expr => {
+                // These expressions may contain variables, so track linearity
+                try self.trackLinearityInExpr(expr);
             },
         }
     }
@@ -511,8 +584,13 @@ pub const TypeChecker = struct {
     fn trackLinearityInExpr(self: *TypeChecker, expr: *const Expr) !void {
         switch (expr.*) {
             .variable => |name| {
+                // Track variable use for all uses (including in unsafe blocks)
                 if (self.variables.getPtr(name)) |var_info| {
                     var_info.use_count += 1;
+                    // Variables used in unsafe blocks bypass linearity constraints
+                    if (self.in_unsafe_block) {
+                        var_info.var_type.usage = .unlimited;
+                    }
                 }
             },
             .field_access => |fa| {
@@ -561,8 +639,41 @@ pub const TypeChecker = struct {
                     try self.trackLinearityInExpr(field.value);
                 }
             },
+            .match_expr => |match_expr| {
+                try self.trackLinearityInExpr(match_expr.scrutinee);
+                for (match_expr.arms) |arm| {
+                    try self.trackLinearityInExpr(arm.body);
+                }
+            },
+            .async_expr => |ae| {
+                try self.trackLinearityInExpr(ae.body);
+            },
+            .spawn_expr => |se| {
+                try self.trackLinearityInExpr(se.body);
+            },
+            .select_expr => |se| {
+                for (se.arms) |arm| {
+                    try self.trackLinearityInExpr(arm.body);
+                }
+                if (se.default_arm) |def| {
+                    try self.trackLinearityInExpr(def);
+                }
+            },
+            .intrinsic_call => |call| {
+                for (call.args) |arg| {
+                    try self.trackLinearityInExpr(arg);
+                }
+            },
+            .unsafe_block => {
+                // Skip tracking linearity in unsafe blocks - uses inside are exempt from checking
+            },
+            .constructor_call => |call| {
+                for (call.args) |arg| {
+                    try self.trackLinearityInExpr(arg);
+                }
+            },
             else => {
-                // For other expressions (literals, constructor calls, etc), nothing to track
+                // For other expressions (literals, dependent_type_ref, etc), nothing to track
             },
         }
     }
@@ -837,6 +948,9 @@ pub const TypeChecker = struct {
                 return .{ .kind = .{ .named = lit.type_name  }, .usage = .once };
             },
             .field_access => |access| {
+                // Track linearity for field access
+                try self.trackLinearityInExpr(access.object);
+
                 const object_type = try self.inferExprType(access.object);
 
                 // Get the base type name (handle both .named and .dependent)

@@ -53,199 +53,161 @@ pub const LinearityInferenceEngine = struct {
 
         // Count uses in function body
         for (func.body.items) |stmt| {
-            try self.countStmtUses(stmt);
+            self.countStmtUses(stmt);
         }
 
         // Assign inferred annotations to parameters
-        var iter = self.parameter_uses.iterator();
         for (func.params) |*param| {
             const param_name = param.name;
             if (self.parameter_uses.get(param_name)) |use_count| {
-                param.param_type.usage = try self.usageFromCount(use_count);
+                param.param_type.usage = self.usageFromCount(use_count);
             }
         }
     }
 
     /// Count parameter uses in a statement
-    fn countStmtUses(self: *LinearityInferenceEngine, stmt: Stmt) !void {
+    fn countStmtUses(self: *LinearityInferenceEngine, stmt: Stmt) void {
         switch (stmt) {
             .let_binding => |binding| {
-                try self.countExprUses(binding.value.*);
+                self.countExprUses(binding.value.*);
             },
             .assignment => |assign| {
-                try self.countExprUses(assign.value.*);
+                self.countExprUses(assign.value.*);
             },
             .while_stmt => |while_loop| {
-                try self.countWhileUses(while_loop);
+                self.countExprUses(while_loop.condition.*);
+                // Mark as unbounded - in real implementation would analyze bounds
+                self.in_unbounded_loop = true;
+                self.loop_depth += 1;
+                self.countExprUses(while_loop.body.*);
+                self.loop_depth -= 1;
+                if (self.loop_depth == 0) {
+                    self.in_unbounded_loop = false;
+                }
             },
             .if_stmt => |if_stmt| {
-                try self.countExprUses(if_stmt.condition.*);
+                self.countExprUses(if_stmt.condition.*);
                 for (if_stmt.then_stmts) |s| {
-                    try self.countStmtUses(s);
+                    self.countStmtUses(s);
                 }
                 if (if_stmt.else_stmts) |else_stmts| {
                     for (else_stmts) |s| {
-                        try self.countStmtUses(s);
+                        self.countStmtUses(s);
                     }
                 }
             },
             .return_stmt => |expr| {
-                try self.countExprUses(expr.*);
+                self.countExprUses(expr.*);
             },
             .expr => |expr| {
-                try self.countExprUses(expr.*);
+                self.countExprUses(expr.*);
             },
         }
     }
 
-    /// Count parameter uses in a while loop
-    /// For unbounded loops, uses in loop body are @* and not counted
-    /// Only condition uses count
-    fn countWhileUses(self: *LinearityInferenceEngine, while_loop: struct {
-        condition: *Expr,
-        body: *Expr,
-    }) !void {
-        // Always count condition uses
-        try self.countExprUses(while_loop.condition.*);
-
-        // Check if loop is bounded (can be statically determined)
-        const is_bounded = self.isLoopBounded(while_loop);
-
-        if (!is_bounded) {
-            // For unbounded loops, body uses don't count toward multiplicity
-            // They're implicitly @* borrowed
-            self.in_unbounded_loop = true;
-            self.loop_depth += 1;
-        }
-
-        // Count body uses (may be discarded if unbounded)
-        try self.countExprUses(while_loop.body.*);
-
-        if (!is_bounded) {
-            self.loop_depth -= 1;
-            if (self.loop_depth == 0) {
-                self.in_unbounded_loop = false;
-            }
-        }
-    }
-
-    /// Heuristic: check if loop iteration count can be statically determined
-    /// Conservative: only return true for obvious cases
-    fn isLoopBounded(self: *LinearityInferenceEngine, while_loop: struct {
-        condition: *Expr,
-        body: *Expr,
-    }) bool {
-        _ = self;
-        _ = while_loop;
-        // For now, conservatively assume all loops are unbounded unless we can prove otherwise
-        // TODO: implement bounds analysis for cases like:
-        // - while i < 10 (with var i initialized to 0)
-        // - for i in 0..10 (if we add traditional for loops)
-        return false;
-    }
 
     /// Count parameter uses in an expression
-    fn countExprUses(self: *LinearityInferenceEngine, expr: Expr) !void {
+    fn countExprUses(self: *LinearityInferenceEngine, expr: Expr) void {
         switch (expr) {
             .variable => |name| {
-                if (self.parameter_uses.get(name)) |*count| {
+                if (self.parameter_uses.getPtr(name)) |count_ptr| {
                     // Only count if not in unbounded loop body
                     if (!self.in_unbounded_loop) {
-                        count.* += 1;
+                        count_ptr.* += 1;
                     }
                 }
             },
             .function_call => |call| {
                 // Each parameter passed to a function counts as 1 use
                 for (call.args) |arg| {
-                    try self.countExprUses(arg.*);
+                    self.countExprUses(arg.*);
                 }
             },
             .field_access => |access| {
                 // Accessing a field of a parameter counts as 1 use
-                try self.countExprUses(access.object.*);
+                self.countExprUses(access.object.*);
             },
             .method_call => |method| {
                 // Method call on a parameter counts as 1 use
-                try self.countExprUses(method.object.*);
+                self.countExprUses(method.object.*);
                 for (method.args) |arg| {
-                    try self.countExprUses(arg.*);
+                    self.countExprUses(arg.*);
                 }
             },
             .if_expr => |if_expr| {
-                try self.countExprUses(if_expr.condition.*);
-                try self.countExprUses(if_expr.then_branch.*);
+                self.countExprUses(if_expr.condition.*);
+                self.countExprUses(if_expr.then_branch.*);
                 if (if_expr.else_branch) |else_branch| {
-                    try self.countExprUses(else_branch.*);
+                    self.countExprUses(else_branch.*);
                 }
             },
             .match_expr => |match_expr| {
                 // The match itself counts as 1 use of the matched value
-                try self.countExprUses(match_expr.scrutinee.*);
+                self.countExprUses(match_expr.scrutinee.*);
                 // Each arm counts uses in its body
                 for (match_expr.arms) |arm| {
-                    try self.countExprUses(arm.body.*);
+                    self.countExprUses(arm.body.*);
                 }
             },
             .binary_op => |binop| {
-                try self.countExprUses(binop.left.*);
-                try self.countExprUses(binop.right.*);
+                self.countExprUses(binop.left.*);
+                self.countExprUses(binop.right.*);
             },
             .unary_op => |unop| {
-                try self.countExprUses(unop.operand.*);
+                self.countExprUses(unop.operand.*);
             },
             .tuple_literal => |tuple| {
                 for (tuple) |elem| {
-                    try self.countExprUses(elem.*);
+                    self.countExprUses(elem.*);
                 }
             },
             .struct_literal => |lit| {
                 for (lit.fields) |field| {
-                    try self.countExprUses(field.value.*);
+                    self.countExprUses(field.value.*);
                 }
             },
             .block_expr => |block| {
                 for (block.statements) |stmt| {
-                    try self.countStmtUses(stmt);
+                    self.countStmtUses(stmt);
                 }
                 if (block.result) |result_expr| {
-                    try self.countExprUses(result_expr.*);
+                    self.countExprUses(result_expr.*);
                 }
             },
             .unsafe_block => |block| {
                 for (block.statements) |stmt| {
-                    try self.countStmtUses(stmt);
+                    self.countStmtUses(stmt);
                 }
                 if (block.result) |result_expr| {
-                    try self.countExprUses(result_expr.*);
+                    self.countExprUses(result_expr.*);
                 }
             },
             .constructor_call => |call| {
                 // Constructor calls with parameter arguments
                 for (call.args) |arg| {
-                    try self.countExprUses(arg.*);
+                    self.countExprUses(arg.*);
                 }
             },
             .tuple_index => |ti| {
-                try self.countExprUses(ti.tuple.*);
+                self.countExprUses(ti.tuple.*);
             },
             .intrinsic_call => |call| {
                 for (call.args) |arg| {
-                    try self.countExprUses(arg.*);
+                    self.countExprUses(arg.*);
                 }
             },
             .async_expr => |ae| {
-                try self.countExprUses(ae.body.*);
+                self.countExprUses(ae.body.*);
             },
             .spawn_expr => |se| {
-                try self.countExprUses(se.body.*);
+                self.countExprUses(se.body.*);
             },
             .select_expr => |se| {
                 for (se.arms) |arm| {
-                    try self.countExprUses(arm.expr.*);
+                    self.countExprUses(arm.body.*);
                 }
                 if (se.default_arm) |def| {
-                    try self.countExprUses(def.*);
+                    self.countExprUses(def.*);
                 }
             },
             else => {
@@ -255,7 +217,7 @@ pub const LinearityInferenceEngine = struct {
     }
 
     /// Convert use count to UsageAnnotation
-    fn usageFromCount(self: *LinearityInferenceEngine, count: u32) !UsageAnnotation {
+    fn usageFromCount(self: *LinearityInferenceEngine, count: u32) UsageAnnotation {
         _ = self;
         if (count == 0) {
             return UsageAnnotation{ .optional = {} };
