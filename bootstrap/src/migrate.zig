@@ -41,7 +41,28 @@ pub fn main() !void {
 
     try inference_engine.inferAll(&ast);
 
+    // Output inferred annotations for all functions
+    std.debug.print("\n=== Inferred Annotations ===\n\n", .{});
+    for (ast.functions.items) |func| {
+        std.debug.print("fn {s}(", .{func.name});
+        for (func.params, 0..) |param, i| {
+            if (i > 0) std.debug.print(", ", .{});
+            std.debug.print("{s}: ", .{param.name});
+
+            if (inference_engine.getInferredAnnotation(param.name)) |inferred| {
+                // Show type and inferred annotation
+                std.debug.print("...", .{});
+                printAnnotation(inferred);
+            } else {
+                std.debug.print("???", .{});
+            }
+        }
+        std.debug.print(")\n", .{});
+    }
+
     // Analyze annotations and suggest removals
+    std.debug.print("\n=== Removable Annotations ===\n\n", .{});
+    var removable_count: usize = 0;
     for (ast.functions.items) |func| {
         for (func.params) |param| {
             if (param.param_type.annotation_source == .explicit) {
@@ -52,10 +73,15 @@ pub fn main() !void {
                         std.debug.print("removable: function '{s}' parameter '{s}' has explicit annotation ", .{ func.name, param.name });
                         printAnnotation(explicit);
                         std.debug.print(" which matches inferred value\n", .{});
+                        removable_count += 1;
                     }
                 }
             }
         }
+    }
+
+    if (removable_count == 0) {
+        std.debug.print("(none)\n", .{});
     }
 }
 
