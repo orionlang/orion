@@ -166,15 +166,15 @@ fn compileStdlib(
         }
     }
 
+    // Linearity inference (must run BEFORE type checking so annotations are inferred)
+    var inference_engine = linearity_inference_module.LinearityInferenceEngine.init(allocator);
+    defer inference_engine.deinit();
+    try inference_engine.inferAll(&combined_ast);
+
     // Type check
     var typechecker = TypeChecker.init(allocator);
     defer typechecker.deinit();
     try typechecker.check(&combined_ast);
-
-    // Linearity inference
-    var inference_engine = linearity_inference_module.LinearityInferenceEngine.init(allocator);
-    defer inference_engine.deinit();
-    try inference_engine.inferAll(&combined_ast);
 
     // Generate LLVM IR (stdlib doesn't have _start)
     var codegen = Codegen.init(allocator, target_triple);
@@ -884,16 +884,16 @@ fn compileModule(
         ast.functions.deinit(allocator);
     }
 
-    // 3. Type check with external signatures
+    // 3. Linearity inference (must run BEFORE type checking so annotations are inferred)
+    var inference_engine = linearity_inference_module.LinearityInferenceEngine.init(allocator);
+    defer inference_engine.deinit();
+    try inference_engine.inferAll(&ast);
+
+    // 4. Type check with external signatures
     var typechecker = TypeChecker.init(allocator);
     defer typechecker.deinit();
     try typechecker.loadExternalSignatures(external_sigs);
     try typechecker.check(&ast);
-
-    // 4. Linearity inference
-    var inference_engine = linearity_inference_module.LinearityInferenceEngine.init(allocator);
-    defer inference_engine.deinit();
-    try inference_engine.inferAll(&ast);
 
     // 5. Generate LLVM IR (only entrypoint gets _start)
     var codegen = Codegen.init(allocator, target_triple);

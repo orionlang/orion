@@ -9,12 +9,12 @@ pub fn is_alpha(c: u8@4) bool {
 }
 
 // Check if character is an ASCII digit (0-9)
-pub fn is_digit(c: u8@2) bool {
+pub fn is_digit(c: u8) bool {
   return c >= 48 && c <= 57  // '0' = 48, '9' = 57
 }
 
 // Check if character is alphanumeric (letter or digit)
-pub fn is_alphanumeric(c: u8@2) bool {
+pub fn is_alphanumeric(c: u8) bool {
   return is_alpha(c) || is_digit(c)
 }
 
@@ -36,12 +36,12 @@ pub fn is_hex_digit(c: u8@5) bool {
 }
 
 // Check if character is an octal digit (0-7)
-pub fn is_octal_digit(c: u8@2) bool {
+pub fn is_octal_digit(c: u8) bool {
   return c >= 48 && c <= 55  // '0' = 48, '7' = 55
 }
 
 // Check if character is a binary digit (0-1)
-pub fn is_binary_digit(c: u8@2) bool {
+pub fn is_binary_digit(c: u8) bool {
   return c == 48 || c == 49  // '0' or '1'
 }
 
@@ -55,22 +55,22 @@ pub fn is_punctuation(c: u8@8) bool {
 }
 
 // Check if character is printable ASCII (32-126)
-pub fn is_printable(c: u8@2) bool {
+pub fn is_printable(c: u8) bool {
   return c >= 32 && c <= 126
 }
 
 // Check if character is ASCII control character (0-31, 127)
-pub fn is_control(c: u8@2) bool {
+pub fn is_control(c: u8) bool {
   return c < 32 || c == 127
 }
 
 // Check if character is uppercase letter (A-Z)
-pub fn is_upper(c: u8@2) bool {
+pub fn is_upper(c: u8) bool {
   return c >= 65 && c <= 90
 }
 
 // Check if character is lowercase letter (a-z)
-pub fn is_lower(c: u8@2) bool {
+pub fn is_lower(c: u8) bool {
   return c >= 97 && c <= 122
 }
 
@@ -98,16 +98,16 @@ pub fn hex_to_int(c: u8@8) u8 {
 }
 
 // Convert digit character to its numeric value (0-9), returns 0 for invalid
-pub fn digit_to_int(c: u8@2) u8 {
+pub fn digit_to_int(c: u8) u8 {
   return if is_digit(c) { c - 48 } else { 0 }
 }
 
 // Check if character could start an identifier (letter or underscore)
-pub fn is_ident_start(c: u8@2) bool {
+pub fn is_ident_start(c: u8) bool {
   return is_alpha(c) || c == 95  // '_' = 95
 }
 
 // Check if character could continue an identifier (letter, digit, or underscore)
-pub fn is_ident_continue(c: u8@2) bool {
+pub fn is_ident_continue(c: u8) bool {
   return is_alphanumeric(c) || c == 95  // '_' = 95
 }
