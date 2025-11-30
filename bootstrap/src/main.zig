@@ -30,6 +30,133 @@ fn getStdlibDirectory(allocator: std.mem.Allocator, exe_path: []const u8) ![]con
     return stdlib_path;
 }
 
+/// Build command handler: `orion build [--release] [--lib]`
+fn buildCommand(allocator: std.mem.Allocator, _: []const u8, build_args: []const []const u8) !void {
+    // Look for orion.toml in current directory or parent directories
+    var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const cwd = try std.fs.cwd().realpath(".", &cwd_buf);
+
+    // Start search from current directory
+    var manifest_path: ?[]const u8 = null;
+    var search_path = try allocator.dupe(u8, cwd);
+    defer allocator.free(search_path);
+
+    // Look for orion.toml
+    while (true) {
+        const candidate = try std.fmt.allocPrint(allocator, "{s}/orion.toml", .{search_path});
+        defer allocator.free(candidate);
+
+        if (std.fs.openFileAbsolute(candidate, .{})) |file| {
+            file.close();
+            manifest_path = try allocator.dupe(u8, candidate);
+            break;
+        } else |_| {
+            // Not found, try parent
+        }
+
+        // Try parent directory
+        if (std.mem.lastIndexOf(u8, search_path, "/")) |last_slash| {
+            if (last_slash == 0) break; // At root
+            const parent = try allocator.dupe(u8, search_path[0..last_slash]);
+            allocator.free(search_path);
+            search_path = parent;
+        } else {
+            break;
+        }
+    }
+
+    if (manifest_path == null) {
+        std.debug.print("Error: orion.toml not found\n", .{});
+        return error.ManifestNotFound;
+    }
+    defer allocator.free(manifest_path.?);
+
+    // Parse manifest
+    const manifest_content = std.fs.cwd().readFileAlloc(allocator, manifest_path.?, 1024 * 1024) catch |err| {
+        std.debug.print("Error: Could not read manifest: {}\n", .{err});
+        return err;
+    };
+    defer allocator.free(manifest_content);
+
+    var manifest = manifest_module.parseManifest(allocator, manifest_content) catch |err| {
+        std.debug.print("Error: Could not parse manifest: {}\n", .{err});
+        return err;
+    };
+    defer manifest.deinit();
+
+    // Parse build command arguments
+    var is_release = false;
+    var build_lib = false;
+
+    for (build_args) |arg| {
+        if (std.mem.eql(u8, arg, "--release")) {
+            is_release = true;
+        } else if (std.mem.eql(u8, arg, "--lib")) {
+            build_lib = true;
+        } else {
+            std.debug.print("Error: Unknown build option: {s}\n", .{arg});
+            return error.UnknownBuildOption;
+        }
+    }
+
+    // Determine target based on --lib flag
+    const target_is_lib = build_lib;
+
+    // Get entrypoint
+    var entrypoint: ?[]const u8 = null;
+    if (target_is_lib) {
+        if (manifest.lib) |lib| {
+            entrypoint = lib.entrypoint;
+        } else {
+            std.debug.print("Error: No [lib] section in manifest\n", .{});
+            return error.NoLibTarget;
+        }
+    } else {
+        if (manifest.bin) |bin| {
+            entrypoint = bin.entrypoint;
+        } else {
+            std.debug.print("Error: No [bin] section in manifest\n", .{});
+            return error.NoBinTarget;
+        }
+    }
+
+    // Extract project root directory from manifest path
+    var project_root: []const u8 = "";
+    if (std.mem.lastIndexOf(u8, manifest_path.?, "/")) |last_slash| {
+        project_root = try allocator.dupe(u8, manifest_path.?[0..last_slash]);
+    } else {
+        project_root = try allocator.dupe(u8, ".");
+    }
+    defer allocator.free(project_root);
+
+    std.debug.print("Building {s}...\n", .{manifest.package.name});
+
+    // Re-invoke orion to compile the entrypoint
+    // This reuses the existing single-file compilation pipeline
+    const exe_path = std.fs.selfExePathAlloc(allocator) catch "/usr/bin/orion";
+    defer allocator.free(exe_path);
+
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{exe_path, entrypoint.?},
+        .cwd = project_root,
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    if (result.term.Exited != 0) {
+        std.debug.print("Compilation failed:\n{s}\n", .{result.stderr});
+        return error.CompilationFailed;
+    }
+
+    const output_name = std.fs.path.basename(entrypoint.?);
+    if (std.mem.lastIndexOf(u8, output_name, ".")) |dot_idx| {
+        std.debug.print("Generated executable: {s}/{s}\n", .{ project_root, output_name[0..dot_idx] });
+    } else {
+        std.debug.print("Generated executable: {s}/{s}\n", .{ project_root, output_name });
+    }
+}
+
 /// Search upward from input_path for orion.toml
 /// Returns the path to orion.toml if found, null otherwise
 fn findProjectRoot(allocator: std.mem.Allocator, input_path: []const u8) !?[]const u8 {
@@ -90,6 +217,7 @@ pub fn main() !void {
 
     if (args.len < 2) {
         std.debug.print("Usage: orion <input.or> [options]\n", .{});
+        std.debug.print("       orion build [--release] [--lib]\n", .{});
         std.debug.print("Options:\n", .{});
         std.debug.print("  -S                  Stop after generating LLVM IR (.ll)\n", .{});
         std.debug.print("  -c                  Stop after generating object file (.o)\n", .{});
@@ -101,12 +229,18 @@ pub fn main() !void {
     // Handle help flag
     if (std.mem.eql(u8, args[1], "-h") or std.mem.eql(u8, args[1], "--help")) {
         std.debug.print("Usage: orion <input.or> [options]\n", .{});
+        std.debug.print("       orion build [--release] [--lib]\n", .{});
         std.debug.print("Options:\n", .{});
         std.debug.print("  -S                  Stop after generating LLVM IR (.ll)\n", .{});
         std.debug.print("  -c                  Stop after generating object file (.o)\n", .{});
         std.debug.print("  --target <triple>   Target triple (default: host)\n", .{});
         std.debug.print("  -I, --include <dir> Add directory to module search path\n", .{});
         return;
+    }
+
+    // Handle "build" subcommand
+    if (std.mem.eql(u8, args[1], "build")) {
+        return try buildCommand(allocator, stdlib_dir, args[2..]);
     }
 
     var input_path: []const u8 = args[1];
