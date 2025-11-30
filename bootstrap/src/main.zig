@@ -18,6 +18,58 @@ const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
 const manifest_module = @import("manifest.zig");
 const Manifest = manifest_module.Manifest;
 
+/// Simple signature structure for function/type declarations
+/// Used for two-pass compilation: Pass 1 collects signatures, Pass 2 uses them
+pub const Signature = struct {
+    name: []const u8,
+    is_public: bool,
+    module_name: []const u8, // Which module this comes from
+    kind: enum { function, type_def, class, instance }, // What kind of declaration
+};
+
+/// Collect function and type signatures from an AST (first pass of two-pass compilation)
+fn collectSignatures(allocator: std.mem.Allocator, ast: *const AST, module_name: []const u8, signatures: *std.ArrayList(Signature)) !void {
+    // Collect function signatures
+    for (ast.functions.items) |func| {
+        try signatures.append(allocator, .{
+            .name = func.name,
+            .is_public = func.is_public,
+            .module_name = module_name,
+            .kind = .function,
+        });
+    }
+
+    // Collect type definitions
+    for (ast.type_defs.items) |typedef| {
+        try signatures.append(allocator, .{
+            .name = typedef.name,
+            .is_public = typedef.is_public,
+            .module_name = module_name,
+            .kind = .type_def,
+        });
+    }
+
+    // Collect class definitions
+    for (ast.class_defs.items) |classdef| {
+        try signatures.append(allocator, .{
+            .name = classdef.name,
+            .is_public = classdef.is_public,
+            .module_name = module_name,
+            .kind = .class,
+        });
+    }
+
+    // Collect instance declarations
+    for (ast.instances.items) |instance| {
+        try signatures.append(allocator, .{
+            .name = instance.class_name, // Use class name as identifier
+            .is_public = instance.is_public,
+            .module_name = module_name,
+            .kind = .instance,
+        });
+    }
+}
+
 /// Resolve the stdlib directory relative to the executable
 fn getStdlibDirectory(allocator: std.mem.Allocator, exe_path: []const u8) ![]const u8 {
     // Get the directory containing the executable
