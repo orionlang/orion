@@ -15,6 +15,8 @@ const target_module = @import("target.zig");
 const TargetTriple = target_module.TargetTriple;
 const ModuleResolver = @import("module.zig").ModuleResolver;
 const DependencyGraph = @import("dependency_graph.zig").DependencyGraph;
+const manifest_module = @import("manifest.zig");
+const Manifest = manifest_module.Manifest;
 
 /// Resolve the stdlib directory relative to the executable
 fn getStdlibDirectory(allocator: std.mem.Allocator, exe_path: []const u8) ![]const u8 {
@@ -26,6 +28,52 @@ fn getStdlibDirectory(allocator: std.mem.Allocator, exe_path: []const u8) ![]con
     const stdlib_path = try std.fs.path.join(allocator, &.{ exe_dir, "../../../stdlib" });
 
     return stdlib_path;
+}
+
+/// Search upward from input_path for orion.toml
+/// Returns the path to orion.toml if found, null otherwise
+fn findProjectRoot(allocator: std.mem.Allocator, input_path: []const u8) !?[]const u8 {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+
+    // Get absolute path of the directory containing input_path
+    var search_dir = try std.fs.cwd().openDir(
+        std.fs.path.dirname(input_path) orelse ".",
+        .{}
+    );
+    defer search_dir.close();
+
+    const current_path_slice = try search_dir.realpath(".", &path_buf);
+    var current_path = try allocator.dupe(u8, current_path_slice);
+    defer allocator.free(current_path);
+
+    // Walk upward looking for orion.toml
+    while (true) {
+        // Check if orion.toml exists in current_path
+        const manifest_path = try std.fmt.allocPrint(allocator, "{s}/orion.toml", .{current_path});
+        if (std.fs.openFileAbsolute(manifest_path, .{})) |file| {
+            file.close();
+            // Found orion.toml - return the path (allocator will own it now)
+            return manifest_path;
+        } else |_| {
+            // No orion.toml in this directory - free the attempted path
+            allocator.free(manifest_path);
+        }
+
+        // Try to go up one directory by finding the last slash
+        if (std.mem.lastIndexOf(u8, current_path, "/")) |last_slash| {
+            if (last_slash == 0) {
+                // Already at root
+                return null;
+            }
+            // Create new path going up one level
+            const parent_path = try allocator.dupe(u8, current_path[0..last_slash]);
+            allocator.free(current_path);
+            current_path = parent_path;
+        } else {
+            // No slash found, already at root
+            return null;
+        }
+    }
 }
 
 pub fn main() !void {
@@ -50,7 +98,52 @@ pub fn main() !void {
         return error.MissingInputFile;
     }
 
-    const input_path = args[1];
+    // Handle help flag
+    if (std.mem.eql(u8, args[1], "-h") or std.mem.eql(u8, args[1], "--help")) {
+        std.debug.print("Usage: orion <input.or> [options]\n", .{});
+        std.debug.print("Options:\n", .{});
+        std.debug.print("  -S                  Stop after generating LLVM IR (.ll)\n", .{});
+        std.debug.print("  -c                  Stop after generating object file (.o)\n", .{});
+        std.debug.print("  --target <triple>   Target triple (default: host)\n", .{});
+        std.debug.print("  -I, --include <dir> Add directory to module search path\n", .{});
+        return;
+    }
+
+    var input_path: []const u8 = args[1];
+    var manifest: ?Manifest = null;
+    defer if (manifest) |*m| m.deinit();
+    var project_root: []const u8 = ""; // Will be set if manifest is found
+
+    // Try to find and parse orion.toml
+    if (try findProjectRoot(allocator, input_path)) |manifest_path| {
+        defer allocator.free(manifest_path);
+
+        // Extract project root directory (parent of orion.toml)
+        if (std.mem.lastIndexOf(u8, manifest_path, "/")) |last_slash| {
+            project_root = try allocator.dupe(u8, manifest_path[0..last_slash]);
+        } else {
+            project_root = try allocator.dupe(u8, ".");
+        }
+
+        const manifest_content = std.fs.cwd().readFileAlloc(allocator, manifest_path, 1024 * 1024) catch |err| {
+            std.debug.print("Error: Could not read manifest from {s}: {}\n", .{ manifest_path, err });
+            allocator.free(project_root);
+            return err;
+        };
+        defer allocator.free(manifest_content);
+
+        manifest = manifest_module.parseManifest(allocator, manifest_content) catch |err| {
+            std.debug.print("Error: Could not parse manifest: {}\n", .{err});
+            allocator.free(project_root);
+            return err;
+        };
+
+        // Use entrypoint from manifest if it has a bin target
+        if (manifest.?.bin) |bin| {
+            input_path = bin.entrypoint;
+        }
+    }
+    defer if (project_root.len > 0) allocator.free(project_root);
 
     var stop_at_ir = false;
     var stop_at_object = false;
@@ -78,6 +171,13 @@ pub fn main() !void {
                 return error.MissingIncludeDir;
             }
             try include_dirs.append(allocator, args[i]);
+        }
+    }
+
+    // Add manifest dependencies to include paths
+    if (manifest) |m| {
+        for (m.dependencies) |dep| {
+            try include_dirs.append(allocator, dep.path);
         }
     }
 
@@ -263,8 +363,49 @@ pub fn main() !void {
     const llvm_ir = try codegen.generate(&ast);
     defer allocator.free(llvm_ir);
 
+    // Determine output paths
+    // If project root is set, put executable there, intermediate files in build/ (mirroring src structure)
+    var executable_dir: []const u8 = "";
+    var intermediate_base: []const u8 = "";
+    var exe_base: []const u8 = "";
+    defer {
+        if (executable_dir.len > 0) allocator.free(executable_dir);
+        if (intermediate_base.len > 0) allocator.free(intermediate_base);
+        if (exe_base.len > 0) allocator.free(exe_base);
+    }
+
+    const input_filename = std.fs.path.basename(input_path);
+
+    if (project_root.len > 0) {
+        // Executable goes in project root
+        executable_dir = try allocator.dupe(u8, project_root);
+
+        // Intermediate files go in build/, mirroring the source directory structure
+        const input_dirname = std.fs.path.dirname(input_path) orelse ".";
+        const build_base = try std.fmt.allocPrint(allocator, "{s}/build", .{project_root});
+        defer allocator.free(build_base);
+
+        // Create full build path mirroring input structure
+        intermediate_base = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ build_base, input_dirname, input_filename });
+
+        // Create build directory structure if it doesn't exist
+        if (std.fs.path.dirname(intermediate_base)) |dir| {
+            std.fs.cwd().makePath(dir) catch |err| {
+                std.debug.print("Warning: Could not create build directory structure: {}\n", .{err});
+            };
+        }
+
+        // Executable goes to project root with just the filename
+        exe_base = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ executable_dir, input_filename });
+    } else {
+        // No manifest: put everything in current directory (for backward compatibility)
+        executable_dir = try allocator.dupe(u8, ".");
+        intermediate_base = try allocator.dupe(u8, input_path);
+        exe_base = try allocator.dupe(u8, input_path);
+    }
+
     // Write LLVM IR file
-    const ir_path = try std.fmt.allocPrint(allocator, "{s}.ll", .{input_path});
+    const ir_path = try std.fmt.allocPrint(allocator, "{s}.ll", .{intermediate_base});
     defer allocator.free(ir_path);
     try std.fs.cwd().writeFile(.{ .sub_path = ir_path, .data = llvm_ir });
 
@@ -274,13 +415,13 @@ pub fn main() !void {
     }
 
     // Run LLVM opt passes for coroutine lowering
-    const opt_ir_path = try std.fmt.allocPrint(allocator, "{s}.opt.ll", .{input_path});
+    const opt_ir_path = try std.fmt.allocPrint(allocator, "{s}.opt.ll", .{intermediate_base});
     defer allocator.free(opt_ir_path);
 
     try runCoroutinePasses(allocator, ir_path, opt_ir_path);
 
     // Generate object file using llc
-    const obj_path = try std.fmt.allocPrint(allocator, "{s}.o", .{input_path});
+    const obj_path = try std.fmt.allocPrint(allocator, "{s}.o", .{intermediate_base});
     defer allocator.free(obj_path);
 
     try generateObjectFile(allocator, opt_ir_path, obj_path, target_triple);
@@ -291,7 +432,7 @@ pub fn main() !void {
     }
 
     // Link executable with libc
-    const exe_path = try getExecutablePath(allocator, input_path);
+    const exe_path = try getExecutablePath(allocator, exe_base);
     defer allocator.free(exe_path);
 
     try linkExecutable(allocator, obj_path, exe_path, target_triple, codegen.needs_scheduler);
