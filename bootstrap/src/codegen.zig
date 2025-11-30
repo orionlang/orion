@@ -67,6 +67,8 @@ pub const Codegen = struct {
     needs_scheduler: bool,
     in_async_block: bool, // Track if we're generating code inside async block
     generate_start: bool, // Whether to generate _start entry point (false for object-only compilation)
+    // Per-module compilation: track which functions belong to current module
+    module_functions: ?[]const []const u8, // Names of functions defined in this module (null = all)
 
     pub fn init(allocator: std.mem.Allocator, target: TargetTriple) Codegen {
         return .{
@@ -100,6 +102,7 @@ pub const Codegen = struct {
             .needs_scheduler = false,
             .in_async_block = false,
             .generate_start = true,
+            .module_functions = null, // Default: include all functions
         };
     }
 
@@ -175,6 +178,20 @@ pub const Codegen = struct {
         self.functions.deinit();
         self.type_defs.deinit();
         self.instance_methods.deinit();
+    }
+
+    /// Check if a function belongs to the current module (or if we're compiling all functions)
+    fn isModuleFunction(self: *Codegen, func_name: []const u8) bool {
+        if (self.module_functions == null) {
+            return true; // null means include all functions
+        }
+        // Check if function name is in our module's function list
+        for (self.module_functions.?) |name| {
+            if (std.mem.eql(u8, name, func_name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     fn allocTempName(self: *Codegen) ![]const u8 {
@@ -489,12 +506,41 @@ pub const Codegen = struct {
             try self.output.appendSlice(self.allocator, "\n");
         }
 
+        // Generate extern declarations for functions from other modules (per-module compilation)
+        if (self.module_functions != null) {
+            var emitted_extern_header = false;
+            for (ast.functions.items) |func| {
+                if (self.isModuleFunction(func.name)) continue; // Skip our own functions
+
+                if (!emitted_extern_header) {
+                    try self.output.appendSlice(self.allocator, "; External function declarations from other modules\n");
+                    emitted_extern_header = true;
+                }
+
+                const return_type_str = try self.llvmTypeString(func.return_type);
+                defer self.allocator.free(return_type_str);
+                try self.output.writer(self.allocator).print("declare {s} @{s}(", .{ return_type_str, func.name });
+
+                for (func.params, 0..) |param, i| {
+                    const param_type_str = try self.llvmTypeString(param.param_type);
+                    defer self.allocator.free(param_type_str);
+                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                    try self.output.appendSlice(self.allocator, param_type_str);
+                }
+                try self.output.appendSlice(self.allocator, ")\n");
+            }
+            if (emitted_extern_header) {
+                try self.output.appendSlice(self.allocator, "\n");
+            }
+        }
+
         // Generate LLVM coroutine intrinsic declarations for concurrency
         // Always emit since these are only used if async/spawn appear
         try self.generateCoroIntrinsicDeclarations();
 
-        // Generate each function
+        // Generate each function (only those from current module if specified)
         for (ast.functions.items) |func| {
+            if (!self.isModuleFunction(func.name)) continue;
             try self.generateFunction(&func);
         }
 

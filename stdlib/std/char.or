@@ -14,7 +14,7 @@ pub fn is_digit(c: u8) bool {
 }
 
 // Check if character is alphanumeric (letter or digit)
-pub fn is_alphanumeric(c: u8) bool {
+pub fn is_alphanumeric(c: u8@2) bool {
   return is_alpha(c) || is_digit(c)
 }
 
@@ -103,11 +103,11 @@ pub fn digit_to_int(c: u8) u8 {
 }
 
 // Check if character could start an identifier (letter or underscore)
-pub fn is_ident_start(c: u8) bool {
+pub fn is_ident_start(c: u8@2) bool {
   return is_alpha(c) || c == 95  // '_' = 95
 }
 
 // Check if character could continue an identifier (letter, digit, or underscore)
-pub fn is_ident_continue(c: u8) bool {
+pub fn is_ident_continue(c: u8@2) bool {
   return is_alphanumeric(c) || c == 95  // '_' = 95
 }

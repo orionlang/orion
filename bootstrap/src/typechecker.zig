@@ -37,6 +37,18 @@ const TypeDefInfo = struct {
     type_value: Type,
 };
 
+pub const ExternalSignature = struct {
+    name: []const u8,
+    kind: enum { function, type_def, instance_method },
+    // For functions and instance methods
+    params: ?[]const Type = null,
+    return_type: ?Type = null,
+    is_unsafe: bool = false,
+    // For type definitions
+    type_params: ?[]const parser.TypeParameter = null,
+    type_value: ?Type = null,
+};
+
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     variables: std.StringHashMap(VariableInfo),
@@ -108,6 +120,36 @@ pub const TypeChecker = struct {
         self.functions.deinit();
         self.type_defs.deinit();
         self.instance_methods.deinit();
+    }
+
+    /// Load external signatures (from other modules) before type checking
+    /// Used for two-pass compilation: pre-populate hashmaps with dependency signatures
+    pub fn loadExternalSignatures(self: *TypeChecker, signatures: []const ExternalSignature) !void {
+        for (signatures) |sig| {
+            switch (sig.kind) {
+                .function => {
+                    try self.functions.put(sig.name, .{
+                        .params = sig.params.?,
+                        .return_type = sig.return_type.?,
+                        .is_unsafe = sig.is_unsafe,
+                    });
+                },
+                .type_def => {
+                    try self.type_defs.put(sig.name, .{
+                        .params = sig.type_params.?,
+                        .type_value = sig.type_value.?,
+                    });
+                },
+                .instance_method => {
+                    const name = try self.allocator.dupe(u8, sig.name);
+                    try self.instance_methods.put(name, .{
+                        .params = sig.params.?,
+                        .return_type = sig.return_type.?,
+                        .is_unsafe = sig.is_unsafe,
+                    });
+                },
+            }
+        }
     }
 
     pub fn check(self: *TypeChecker, ast: *const AST) !void {

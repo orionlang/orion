@@ -9,7 +9,9 @@ const InstanceDecl = parser_module.InstanceDecl;
 const FunctionDecl = parser_module.FunctionDecl;
 const ExternFunctionDecl = parser_module.ExternFunctionDecl;
 const linearity_inference_module = @import("linearity_inference.zig");
-const TypeChecker = @import("typechecker.zig").TypeChecker;
+const typechecker_module = @import("typechecker.zig");
+const TypeChecker = typechecker_module.TypeChecker;
+const ExternalSignature = typechecker_module.ExternalSignature;
 const Codegen = @import("codegen.zig").Codegen;
 const target_module = @import("target.zig");
 const TargetTriple = target_module.TargetTriple;
@@ -70,6 +72,7 @@ fn collectSignatures(allocator: std.mem.Allocator, ast: *const AST, module_name:
     }
 }
 
+
 /// Resolve the stdlib directory relative to the executable
 fn getStdlibDirectory(allocator: std.mem.Allocator, exe_path: []const u8) ![]const u8 {
     // Get the directory containing the executable
@@ -80,6 +83,133 @@ fn getStdlibDirectory(allocator: std.mem.Allocator, exe_path: []const u8) ![]con
     const stdlib_path = try std.fs.path.join(allocator, &.{ exe_dir, "../../../stdlib" });
 
     return stdlib_path;
+}
+
+/// Check if a module path is part of the standard library (starts with "std.")
+fn isStdlibModule(module_path: []const u8) bool {
+    return std.mem.startsWith(u8, module_path, "std.");
+}
+
+/// Get the cache directory for compiled stdlib artifacts
+fn getStdlibCacheDir(allocator: std.mem.Allocator, target_triple: TargetTriple) ![]const u8 {
+    const home = std.process.getEnvVarOwned(allocator, "HOME") catch {
+        return try allocator.dupe(u8, "/tmp/.orion/stdlib");
+    };
+    defer allocator.free(home);
+
+    const target_str = try target_triple.toLLVMTriple(allocator);
+    defer allocator.free(target_str);
+
+    return try std.fmt.allocPrint(allocator, "{s}/.orion/stdlib/{s}", .{ home, target_str });
+}
+
+/// Compile all stdlib modules into a single stdlib.a archive
+fn compileStdlib(
+    allocator: std.mem.Allocator,
+    stdlib_modules: []const []const u8,
+    module_asts: std.StringHashMap(AST),
+    target_triple: TargetTriple,
+    _: []const u8,
+) ![]const u8 {
+    if (stdlib_modules.len == 0) {
+        return try allocator.dupe(u8, "");
+    }
+
+    const cache_dir = try getStdlibCacheDir(allocator, target_triple);
+    defer allocator.free(cache_dir);
+
+    // Create cache directory if it doesn't exist
+    std.fs.cwd().makePath(cache_dir) catch |err| {
+        std.debug.print("Warning: Could not create stdlib cache directory: {}\n", .{err});
+    };
+
+    const stdlib_archive_path = try std.fmt.allocPrint(allocator, "{s}/stdlib.a", .{cache_dir});
+
+    // Check if cached stdlib.a already exists
+    // For now, always recompile (Phase 0 can add hash validation later)
+    const cached = std.fs.cwd().openFile(stdlib_archive_path, .{}) catch null;
+    if (cached) |f| {
+        f.close();
+        std.debug.print("Using cached stdlib: {s}\n", .{stdlib_archive_path});
+        return stdlib_archive_path;
+    }
+
+    std.debug.print("Compiling stdlib to {s}...\n", .{stdlib_archive_path});
+
+    // Create combined AST for all stdlib modules
+    var combined_ast = AST{
+        .imports = std.ArrayList(parser_module.ImportDecl).empty,
+        .extern_functions = std.ArrayList(ExternFunctionDecl).empty,
+        .type_defs = std.ArrayList(TypeDef).empty,
+        .class_defs = std.ArrayList(ClassDef).empty,
+        .instances = std.ArrayList(InstanceDecl).empty,
+        .functions = std.ArrayList(FunctionDecl).empty,
+    };
+    defer {
+        combined_ast.imports.deinit(allocator);
+        combined_ast.extern_functions.deinit(allocator);
+        combined_ast.type_defs.deinit(allocator);
+        combined_ast.class_defs.deinit(allocator);
+        combined_ast.instances.deinit(allocator);
+        combined_ast.functions.deinit(allocator);
+    }
+
+    // Combine all stdlib modules
+    for (stdlib_modules) |stdlib_module_path| {
+        if (module_asts.get(stdlib_module_path)) |mod_ast| {
+            try combined_ast.imports.appendSlice(allocator, mod_ast.imports.items);
+            try combined_ast.extern_functions.appendSlice(allocator, mod_ast.extern_functions.items);
+            try combined_ast.type_defs.appendSlice(allocator, mod_ast.type_defs.items);
+            try combined_ast.class_defs.appendSlice(allocator, mod_ast.class_defs.items);
+            try combined_ast.instances.appendSlice(allocator, mod_ast.instances.items);
+            try combined_ast.functions.appendSlice(allocator, mod_ast.functions.items);
+        }
+    }
+
+    // Type check
+    var typechecker = TypeChecker.init(allocator);
+    defer typechecker.deinit();
+    try typechecker.check(&combined_ast);
+
+    // Linearity inference
+    var inference_engine = linearity_inference_module.LinearityInferenceEngine.init(allocator);
+    defer inference_engine.deinit();
+    try inference_engine.inferAll(&combined_ast);
+
+    // Generate LLVM IR (stdlib doesn't have _start)
+    var codegen = Codegen.init(allocator, target_triple);
+    defer codegen.deinit();
+    codegen.generate_start = false;
+    const llvm_ir = try codegen.generate(&combined_ast);
+    defer allocator.free(llvm_ir);
+
+    // Write LLVM IR to temporary file
+    const ir_path = try std.fmt.allocPrint(allocator, "{s}/stdlib.ll", .{cache_dir});
+    defer allocator.free(ir_path);
+    try std.fs.cwd().writeFile(.{ .sub_path = ir_path, .data = llvm_ir });
+
+    // Run coroutine passes
+    const opt_ir_path = try std.fmt.allocPrint(allocator, "{s}/stdlib.opt.ll", .{cache_dir});
+    defer allocator.free(opt_ir_path);
+    try runCoroutinePasses(allocator, ir_path, opt_ir_path);
+
+    // Generate object file
+    const obj_path = try std.fmt.allocPrint(allocator, "{s}/stdlib.o", .{cache_dir});
+    defer allocator.free(obj_path);
+    try generateObjectFile(allocator, opt_ir_path, obj_path, target_triple);
+
+    // Create archive from object file
+    var ar_argv = std.ArrayList([]const u8).empty;
+    defer ar_argv.deinit(allocator);
+    try ar_argv.append(allocator, "ar");
+    try ar_argv.append(allocator, "rcs");
+    try ar_argv.append(allocator, stdlib_archive_path);
+    try ar_argv.append(allocator, obj_path);
+
+    try runCommand(allocator, ar_argv.items, "ar", error.ArchiveCreationFailed);
+
+    std.debug.print("Created stdlib archive: {s}\n", .{stdlib_archive_path});
+    return stdlib_archive_path;
 }
 
 /// Build command handler: `orion build [--release] [--lib]`
@@ -194,12 +324,15 @@ fn buildCommand(allocator: std.mem.Allocator, _: []const u8, build_args: []const
         .allocator = allocator,
         .argv = &[_][]const u8{ exe_path, entrypoint.?, "--build-mode", build_mode },
         .cwd = project_root,
+        .max_output_bytes = 64 * 1024 * 1024,  // 64 MB buffer for compilation output
     });
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
     if (result.term.Exited != 0) {
-        std.debug.print("Compilation failed:\n{s}\n", .{result.stderr});
+        if (result.stderr.len > 0) {
+            std.debug.print("Compilation failed:\n{s}\n", .{result.stderr});
+        }
         return error.CompilationFailed;
     }
 
@@ -432,6 +565,15 @@ pub fn main() !void {
     var dep_graph = DependencyGraph.init(allocator, resolver);
     defer dep_graph.deinit();
 
+    // Track prelude module dependencies for inclusion in all compiled modules
+    var prelude_module_paths = std.ArrayList([]const u8).empty;
+    defer {
+        for (prelude_module_paths.items) |path| {
+            allocator.free(path);
+        }
+        prelude_module_paths.deinit(allocator);
+    }
+
     // First, discover prelude's imports (stdlib modules like std.string)
     for (prelude_ast.imports.items) |import_decl| {
         const import_path = switch (import_decl.item) {
@@ -440,6 +582,7 @@ pub fn main() !void {
         };
         const mod_id = try resolver.resolve(import_path);
         defer resolver.deinitModuleId(mod_id);
+        try prelude_module_paths.append(allocator, try allocator.dupe(u8, mod_id.path));
         try dep_graph.discoverModule(mod_id.path, mod_id.file_path);
     }
 
@@ -468,13 +611,13 @@ pub fn main() !void {
         allocator.free(levels);
     }
 
-    // For bootstrap simplicity: load and parse all modules in order, merge ASTs
-    // TODO: Full compiler should compile modules separately
-    var module_asts = std.ArrayList(AST).empty;
+    // Two-pass compilation: parse all modules, then compile each separately
+    // PASS 1: Load and parse all modules in dependency order
+    var module_asts = std.StringHashMap(AST).init(allocator);
     defer {
-        // Note: module AST items are merged into main ast, so we only free the ArrayList containers
-        // The actual items (functions, types, etc.) will be freed when main ast is deinit'd
-        for (module_asts.items) |*mod_ast| {
+        var iter = module_asts.iterator();
+        while (iter.next()) |entry| {
+            var mod_ast = entry.value_ptr.*;
             mod_ast.imports.deinit(allocator);
             mod_ast.extern_functions.deinit(allocator);
             mod_ast.type_defs.deinit(allocator);
@@ -482,7 +625,7 @@ pub fn main() !void {
             mod_ast.instances.deinit(allocator);
             mod_ast.functions.deinit(allocator);
         }
-        module_asts.deinit(allocator);
+        module_asts.deinit();
     }
 
     // Track module sources so they aren't freed while ASTs still reference them
@@ -494,7 +637,10 @@ pub fn main() !void {
         module_sources.deinit(allocator);
     }
 
-    // Load and parse each module in dependency order
+    // Collect module names in dependency order for Pass 2
+    var module_order = std.ArrayList([]const u8).empty;
+    defer module_order.deinit(allocator);
+
     for (levels) |level| {
         for (level.items) |module_path| {
             const mod_id = dep_graph.modules.get(module_path) orelse continue;
@@ -508,132 +654,284 @@ pub fn main() !void {
 
             var parser = Parser.init(tokens.items, allocator);
             const mod_ast = try parser.parse();
-            try module_asts.append(allocator, mod_ast);
+
+            try module_asts.put(try allocator.dupe(u8, module_path), mod_ast);
+            try module_order.append(allocator, try allocator.dupe(u8, module_path));
         }
     }
 
-    // Merge stdlib and all discovered module ASTs
-    var ast = AST{
-        .imports = std.ArrayList(parser_module.ImportDecl).empty,
-        .extern_functions = std.ArrayList(ExternFunctionDecl).empty,
-        .type_defs = std.ArrayList(TypeDef).empty,
-        .class_defs = std.ArrayList(ClassDef).empty,
-        .instances = std.ArrayList(InstanceDecl).empty,
-        .functions = std.ArrayList(FunctionDecl).empty,
-    };
-    defer ast.deinit(allocator);
+    // PASS 2: Compile each module separately
+    // First, separate stdlib and user modules
+    var stdlib_modules = std.ArrayList([]const u8).empty;
+    defer stdlib_modules.deinit(allocator);
+    var user_modules = std.ArrayList([]const u8).empty;
+    defer user_modules.deinit(allocator);
 
-    // Add stdlib items first
-    try ast.imports.appendSlice(allocator, prelude_ast.imports.items);
-    try ast.extern_functions.appendSlice(allocator, prelude_ast.extern_functions.items);
-    try ast.type_defs.appendSlice(allocator, prelude_ast.type_defs.items);
-    try ast.class_defs.appendSlice(allocator, prelude_ast.class_defs.items);
-    try ast.instances.appendSlice(allocator, prelude_ast.instances.items);
-    try ast.functions.appendSlice(allocator, prelude_ast.functions.items);
-
-    // Add all discovered modules in dependency order
-    for (module_asts.items) |mod_ast| {
-        try ast.imports.appendSlice(allocator, mod_ast.imports.items);
-        try ast.extern_functions.appendSlice(allocator, mod_ast.extern_functions.items);
-        try ast.type_defs.appendSlice(allocator, mod_ast.type_defs.items);
-        try ast.class_defs.appendSlice(allocator, mod_ast.class_defs.items);
-        try ast.instances.appendSlice(allocator, mod_ast.instances.items);
-        try ast.functions.appendSlice(allocator, mod_ast.functions.items);
+    for (module_order.items) |module_path| {
+        if (isStdlibModule(module_path)) {
+            try stdlib_modules.append(allocator, module_path);
+        } else {
+            try user_modules.append(allocator, module_path);
+        }
     }
 
-    // Linearity inference (Phase 1)
+    // Compile stdlib (if any stdlib modules exist)
+    const stdlib_archive = try compileStdlib(allocator, stdlib_modules.items, module_asts, target_triple, build_mode_str);
+    defer allocator.free(stdlib_archive);
+
+    var object_files = std.ArrayList([]const u8).empty;
+    defer object_files.deinit(allocator);
+
+    var all_needs_scheduler = false;
+    var entrypoint_module_name: ?[]const u8 = null;
+
+    // Determine entrypoint module name from input_path
+    if (!std.mem.eql(u8, input_path, ".")) {
+        // Extract the module name from the path structure
+        // For now, track it separately
+        entrypoint_module_name = input_path;
+    }
+
+    // Only compile user modules (stdlib already compiled to stdlib.a)
+    for (user_modules.items) |module_path| {
+        const mod_ast = module_asts.get(module_path) orelse continue;
+        const is_entrypoint = (entrypoint_module_name != null and std.mem.eql(u8, module_path, entrypoint_module_name.?)) or
+                             std.mem.eql(u8, module_path, input_path);
+
+        // Create a combined AST with prelude + current module + other modules
+        var combined_ast = AST{
+            .imports = std.ArrayList(parser_module.ImportDecl).empty,
+            .extern_functions = std.ArrayList(ExternFunctionDecl).empty,
+            .type_defs = std.ArrayList(TypeDef).empty,
+            .class_defs = std.ArrayList(ClassDef).empty,
+            .instances = std.ArrayList(InstanceDecl).empty,
+            .functions = std.ArrayList(FunctionDecl).empty,
+        };
+
+        // Add prelude
+        try combined_ast.imports.appendSlice(allocator, prelude_ast.imports.items);
+        try combined_ast.extern_functions.appendSlice(allocator, prelude_ast.extern_functions.items);
+        try combined_ast.type_defs.appendSlice(allocator, prelude_ast.type_defs.items);
+        try combined_ast.class_defs.appendSlice(allocator, prelude_ast.class_defs.items);
+        try combined_ast.instances.appendSlice(allocator, prelude_ast.instances.items);
+        try combined_ast.functions.appendSlice(allocator, prelude_ast.functions.items);
+
+        // Add prelude's dependencies (stdlib modules like std.string, std.alloc)
+        // Skip current module if it happens to be a prelude dependency
+        for (prelude_module_paths.items) |prelude_dep_path| {
+            if (std.mem.eql(u8, prelude_dep_path, module_path)) continue;
+
+            if (module_asts.get(prelude_dep_path)) |prelude_dep_ast| {
+                try combined_ast.imports.appendSlice(allocator, prelude_dep_ast.imports.items);
+                try combined_ast.extern_functions.appendSlice(allocator, prelude_dep_ast.extern_functions.items);
+                try combined_ast.type_defs.appendSlice(allocator, prelude_dep_ast.type_defs.items);
+                try combined_ast.class_defs.appendSlice(allocator, prelude_dep_ast.class_defs.items);
+                try combined_ast.instances.appendSlice(allocator, prelude_dep_ast.instances.items);
+                try combined_ast.functions.appendSlice(allocator, prelude_dep_ast.functions.items);
+            }
+        }
+
+        // Add current module
+        try combined_ast.imports.appendSlice(allocator, mod_ast.imports.items);
+        try combined_ast.extern_functions.appendSlice(allocator, mod_ast.extern_functions.items);
+        try combined_ast.type_defs.appendSlice(allocator, mod_ast.type_defs.items);
+        try combined_ast.class_defs.appendSlice(allocator, mod_ast.class_defs.items);
+        try combined_ast.instances.appendSlice(allocator, mod_ast.instances.items);
+        try combined_ast.functions.appendSlice(allocator, mod_ast.functions.items);
+
+        // Add type definitions from all other modules (but not their function implementations)
+        var other_modules_iter = module_asts.iterator();
+        while (other_modules_iter.next()) |entry| {
+            const other_path = entry.key_ptr.*;
+
+            // Skip current module (already added above)
+            if (std.mem.eql(u8, other_path, module_path)) continue;
+
+            // Skip prelude dependencies (already added above)
+            var is_prelude_dep = false;
+            for (prelude_module_paths.items) |prelude_dep| {
+                if (std.mem.eql(u8, other_path, prelude_dep)) {
+                    is_prelude_dep = true;
+                    break;
+                }
+            }
+            if (is_prelude_dep) continue;
+
+            const other_ast = entry.value_ptr.*;
+            try combined_ast.type_defs.appendSlice(allocator, other_ast.type_defs.items);
+            try combined_ast.class_defs.appendSlice(allocator, other_ast.class_defs.items);
+            try combined_ast.instances.appendSlice(allocator, other_ast.instances.items);
+            // Explicitly NOT adding other_ast.functions to avoid duplication
+        }
+
+        // Linearity inference (Phase 1)
+        var inference_engine = linearity_inference_module.LinearityInferenceEngine.init(allocator);
+        defer inference_engine.deinit();
+        try inference_engine.inferAll(&combined_ast);
+
+        // Type checker (Phase 2)
+        var typechecker = TypeChecker.init(allocator);
+        defer typechecker.deinit();
+        try typechecker.check(&combined_ast);
+
+        // Collect function names from current module for per-module compilation
+        var module_func_names = std.ArrayList([]const u8).empty;
+        defer module_func_names.deinit(allocator);
+        for (mod_ast.functions.items) |func| {
+            try module_func_names.append(allocator, try allocator.dupe(u8, func.name));
+        }
+
+        // Generate LLVM IR (only generate _start for entrypoint module)
+        var codegen = Codegen.init(allocator, target_triple);
+        defer codegen.deinit();
+        codegen.generate_start = is_entrypoint;
+        codegen.module_functions = module_func_names.items; // Only generate these functions
+        const llvm_ir = try codegen.generate(&combined_ast);
+        defer allocator.free(llvm_ir);
+
+        // Cleanup module function names
+        for (module_func_names.items) |name| {
+            allocator.free(name);
+        }
+
+        all_needs_scheduler = all_needs_scheduler or codegen.needs_scheduler;
+
+        // Determine output directory
+        const mod_dir = std.fs.path.dirname(module_path) orelse ".";
+        const mod_file = std.fs.path.basename(module_path);
+        const ir_base = try std.fmt.allocPrint(allocator, "{s}/build/{s}/{s}/{s}", .{ project_root, build_mode_str, mod_dir, mod_file });
+        defer allocator.free(ir_base);
+
+        // Create directory structure
+        if (std.fs.path.dirname(ir_base)) |dir| {
+            std.fs.cwd().makePath(dir) catch |err| {
+                std.debug.print("Warning: Could not create build directory: {}\n", .{err});
+            };
+        }
+
+        // Write LLVM IR file
+        const ir_path = try std.fmt.allocPrint(allocator, "{s}.ll", .{ir_base});
+        defer allocator.free(ir_path);
+        try std.fs.cwd().writeFile(.{ .sub_path = ir_path, .data = llvm_ir });
+
+        // Run coroutine passes
+        const opt_ir_path = try std.fmt.allocPrint(allocator, "{s}.opt.ll", .{ir_base});
+        defer allocator.free(opt_ir_path);
+        try runCoroutinePasses(allocator, ir_path, opt_ir_path);
+
+        // Generate object file
+        const obj_path = try std.fmt.allocPrint(allocator, "{s}.o", .{ir_base});
+        try object_files.append(allocator, try allocator.dupe(u8, obj_path));
+        try generateObjectFile(allocator, opt_ir_path, obj_path, target_triple);
+
+        // Cleanup combined AST (don't deinit contents since they point to module_asts)
+        combined_ast.imports.deinit(allocator);
+        combined_ast.extern_functions.deinit(allocator);
+        combined_ast.type_defs.deinit(allocator);
+        combined_ast.class_defs.deinit(allocator);
+        combined_ast.instances.deinit(allocator);
+        combined_ast.functions.deinit(allocator);
+    }
+
+    // All modules compiled to .o files - now link them together
+    if (stop_at_object) {
+        std.debug.print("Generated {d} object files in build/{s}/\n", .{ object_files.items.len, build_mode_str });
+        return;
+    }
+
+    // Determine executable path
+    const input_filename = std.fs.path.basename(input_path);
+    const exe_path = if (project_root.len > 0)
+        try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_root, input_filename })
+    else
+        try allocator.dupe(u8, input_path);
+    defer allocator.free(exe_path);
+
+    // Link all object files into executable (with stdlib.a if available)
+    try linkExecutable(allocator, object_files.items, exe_path, target_triple, all_needs_scheduler, stdlib_archive);
+
+    std.debug.print("Generated executable: {s}\n", .{exe_path});
+}
+
+/// Compile a single module with external signatures (for two-pass compilation)
+/// Returns the path to the generated .o file
+fn compileModule(
+    allocator: std.mem.Allocator,
+    module_path: []const u8,
+    is_entrypoint: bool,
+    external_sigs: []const ExternalSignature,
+    target_triple: TargetTriple,
+    build_mode: []const u8,
+    project_root: []const u8,
+) ![]const u8 {
+    // 1. Load source code
+    const source = try std.fs.cwd().readFileAlloc(allocator, module_path, 1024 * 1024);
+    defer allocator.free(source);
+
+    // 2. Lex and parse
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(allocator);
+    defer tokens.deinit(allocator);
+
+    var parser = Parser.init(tokens.items, allocator);
+    var ast = try parser.parse();
+    defer {
+        ast.imports.deinit(allocator);
+        ast.extern_functions.deinit(allocator);
+        ast.type_defs.deinit(allocator);
+        ast.class_defs.deinit(allocator);
+        ast.instances.deinit(allocator);
+        ast.functions.deinit(allocator);
+    }
+
+    // 3. Type check with external signatures
+    var typechecker = TypeChecker.init(allocator);
+    defer typechecker.deinit();
+    try typechecker.loadExternalSignatures(external_sigs);
+    try typechecker.check(&ast);
+
+    // 4. Linearity inference
     var inference_engine = linearity_inference_module.LinearityInferenceEngine.init(allocator);
     defer inference_engine.deinit();
     try inference_engine.inferAll(&ast);
 
-    // Type checker (Phase 2)
-    var typechecker = TypeChecker.init(allocator);
-    defer typechecker.deinit();
-    try typechecker.check(&ast);
-
-    // Generate LLVM IR
+    // 5. Generate LLVM IR (only entrypoint gets _start)
     var codegen = Codegen.init(allocator, target_triple);
     defer codegen.deinit();
-    // Don't generate _start entry point if compiling to object only
-    codegen.generate_start = !stop_at_object;
+    codegen.generate_start = is_entrypoint;
     const llvm_ir = try codegen.generate(&ast);
     defer allocator.free(llvm_ir);
 
-    // Determine output paths
-    // If project root is set, put executable there, intermediate files in build/ (mirroring src structure)
-    var executable_dir: []const u8 = "";
-    var intermediate_base: []const u8 = "";
-    var exe_base: []const u8 = "";
-    defer {
-        if (executable_dir.len > 0) allocator.free(executable_dir);
-        if (intermediate_base.len > 0) allocator.free(intermediate_base);
-        if (exe_base.len > 0) allocator.free(exe_base);
+    // 6. Determine output directory: build/{mode}/{module_dir}/
+    const input_dirname = std.fs.path.dirname(module_path) orelse ".";
+    const input_filename = std.fs.path.basename(module_path);
+    const ir_base = try std.fmt.allocPrint(allocator, "{s}/build/{s}/{s}/{s}", .{ project_root, build_mode, input_dirname, input_filename });
+    defer allocator.free(ir_base);
+
+    // Create directory structure
+    if (std.fs.path.dirname(ir_base)) |dir| {
+        std.fs.cwd().makePath(dir) catch |err| {
+            std.debug.print("Warning: Could not create build directory: {}\n", .{err});
+        };
     }
 
-    const input_filename = std.fs.path.basename(input_path);
-
-    if (project_root.len > 0) {
-        // Executable goes in project root
-        executable_dir = try allocator.dupe(u8, project_root);
-
-        // Intermediate files go in build/{debug|release}/, mirroring the source directory structure
-        const input_dirname = std.fs.path.dirname(input_path) orelse ".";
-        const build_base = try std.fmt.allocPrint(allocator, "{s}/build/{s}", .{ project_root, build_mode_str });
-        defer allocator.free(build_base);
-
-        // Create full build path mirroring input structure
-        intermediate_base = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ build_base, input_dirname, input_filename });
-
-        // Create build directory structure if it doesn't exist
-        if (std.fs.path.dirname(intermediate_base)) |dir| {
-            std.fs.cwd().makePath(dir) catch |err| {
-                std.debug.print("Warning: Could not create build directory structure: {}\n", .{err});
-            };
-        }
-
-        // Executable goes to project root with just the filename
-        exe_base = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ executable_dir, input_filename });
-    } else {
-        // No manifest: put everything in current directory (for backward compatibility)
-        executable_dir = try allocator.dupe(u8, ".");
-        intermediate_base = try allocator.dupe(u8, input_path);
-        exe_base = try allocator.dupe(u8, input_path);
-    }
-
-    // Write LLVM IR file
-    const ir_path = try std.fmt.allocPrint(allocator, "{s}.ll", .{intermediate_base});
+    // 7. Write LLVM IR file
+    const ir_path = try std.fmt.allocPrint(allocator, "{s}.ll", .{ir_base});
     defer allocator.free(ir_path);
     try std.fs.cwd().writeFile(.{ .sub_path = ir_path, .data = llvm_ir });
 
-    if (stop_at_ir) {
-        std.debug.print("Generated LLVM IR: {s}\n", .{ir_path});
-        return;
-    }
-
-    // Run LLVM opt passes for coroutine lowering
-    const opt_ir_path = try std.fmt.allocPrint(allocator, "{s}.opt.ll", .{intermediate_base});
+    // 8. Run coroutine passes
+    const opt_ir_path = try std.fmt.allocPrint(allocator, "{s}.opt.ll", .{ir_base});
     defer allocator.free(opt_ir_path);
-
     try runCoroutinePasses(allocator, ir_path, opt_ir_path);
 
-    // Generate object file using llc
-    const obj_path = try std.fmt.allocPrint(allocator, "{s}.o", .{intermediate_base});
+    // 9. Generate object file
+    const obj_path = try std.fmt.allocPrint(allocator, "{s}.o", .{ir_base});
     defer allocator.free(obj_path);
-
     try generateObjectFile(allocator, opt_ir_path, obj_path, target_triple);
 
-    if (stop_at_object) {
-        std.debug.print("Generated object file: {s}\n", .{obj_path});
-        return;
-    }
-
-    // Link executable with libc
-    const exe_path = try getExecutablePath(allocator, exe_base);
-    defer allocator.free(exe_path);
-
-    try linkExecutable(allocator, &[_][]const u8{obj_path}, exe_path, target_triple, codegen.needs_scheduler);
-
-    std.debug.print("Generated executable: {s}\n", .{exe_path});
+    // Return allocated copy of obj_path for caller to manage
+    return try allocator.dupe(u8, obj_path);
 }
 
 fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8, tool_name: []const u8, err: anyerror) !void {
@@ -683,7 +981,7 @@ fn generateObjectFile(allocator: std.mem.Allocator, ir_path: []const u8, obj_pat
     );
 }
 
-fn linkExecutable(allocator: std.mem.Allocator, obj_paths: []const []const u8, exe_path: []const u8, target: TargetTriple, link_runtime: bool) !void {
+fn linkExecutable(allocator: std.mem.Allocator, obj_paths: []const []const u8, exe_path: []const u8, target: TargetTriple, link_runtime: bool, stdlib_archive: []const u8) !void {
     const target_info = target.getTargetInfo();
 
     // Find the runtime library path (relative to compiler location or installed)
@@ -703,6 +1001,11 @@ fn linkExecutable(allocator: std.mem.Allocator, obj_paths: []const []const u8, e
         // Add all object files
         for (obj_paths) |obj_path| {
             try argv.append(allocator, obj_path);
+        }
+
+        // Add stdlib archive if it exists
+        if (stdlib_archive.len > 0) {
+            try argv.append(allocator, stdlib_archive);
         }
 
         if (link_runtime) {
@@ -727,6 +1030,11 @@ fn linkExecutable(allocator: std.mem.Allocator, obj_paths: []const []const u8, e
             try argv.append(allocator, obj_path);
         }
 
+        // Add stdlib archive if it exists
+        if (stdlib_archive.len > 0) {
+            try argv.append(allocator, stdlib_archive);
+        }
+
         if (link_runtime) {
             try argv.append(allocator, runtime_lib);
             try argv.append(allocator, "-lpthread");
@@ -748,6 +1056,12 @@ fn linkExecutable(allocator: std.mem.Allocator, obj_paths: []const []const u8, e
         for (obj_paths) |obj_path| {
             try argv.append(allocator, obj_path);
         }
+
+        // Add stdlib archive if it exists
+        if (stdlib_archive.len > 0) {
+            try argv.append(allocator, stdlib_archive);
+        }
+
         try argv.append(allocator, fe_flag);
 
         if (runCommand(allocator, argv.items, "clang-cl", error.LinkingFailed)) {
@@ -761,6 +1075,12 @@ fn linkExecutable(allocator: std.mem.Allocator, obj_paths: []const []const u8, e
             for (obj_paths) |obj_path| {
                 try argv_gcc.append(allocator, obj_path);
             }
+
+            // Add stdlib archive if it exists
+            if (stdlib_archive.len > 0) {
+                try argv_gcc.append(allocator, stdlib_archive);
+            }
+
             try argv_gcc.append(allocator, "-o");
             try argv_gcc.append(allocator, exe_path);
 
