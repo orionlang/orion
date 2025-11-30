@@ -982,11 +982,16 @@ pub const Codegen = struct {
         defer self.allocator.free(return_type_str);
 
         // Mangle function name with module name if module is set (for per-module compilation)
-        const func_name = if (self.module_name) |mod_name|
-            try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ mod_name, func.name })
-        else
+        // Exception: 'main' function is never mangled as it's the entry point
+        const func_name = if (self.module_name) |mod_name| blk: {
+            if (std.mem.eql(u8, func.name, "main")) {
+                break :blk func.name;
+            } else {
+                break :blk try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ mod_name, func.name });
+            }
+        } else
             func.name;
-        defer if (self.module_name != null) self.allocator.free(func_name);
+        defer if (self.module_name != null and !std.mem.eql(u8, func.name, "main")) self.allocator.free(func_name);
 
         try self.output.writer(self.allocator).print("define {s} @{s}(", .{ return_type_str, func_name });
 
@@ -3013,6 +3018,26 @@ pub const Codegen = struct {
                 return self.inferExprType(match_expr.arms[0].body);
             },
             .method_call => |method_call| {
+                // Check if this is a module function call (object is a variable not in scope)
+                const is_module_function_call = if (method_call.object.* == .variable)
+                    self.variables.get(method_call.object.variable) == null
+                else
+                    false;
+
+                // For module function calls, look up the function signature
+                if (is_module_function_call) {
+                    const module_name = method_call.object.variable;
+                    const mangled_name = std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ module_name, method_call.method_name }) catch unreachable;
+                    defer self.allocator.free(mangled_name);
+
+                    if (self.functions.get(mangled_name)) |func_info| {
+                        return func_info.return_type;
+                    } else {
+                        // Function not found - this shouldn't happen if extern declarations are working
+                        return Type{ .kind = .{ .primitive = .i64 }, .usage = .once };
+                    }
+                }
+
                 // Look up method return type from instance_methods
                 const type_name = if (method_call.object.* == .dependent_type_ref) blk: {
                     const ref = method_call.object.dependent_type_ref;

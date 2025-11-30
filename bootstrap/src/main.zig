@@ -820,10 +820,18 @@ pub fn main() !void {
             try module_func_names.append(allocator, try allocator.dupe(u8, func.name));
         }
 
-        // Generate LLVM IR (only generate _start for entrypoint module)
+        // Generate LLVM IR (only generate _start for entrypoint module if it has main function)
         var codegen = Codegen.init(allocator, target_triple);
         defer codegen.deinit();
-        codegen.generate_start = is_entrypoint;
+
+        // Generate _start only if this module contains the main function
+        codegen.generate_start = blk: {
+            for (module_func_names.items) |fname| {
+                if (std.mem.eql(u8, fname, "main")) break :blk true;
+            }
+            break :blk false;
+        };
+
         codegen.module_functions = module_func_names.items; // Only generate these functions
 
         // Set module name for function name mangling (extract from module path)
@@ -893,10 +901,17 @@ pub fn main() !void {
         return;
     }
 
-    // Determine executable path
+    // Determine executable path (remove .or extension)
     const input_filename = std.fs.path.basename(input_path);
+    const exe_name = if (std.mem.endsWith(u8, input_filename, ".or"))
+        input_filename[0 .. input_filename.len - 3]
+    else
+        input_filename;
+
     const exe_path = if (project_root.len > 0)
-        try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_root, input_filename })
+        try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_root, exe_name })
+    else if (std.mem.endsWith(u8, input_path, ".or"))
+        try allocator.dupe(u8, input_path[0 .. input_path.len - 3])
     else
         try allocator.dupe(u8, input_path);
     defer allocator.free(exe_path);
