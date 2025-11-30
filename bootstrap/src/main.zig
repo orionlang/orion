@@ -324,11 +324,13 @@ fn buildCommand(allocator: std.mem.Allocator, _: []const u8, build_args: []const
     // Determine target based on --lib flag
     const target_is_lib = build_lib;
 
-    // Get entrypoint
+    // Get entrypoint and output name
     var entrypoint: ?[]const u8 = null;
+    var output_name: ?[]const u8 = null;
     if (target_is_lib) {
         if (manifest.lib) |lib| {
             entrypoint = lib.entrypoint;
+            output_name = lib.name;
         } else {
             std.debug.print("Error: No [lib] section in manifest\n", .{});
             return error.NoLibTarget;
@@ -336,6 +338,7 @@ fn buildCommand(allocator: std.mem.Allocator, _: []const u8, build_args: []const
     } else {
         if (manifest.bin) |bin| {
             entrypoint = bin.entrypoint;
+            output_name = bin.name;
         } else {
             std.debug.print("Error: No [bin] section in manifest\n", .{});
             return error.NoBinTarget;
@@ -360,9 +363,20 @@ fn buildCommand(allocator: std.mem.Allocator, _: []const u8, build_args: []const
     const exe_path = std.fs.selfExePathAlloc(allocator) catch "/usr/bin/orion";
     defer allocator.free(exe_path);
 
+    var argv = std.ArrayList([]const u8).empty;
+    defer argv.deinit(allocator);
+    try argv.append(allocator, exe_path);
+    try argv.append(allocator, entrypoint.?);
+    try argv.append(allocator, "--build-mode");
+    try argv.append(allocator, build_mode);
+    if (output_name) |name| {
+        try argv.append(allocator, "--output-name");
+        try argv.append(allocator, name);
+    }
+
     const result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &[_][]const u8{ exe_path, entrypoint.?, "--build-mode", build_mode },
+        .argv = argv.items,
         .cwd = project_root,
         .max_output_bytes = 64 * 1024 * 1024,  // 64 MB buffer for compilation output
     });
@@ -395,12 +409,15 @@ fn buildCommand(allocator: std.mem.Allocator, _: []const u8, build_args: []const
         },
     }
 
-    const output_name = std.fs.path.basename(entrypoint.?);
-    if (std.mem.lastIndexOf(u8, output_name, ".")) |dot_idx| {
-        std.debug.print("Generated executable: {s}/{s}\n", .{ project_root, output_name[0..dot_idx] });
-    } else {
-        std.debug.print("Generated executable: {s}/{s}\n", .{ project_root, output_name });
-    }
+    const final_output_name = if (output_name) |name| name else blk: {
+        const basename = std.fs.path.basename(entrypoint.?);
+        if (std.mem.lastIndexOf(u8, basename, ".")) |dot_idx| {
+            break :blk basename[0..dot_idx];
+        } else {
+            break :blk basename;
+        }
+    };
+    std.debug.print("Generated executable: {s}/{s}\n", .{ project_root, final_output_name });
 }
 
 /// Search upward from input_path for orion.toml
@@ -529,6 +546,7 @@ pub fn main() !void {
     var stop_at_object = false;
     var target_triple_str: ?[]const u8 = null;
     var build_mode_str: []const u8 = "debug"; // Default to debug mode
+    var output_name: ?[]const u8 = null; // Optional custom output name
     var include_dirs = std.ArrayList([]const u8).empty;
     defer include_dirs.deinit(allocator);
 
@@ -552,6 +570,13 @@ pub fn main() !void {
                 return error.MissingBuildMode;
             }
             build_mode_str = args[i];
+        } else if (std.mem.eql(u8, args[i], "--output-name")) {
+            i += 1;
+            if (i >= args.len) {
+                std.debug.print("Error: --output-name requires an argument\n", .{});
+                return error.MissingOutputName;
+            }
+            output_name = args[i];
         } else if (std.mem.eql(u8, args[i], "-I") or std.mem.eql(u8, args[i], "--include")) {
             i += 1;
             if (i >= args.len) {
@@ -941,17 +966,23 @@ pub fn main() !void {
         return;
     }
 
-    // Determine executable path (remove .or extension)
-    const input_filename = std.fs.path.basename(input_path);
-    const exe_name = if (std.mem.endsWith(u8, input_filename, ".or"))
-        input_filename[0 .. input_filename.len - 3]
-    else
-        input_filename;
+    // Determine executable path (use output_name if provided, otherwise remove .or extension)
+    const exe_name = if (output_name) |name|
+        name
+    else blk: {
+        const input_filename = std.fs.path.basename(input_path);
+        if (std.mem.endsWith(u8, input_filename, ".or"))
+            break :blk input_filename[0 .. input_filename.len - 3]
+        else
+            break :blk input_filename;
+    };
 
     const exe_path = if (project_root.len > 0)
         try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_root, exe_name })
-    else if (std.mem.endsWith(u8, input_path, ".or"))
+    else if (output_name == null and std.mem.endsWith(u8, input_path, ".or"))
         try allocator.dupe(u8, input_path[0 .. input_path.len - 3])
+    else if (output_name != null)
+        try allocator.dupe(u8, exe_name)
     else
         try allocator.dupe(u8, input_path);
     defer allocator.free(exe_path);

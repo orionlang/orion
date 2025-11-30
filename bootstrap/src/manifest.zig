@@ -7,10 +7,12 @@ pub const PackageInfo = struct {
 
 pub const BinConfig = struct {
     entrypoint: []const u8,
+    name: ?[]const u8 = null,  // Output binary name (defaults to project name)
 };
 
 pub const LibConfig = struct {
     entrypoint: []const u8,
+    name: ?[]const u8 = null,  // Output library name (defaults to project name)
 };
 
 pub const Dependency = struct {
@@ -30,9 +32,15 @@ pub const Manifest = struct {
         self.allocator.free(self.package.version);
         if (self.bin) |bin| {
             self.allocator.free(bin.entrypoint);
+            if (bin.name) |name| {
+                self.allocator.free(name);
+            }
         }
         if (self.lib) |lib| {
             self.allocator.free(lib.entrypoint);
+            if (lib.name) |name| {
+                self.allocator.free(name);
+            }
         }
         for (self.dependencies) |dep| {
             self.allocator.free(dep.name);
@@ -47,7 +55,9 @@ pub fn parseManifest(allocator: std.mem.Allocator, content: []const u8) !Manifes
     var package_name: ?[]const u8 = null;
     var package_version: ?[]const u8 = null;
     var bin_entrypoint: ?[]const u8 = null;
+    var bin_name: ?[]const u8 = null;
     var lib_entrypoint: ?[]const u8 = null;
+    var lib_name: ?[]const u8 = null;
     var dependencies: std.ArrayList(Dependency) = .empty;
     errdefer dependencies.deinit(allocator);
 
@@ -95,11 +105,15 @@ pub fn parseManifest(allocator: std.mem.Allocator, content: []const u8) !Manifes
                 .bin => {
                     if (std.mem.eql(u8, key, "entrypoint")) {
                         bin_entrypoint = try allocator.dupe(u8, value);
+                    } else if (std.mem.eql(u8, key, "name")) {
+                        bin_name = try allocator.dupe(u8, value);
                     }
                 },
                 .lib => {
                     if (std.mem.eql(u8, key, "entrypoint")) {
                         lib_entrypoint = try allocator.dupe(u8, value);
+                    } else if (std.mem.eql(u8, key, "name")) {
+                        lib_name = try allocator.dupe(u8, value);
                     }
                 },
                 .dependencies => {
@@ -145,8 +159,8 @@ pub fn parseManifest(allocator: std.mem.Allocator, content: []const u8) !Manifes
             .name = package_name.?,
             .version = package_version.?,
         },
-        .bin = if (bin_entrypoint) |ep| BinConfig{ .entrypoint = ep } else null,
-        .lib = if (lib_entrypoint) |ep| LibConfig{ .entrypoint = ep } else null,
+        .bin = if (bin_entrypoint) |ep| BinConfig{ .entrypoint = ep, .name = bin_name } else null,
+        .lib = if (lib_entrypoint) |ep| LibConfig{ .entrypoint = ep, .name = lib_name } else null,
         .dependencies = try dependencies.toOwnedSlice(allocator),
         .allocator = allocator,
     };

@@ -1,0 +1,6 @@
+// Orion self-hosted compiler entry point
+// The compiler transforms Orion source code into executables
+
+fn main() i64 {
+  return 0
+}

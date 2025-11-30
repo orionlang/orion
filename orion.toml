@@ -1,0 +1,12 @@
+[package]
+name = "orion"
+version = "0.1.0"
+description = "The Orion programming language compiler"
+
+[bin]
+name = "orion"
+entrypoint = "src/main.or"
+
+[lib]
+name = "orion"
+entrypoint = "src/lib.or"
