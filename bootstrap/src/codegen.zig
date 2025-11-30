@@ -69,6 +69,7 @@ pub const Codegen = struct {
     generate_start: bool, // Whether to generate _start entry point (false for object-only compilation)
     // Per-module compilation: track which functions belong to current module
     module_functions: ?[]const []const u8, // Names of functions defined in this module (null = all)
+    module_name: ?[]const u8, // Name of the module being compiled (for function name mangling)
 
     pub fn init(allocator: std.mem.Allocator, target: TargetTriple) Codegen {
         return .{
@@ -103,6 +104,7 @@ pub const Codegen = struct {
             .in_async_block = false,
             .generate_start = true,
             .module_functions = null, // Default: include all functions
+            .module_name = null, // Default: no module name (for single-module compilation)
         };
     }
 
@@ -978,7 +980,15 @@ pub const Codegen = struct {
         // Function signature with parameters
         const return_type_str = try self.llvmTypeString(func.return_type);
         defer self.allocator.free(return_type_str);
-        try self.output.writer(self.allocator).print("define {s} @{s}(", .{ return_type_str, func.name });
+
+        // Mangle function name with module name if module is set (for per-module compilation)
+        const func_name = if (self.module_name) |mod_name|
+            try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ mod_name, func.name })
+        else
+            func.name;
+        defer if (self.module_name != null) self.allocator.free(func_name);
+
+        try self.output.writer(self.allocator).print("define {s} @{s}(", .{ return_type_str, func_name });
 
         // Generate parameter list
         for (func.params, 0..) |param, i| {
@@ -2058,6 +2068,12 @@ pub const Codegen = struct {
                 // Special case: if object is a dependent_type_ref, don't generate object value
                 const is_type_method = method_call.object.* == .dependent_type_ref;
 
+                // Special case: if object is a variable that isn't in scope, it's likely a module function call
+                const is_module_function_call = if (!is_type_method and method_call.object.* == .variable)
+                    self.variables.get(method_call.object.variable) == null
+                else
+                    false;
+
                 // Generate method call as: Type__method_name(object, args...)
                 const type_name = if (is_type_method) blk: {
                     const ref = method_call.object.dependent_type_ref;
@@ -2090,6 +2106,9 @@ pub const Codegen = struct {
                         }
                     }
                     break :blk try self.allocator.dupe(u8, mangled.items);
+                } else if (is_module_function_call) blk: {
+                    // Module function call: use module name as the type name
+                    break :blk try self.allocator.dupe(u8, method_call.object.variable);
                 } else blk: {
                     const object_type = self.inferExprType(method_call.object);
                     break :blk try self.mangledTypeName(object_type);
@@ -2100,8 +2119,11 @@ pub const Codegen = struct {
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ type_name, method_call.method_name });
                 defer self.allocator.free(mangled_name);
 
-                // Generate arguments: object is the first arg (unless it's a type method)
-                const object_val = if (!is_type_method) try self.generateExpression(method_call.object, null) else null;
+                // Generate arguments: object is the first arg (unless it's a type method or module function call)
+                const object_val = if (!is_type_method and !is_module_function_call)
+                    try self.generateExpression(method_call.object, null)
+                else
+                    null;
                 defer if (object_val) |val| self.allocator.free(val);
 
                 var arg_vals: std.ArrayList([]const u8) = .empty;
@@ -2139,8 +2161,14 @@ pub const Codegen = struct {
                 for (arg_vals.items, 0..) |val, i| {
                     if (i > 0) try self.output.appendSlice(self.allocator, ", ");
                     // For type methods, all args come from method_call.args
+                    // For module function calls, all args come from method_call.args
                     // For instance methods, first arg is object, rest are from method_call.args
-                    const arg_expr = if (is_type_method) method_call.args[i] else if (i == 0) method_call.object else method_call.args[i - 1];
+                    const arg_expr = if (is_type_method or is_module_function_call)
+                        method_call.args[i]
+                    else if (i == 0)
+                        method_call.object
+                    else
+                        method_call.args[i - 1];
                     const arg_type = self.inferExprType(arg_expr);
                     const arg_type_str = try self.llvmTypeString(arg_type);
                     defer self.allocator.free(arg_type_str);

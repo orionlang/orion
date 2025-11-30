@@ -783,7 +783,24 @@ pub fn main() !void {
             try combined_ast.type_defs.appendSlice(allocator, other_ast.type_defs.items);
             try combined_ast.class_defs.appendSlice(allocator, other_ast.class_defs.items);
             try combined_ast.instances.appendSlice(allocator, other_ast.instances.items);
-            // Explicitly NOT adding other_ast.functions to avoid duplication
+
+            // Add function signatures from other modules as extern declarations
+            // This allows referencing functions from other compiled modules
+            for (other_ast.functions.items) |func| {
+                // Mangle function name with module name from other_path
+                const mod_basename = std.fs.path.basename(other_path);
+                const mangled_name = if (std.mem.lastIndexOfScalar(u8, mod_basename, '.')) |dot_idx|
+                    try std.fmt.allocPrint(allocator, "{s}__{s}", .{ mod_basename[0..dot_idx], func.name })
+                else
+                    try std.fmt.allocPrint(allocator, "{s}__{s}", .{ mod_basename, func.name });
+
+                const extern_func = ExternFunctionDecl{
+                    .name = mangled_name,
+                    .params = func.params,
+                    .return_type = func.return_type,
+                };
+                try combined_ast.extern_functions.append(allocator, extern_func);
+            }
         }
 
         // Linearity inference (Phase 1)
@@ -808,7 +825,22 @@ pub fn main() !void {
         defer codegen.deinit();
         codegen.generate_start = is_entrypoint;
         codegen.module_functions = module_func_names.items; // Only generate these functions
+
+        // Set module name for function name mangling (extract from module path)
+        // Only mangle non-entrypoint modules. Entrypoint module functions don't get mangled.
+        // For example, "src/math.or" -> "math"
+        if (!is_entrypoint) {
+            const module_basename = std.fs.path.basename(module_path);
+            if (std.mem.lastIndexOfScalar(u8, module_basename, '.')) |dot_idx| {
+                codegen.module_name = try allocator.dupe(u8, module_basename[0..dot_idx]);
+            } else {
+                codegen.module_name = try allocator.dupe(u8, module_basename);
+            }
+        }
+
         const llvm_ir = try codegen.generate(&combined_ast);
+        // Clean up module name after codegen
+        if (codegen.module_name) |mod_name| allocator.free(mod_name);
         defer allocator.free(llvm_ir);
 
         // Cleanup module function names
