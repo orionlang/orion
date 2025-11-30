@@ -569,7 +569,7 @@ pub fn main() !void {
     const exe_path = try getExecutablePath(allocator, exe_base);
     defer allocator.free(exe_path);
 
-    try linkExecutable(allocator, obj_path, exe_path, target_triple, codegen.needs_scheduler);
+    try linkExecutable(allocator, &[_][]const u8{obj_path}, exe_path, target_triple, codegen.needs_scheduler);
 
     std.debug.print("Generated executable: {s}\n", .{exe_path});
 }
@@ -621,7 +621,7 @@ fn generateObjectFile(allocator: std.mem.Allocator, ir_path: []const u8, obj_pat
     );
 }
 
-fn linkExecutable(allocator: std.mem.Allocator, obj_path: []const u8, exe_path: []const u8, target: TargetTriple, link_runtime: bool) !void {
+fn linkExecutable(allocator: std.mem.Allocator, obj_paths: []const []const u8, exe_path: []const u8, target: TargetTriple, link_runtime: bool) !void {
     const target_info = target.getTargetInfo();
 
     // Find the runtime library path (relative to compiler location or installed)
@@ -631,99 +631,158 @@ fn linkExecutable(allocator: std.mem.Allocator, obj_path: []const u8, exe_path: 
     if (target_info.is_linux) {
         // Linux: use lld directly with our generated _start
         // No crt files needed - we generate _start in the LLVM IR
-        if (link_runtime) {
-            try runCommand(
-                allocator,
-                &[_][]const u8{
-                    "ld.lld",
-                    "-o",
-                    exe_path,
-                    obj_path,
-                    runtime_lib,
-                    "-L/usr/lib",
-                    "-lc",
-                    "-lpthread",
-                    "--dynamic-linker=/lib64/ld-linux-x86-64.so.2",
-                },
-                "ld.lld",
-                error.LinkingFailed,
-            );
-        } else {
-            try runCommand(
-                allocator,
-                &[_][]const u8{
-                    "ld.lld",
-                    "-o",
-                    exe_path,
-                    obj_path,
-                    "-L/usr/lib",
-                    "-lc",
-                    "--dynamic-linker=/lib64/ld-linux-x86-64.so.2",
-                },
-                "ld.lld",
-                error.LinkingFailed,
-            );
+        var argv = std.ArrayList([]const u8).empty;
+        defer argv.deinit(allocator);
+
+        try argv.append(allocator, "ld.lld");
+        try argv.append(allocator, "-o");
+        try argv.append(allocator, exe_path);
+
+        // Add all object files
+        for (obj_paths) |obj_path| {
+            try argv.append(allocator, obj_path);
         }
+
+        if (link_runtime) {
+            try argv.append(allocator, runtime_lib);
+        }
+
+        try argv.append(allocator, "-L/usr/lib");
+        try argv.append(allocator, "-lc");
+        try argv.append(allocator, "-lpthread");
+        try argv.append(allocator, "--dynamic-linker=/lib64/ld-linux-x86-64.so.2");
+
+        try runCommand(allocator, argv.items, "ld.lld", error.LinkingFailed);
     } else if (target_info.is_macos) {
         // macOS: use clang as linker driver
-        // clang finds crt1.o and links with libSystem.dylib
-        if (link_runtime) {
-            try runCommand(
-                allocator,
-                &[_][]const u8{ "clang", obj_path, runtime_lib, "-lpthread", "-o", exe_path },
-                "clang",
-                error.LinkingFailed,
-            );
-        } else {
-            try runCommand(
-                allocator,
-                &[_][]const u8{ "clang", obj_path, "-o", exe_path },
-                "clang",
-                error.LinkingFailed,
-            );
-        }
-    } else if (target_info.is_windows) {
-        // Windows: try clang-cl first (MSVC-compatible clang), fall back to MinGW
-        // clang-cl links with UCRT (Universal C Runtime)
-        // MinGW links with msvcrt.dll or its own runtime
+        var argv = std.ArrayList([]const u8).empty;
+        defer argv.deinit(allocator);
 
+        try argv.append(allocator, "clang");
+
+        // Add all object files
+        for (obj_paths) |obj_path| {
+            try argv.append(allocator, obj_path);
+        }
+
+        if (link_runtime) {
+            try argv.append(allocator, runtime_lib);
+            try argv.append(allocator, "-lpthread");
+        }
+
+        try argv.append(allocator, "-o");
+        try argv.append(allocator, exe_path);
+
+        try runCommand(allocator, argv.items, "clang", error.LinkingFailed);
+    } else if (target_info.is_windows) {
+        // Windows: try clang-cl first, fall back to MinGW gcc
         const fe_flag = try std.fmt.allocPrint(allocator, "/Fe{s}", .{exe_path});
         defer allocator.free(fe_flag);
 
-        const clang_cl_result = runCommand(
-            allocator,
-            &[_][]const u8{ "clang-cl", obj_path, fe_flag },
-            "clang-cl",
-            error.LinkingFailed,
-        );
+        var argv = std.ArrayList([]const u8).empty;
+        defer argv.deinit(allocator);
 
-        if (clang_cl_result) {
+        try argv.append(allocator, "clang-cl");
+        for (obj_paths) |obj_path| {
+            try argv.append(allocator, obj_path);
+        }
+        try argv.append(allocator, fe_flag);
+
+        if (runCommand(allocator, argv.items, "clang-cl", error.LinkingFailed)) {
             // clang-cl succeeded
         } else |_| {
             // clang-cl failed, try MinGW gcc
-            try runCommand(
-                allocator,
-                &[_][]const u8{ "x86_64-w64-mingw32-gcc", obj_path, "-o", exe_path },
-                "x86_64-w64-mingw32-gcc",
-                error.LinkingFailed,
-            );
+            var argv_gcc = std.ArrayList([]const u8).empty;
+            defer argv_gcc.deinit(allocator);
+
+            try argv_gcc.append(allocator, "x86_64-w64-mingw32-gcc");
+            for (obj_paths) |obj_path| {
+                try argv_gcc.append(allocator, obj_path);
+            }
+            try argv_gcc.append(allocator, "-o");
+            try argv_gcc.append(allocator, exe_path);
+
+            try runCommand(allocator, argv_gcc.items, "x86_64-w64-mingw32-gcc", error.LinkingFailed);
         }
     } else {
         // Fallback: try gcc as linker driver
+        var argv = std.ArrayList([]const u8).empty;
+        defer argv.deinit(allocator);
+
+        try argv.append(allocator, "gcc");
+        for (obj_paths) |obj_path| {
+            try argv.append(allocator, obj_path);
+        }
+
         if (link_runtime) {
-            try runCommand(
-                allocator,
-                &[_][]const u8{ "gcc", obj_path, runtime_lib, "-lpthread", "-o", exe_path },
-                "gcc",
-                error.LinkingFailed,
-            );
+            try argv.append(allocator, runtime_lib);
+            try argv.append(allocator, "-lpthread");
+        }
+
+        try argv.append(allocator, "-o");
+        try argv.append(allocator, exe_path);
+
+        try runCommand(allocator, argv.items, "gcc", error.LinkingFailed);
+    }
+}
+
+fn linkLibrary(allocator: std.mem.Allocator, obj_paths: []const []const u8, lib_path: []const u8, target: TargetTriple, lib_type: enum { static, shared }) !void {
+    const target_info = target.getTargetInfo();
+
+    if (lib_type == .static) {
+        // Static library: use ar rcs
+        var argv = std.ArrayList([]const u8).empty;
+        defer argv.deinit(allocator);
+
+        try argv.append(allocator, "ar");
+        try argv.append(allocator, "rcs");
+        try argv.append(allocator, lib_path);
+
+        for (obj_paths) |obj_path| {
+            try argv.append(allocator, obj_path);
+        }
+
+        try runCommand(allocator, argv.items, "ar", error.LibraryGenerationFailed);
+    } else {
+        // Shared library
+        var argv = std.ArrayList([]const u8).empty;
+        defer argv.deinit(allocator);
+
+        if (target_info.is_linux) {
+            try argv.append(allocator, "ld.lld");
+            try argv.append(allocator, "-shared");
+            try argv.append(allocator, "-o");
+            try argv.append(allocator, lib_path);
+
+            for (obj_paths) |obj_path| {
+                try argv.append(allocator, obj_path);
+            }
+
+            try argv.append(allocator, "-lc");
+            try runCommand(allocator, argv.items, "ld.lld", error.LibraryGenerationFailed);
+        } else if (target_info.is_macos) {
+            try argv.append(allocator, "clang");
+            try argv.append(allocator, "-dynamiclib");
+            try argv.append(allocator, "-o");
+            try argv.append(allocator, lib_path);
+
+            for (obj_paths) |obj_path| {
+                try argv.append(allocator, obj_path);
+            }
+
+            try runCommand(allocator, argv.items, "clang", error.LibraryGenerationFailed);
         } else {
-            try runCommand(
-                allocator,
-                &[_][]const u8{ "gcc", obj_path, "-o", exe_path },
-                "gcc",
-                error.LinkingFailed,
-            );
+            // Fallback for other platforms
+            try argv.append(allocator, "gcc");
+            try argv.append(allocator, "-shared");
+            try argv.append(allocator, "-o");
+            try argv.append(allocator, lib_path);
+
+            for (obj_paths) |obj_path| {
+                try argv.append(allocator, obj_path);
+            }
+
+            try runCommand(allocator, argv.items, "gcc", error.LibraryGenerationFailed);
         }
     }
 }
