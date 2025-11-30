@@ -258,6 +258,8 @@ pub fn main() !void {
     // Generate LLVM IR
     var codegen = Codegen.init(allocator, target_triple);
     defer codegen.deinit();
+    // Don't generate _start entry point if compiling to object only
+    codegen.generate_start = !stop_at_object;
     const llvm_ir = try codegen.generate(&ast);
     defer allocator.free(llvm_ir);
 

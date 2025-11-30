@@ -66,6 +66,7 @@ pub const Codegen = struct {
     // Runtime scheduler for Go-style concurrency
     needs_scheduler: bool,
     in_async_block: bool, // Track if we're generating code inside async block
+    generate_start: bool, // Whether to generate _start entry point (false for object-only compilation)
 
     pub fn init(allocator: std.mem.Allocator, target: TargetTriple) Codegen {
         return .{
@@ -98,6 +99,7 @@ pub const Codegen = struct {
             .current_coro_handle = null,
             .needs_scheduler = false,
             .in_async_block = false,
+            .generate_start = true,
         };
     }
 
@@ -496,16 +498,16 @@ pub const Codegen = struct {
             try self.generateFunction(&func);
         }
 
-        // Output string literals after functions but they'll be moved to top later
-        // For now, just append them at the end
+        // Generate instance methods (must be before appending string_literals
+        // because instance methods may reference strings that need to be emitted)
+        for (ast.instances.items) |instance| {
+            try self.generateInstanceMethods(&instance);
+        }
+
+        // Output string literals after both functions and instance methods
         if (self.string_literals.items.len > 0) {
             try self.output.appendSlice(self.allocator, "\n");
             try self.output.appendSlice(self.allocator, self.string_literals.items);
-        }
-
-        // Generate instance methods
-        for (ast.instances.items) |instance| {
-            try self.generateInstanceMethods(&instance);
         }
 
         // Emit scheduler runtime if needed
@@ -522,8 +524,10 @@ pub const Codegen = struct {
         }
 
         // Generate _start entry point that calls __libc_start_main
-        // This replaces crt1.o so we can link with just lld + libc
-        try self.generateStartFunction();
+        // Skip if compiling to object only (no linking)
+        if (self.generate_start) {
+            try self.generateStartFunction();
+        }
 
         return try self.allocator.dupe(u8, self.output.items);
     }
