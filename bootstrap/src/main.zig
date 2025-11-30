@@ -708,15 +708,16 @@ pub fn main() !void {
             .functions = std.ArrayList(FunctionDecl).empty,
         };
 
-        // Add prelude
+        // Add prelude type/class definitions (not functions or instances - they're in stdlib.a)
+        // Instances are omitted because their method implementations are in stdlib.a, not user code
         try combined_ast.imports.appendSlice(allocator, prelude_ast.imports.items);
         try combined_ast.extern_functions.appendSlice(allocator, prelude_ast.extern_functions.items);
         try combined_ast.type_defs.appendSlice(allocator, prelude_ast.type_defs.items);
         try combined_ast.class_defs.appendSlice(allocator, prelude_ast.class_defs.items);
-        try combined_ast.instances.appendSlice(allocator, prelude_ast.instances.items);
-        try combined_ast.functions.appendSlice(allocator, prelude_ast.functions.items);
+        // Note: prelude instances (with method implementations) are in stdlib.a, not embedded in user modules
 
         // Add prelude's dependencies (stdlib modules like std.string, std.alloc)
+        // Only include type definitions, not functions or instances (they're in stdlib.a)
         // Skip current module if it happens to be a prelude dependency
         for (prelude_module_paths.items) |prelude_dep_path| {
             if (std.mem.eql(u8, prelude_dep_path, module_path)) continue;
@@ -726,8 +727,7 @@ pub fn main() !void {
                 try combined_ast.extern_functions.appendSlice(allocator, prelude_dep_ast.extern_functions.items);
                 try combined_ast.type_defs.appendSlice(allocator, prelude_dep_ast.type_defs.items);
                 try combined_ast.class_defs.appendSlice(allocator, prelude_dep_ast.class_defs.items);
-                try combined_ast.instances.appendSlice(allocator, prelude_dep_ast.instances.items);
-                try combined_ast.functions.appendSlice(allocator, prelude_dep_ast.functions.items);
+                // Note: stdlib instances (with method implementations) are in stdlib.a, not embedded in user modules
             }
         }
 
