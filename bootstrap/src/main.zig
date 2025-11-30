@@ -8,6 +8,7 @@ const ClassDef = parser_module.ClassDef;
 const InstanceDecl = parser_module.InstanceDecl;
 const FunctionDecl = parser_module.FunctionDecl;
 const ExternFunctionDecl = parser_module.ExternFunctionDecl;
+const linearity_inference_module = @import("linearity_inference.zig");
 const TypeChecker = @import("typechecker.zig").TypeChecker;
 const Codegen = @import("codegen.zig").Codegen;
 const target_module = @import("target.zig");
@@ -244,7 +245,12 @@ pub fn main() !void {
         try ast.functions.appendSlice(allocator, mod_ast.functions.items);
     }
 
-    // Type checker
+    // Linearity inference (Phase 1)
+    var inference_engine = linearity_inference_module.LinearityInferenceEngine.init(allocator);
+    defer inference_engine.deinit();
+    try inference_engine.inferAll(&ast);
+
+    // Type checker (Phase 2)
     var typechecker = TypeChecker.init(allocator);
     defer typechecker.deinit();
     try typechecker.check(&ast);
