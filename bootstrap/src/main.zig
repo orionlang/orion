@@ -329,11 +329,30 @@ fn buildCommand(allocator: std.mem.Allocator, _: []const u8, build_args: []const
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    if (result.term.Exited != 0) {
-        if (result.stderr.len > 0) {
-            std.debug.print("Compilation failed:\n{s}\n", .{result.stderr});
-        }
-        return error.CompilationFailed;
+    // Check if process exited with error or received signal
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                if (result.stderr.len > 0) {
+                    std.debug.print("Compilation failed:\n{s}\n", .{result.stderr});
+                }
+                return error.CompilationFailed;
+            }
+        },
+        .Signal => |sig| {
+            std.debug.print("Compilation process killed by signal {d}\n", .{sig});
+            if (result.stderr.len > 0) {
+                std.debug.print("Output: {s}\n", .{result.stderr});
+            }
+            return error.CompilationFailed;
+        },
+        else => {
+            std.debug.print("Compilation process terminated abnormally\n", .{});
+            if (result.stderr.len > 0) {
+                std.debug.print("Output: {s}\n", .{result.stderr});
+            }
+            return error.CompilationFailed;
+        },
     }
 
     const output_name = std.fs.path.basename(entrypoint.?);
@@ -746,6 +765,9 @@ pub fn main() !void {
 
             // Skip current module (already added above)
             if (std.mem.eql(u8, other_path, module_path)) continue;
+
+            // Skip ALL stdlib modules (std.*) since they're compiled to stdlib.a
+            if (isStdlibModule(other_path)) continue;
 
             // Skip prelude dependencies (already added above)
             var is_prelude_dep = false;
