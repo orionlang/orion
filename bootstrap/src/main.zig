@@ -129,7 +129,9 @@ fn buildCommand(allocator: std.mem.Allocator, _: []const u8, build_args: []const
     }
     defer allocator.free(project_root);
 
-    std.debug.print("Building {s}...\n", .{manifest.package.name});
+    // Determine build mode and output directory
+    const build_mode = if (is_release) "release" else "debug";
+    std.debug.print("Building {s} ({s} mode)...\n", .{ manifest.package.name, build_mode });
 
     // Re-invoke orion to compile the entrypoint
     // This reuses the existing single-file compilation pipeline
@@ -138,7 +140,7 @@ fn buildCommand(allocator: std.mem.Allocator, _: []const u8, build_args: []const
 
     const result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &[_][]const u8{exe_path, entrypoint.?},
+        .argv = &[_][]const u8{ exe_path, entrypoint.?, "--build-mode", build_mode },
         .cwd = project_root,
     });
     defer allocator.free(result.stdout);
@@ -282,6 +284,7 @@ pub fn main() !void {
     var stop_at_ir = false;
     var stop_at_object = false;
     var target_triple_str: ?[]const u8 = null;
+    var build_mode_str: []const u8 = "debug"; // Default to debug mode
     var include_dirs = std.ArrayList([]const u8).empty;
     defer include_dirs.deinit(allocator);
 
@@ -298,6 +301,13 @@ pub fn main() !void {
                 return error.MissingTargetTriple;
             }
             target_triple_str = args[i];
+        } else if (std.mem.eql(u8, args[i], "--build-mode")) {
+            i += 1;
+            if (i >= args.len) {
+                std.debug.print("Error: --build-mode requires an argument\n", .{});
+                return error.MissingBuildMode;
+            }
+            build_mode_str = args[i];
         } else if (std.mem.eql(u8, args[i], "-I") or std.mem.eql(u8, args[i], "--include")) {
             i += 1;
             if (i >= args.len) {
@@ -514,9 +524,9 @@ pub fn main() !void {
         // Executable goes in project root
         executable_dir = try allocator.dupe(u8, project_root);
 
-        // Intermediate files go in build/, mirroring the source directory structure
+        // Intermediate files go in build/{debug|release}/, mirroring the source directory structure
         const input_dirname = std.fs.path.dirname(input_path) orelse ".";
-        const build_base = try std.fmt.allocPrint(allocator, "{s}/build", .{project_root});
+        const build_base = try std.fmt.allocPrint(allocator, "{s}/build/{s}", .{ project_root, build_mode_str });
         defer allocator.free(build_base);
 
         // Create full build path mirroring input structure
