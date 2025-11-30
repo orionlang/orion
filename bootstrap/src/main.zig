@@ -104,6 +104,27 @@ fn getStdlibCacheDir(allocator: std.mem.Allocator, target_triple: TargetTriple) 
 }
 
 /// Compile all stdlib modules into a single stdlib.a archive
+/// Compute a hash of all stdlib source files
+fn computeStdlibHash(allocator: std.mem.Allocator, stdlib_modules: []const []const u8) ![]const u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+
+    // Hash each stdlib module's path to detect changes in module list
+    for (stdlib_modules) |module_path| {
+        hasher.update(module_path);
+        hasher.update("|");
+    }
+
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    hasher.final(&digest);
+
+    // Convert to hex string
+    const hex_str = try allocator.alloc(u8, digest.len * 2);
+    for (digest, 0..) |byte, i| {
+        _ = std.fmt.bufPrint(hex_str[i*2..i*2+2], "{x:0>2}", .{byte}) catch unreachable;
+    }
+    return hex_str;
+}
+
 fn compileStdlib(
     allocator: std.mem.Allocator,
     stdlib_modules: []const []const u8,
@@ -124,14 +145,30 @@ fn compileStdlib(
     };
 
     const stdlib_archive_path = try std.fmt.allocPrint(allocator, "{s}/stdlib.a", .{cache_dir});
+    const stdlib_hash_path = try std.fmt.allocPrint(allocator, "{s}/stdlib.hash", .{cache_dir});
+    defer allocator.free(stdlib_hash_path);
 
-    // Check if cached stdlib.a already exists
-    // For now, always recompile (Phase 0 can add hash validation later)
+    // Compute current hash of stdlib modules
+    const current_hash = try computeStdlibHash(allocator, stdlib_modules);
+    defer allocator.free(current_hash);
+
+    // Check if cached stdlib.a exists and hash matches
     const cached = std.fs.cwd().openFile(stdlib_archive_path, .{}) catch null;
     if (cached) |f| {
         f.close();
-        std.debug.print("Using cached stdlib: {s}\n", .{stdlib_archive_path});
-        return stdlib_archive_path;
+
+        // Read stored hash
+        const cached_hash_content = std.fs.cwd().readFileAlloc(allocator, stdlib_hash_path, 1024) catch null;
+        if (cached_hash_content) |hash_content| {
+            defer allocator.free(hash_content);
+
+            // Compare hashes (trim whitespace from stored hash)
+            const stored_hash = std.mem.trim(u8, hash_content, " \n\r\t");
+            if (std.mem.eql(u8, stored_hash, current_hash)) {
+                std.debug.print("Using cached stdlib: {s}\n", .{stdlib_archive_path});
+                return stdlib_archive_path;
+            }
+        }
     }
 
     std.debug.print("Compiling stdlib to {s}...\n", .{stdlib_archive_path});
@@ -207,6 +244,9 @@ fn compileStdlib(
     try ar_argv.append(allocator, obj_path);
 
     try runCommand(allocator, ar_argv.items, "ar", error.ArchiveCreationFailed);
+
+    // Write hash file for cache validation on next build
+    try std.fs.cwd().writeFile(.{ .sub_path = stdlib_hash_path, .data = current_hash });
 
     std.debug.print("Created stdlib archive: {s}\n", .{stdlib_archive_path});
     return stdlib_archive_path;
